@@ -1,4 +1,3 @@
-
 import pandas as pd
 import datetime as datetime
 import numpy as np
@@ -10,10 +9,18 @@ class Persistence:
     """
     Class that predicts the next images using naive prediction.
     """
+
+    def __init__(self,):
+        pass
+
+    def generate_prediction(self, image, i: int = 0):
+        # Default implementation for the base class
+        return np.array(image[-1, :, :])
+
     def predict(self, image, predict_horizon, img_timestamp=None, predict_direct=False):
         """Takes an image and predicts the next images on the predict_horizon depending on class instance
             normal: identical image
-            noisy: adds gaussanian noise 
+            noisy: adds gaussanian noise
             blurred: blurs it with a gaussanian window
 
         Args:
@@ -28,36 +35,24 @@ class Persistence:
         if torch.is_tensor(image):
             image = image.numpy()
 
-        predictions = []
-        M, N = image.shape
+        predictions_list = []
 
-        for i in range(predict_horizon): 
-            if (isinstance(self, NoisyPersistence)):
-                predictions.append(np.clip(image + np.random.normal(0, self.sigma, (M, N)), 0, 255))
-            elif (isinstance(self, BlurredPersistence)):
-                if self.kernel_size_list:
-                    kernel_size = self.kernel_size_list[i]
-                else:
-                    kernel_size = self.kernel_size
-                blurred_pred = cv.GaussianBlur(image, kernel_size, 0)
-                predictions.append(blurred_pred)
-                if not self.kernel_size_list:
-                    image = blurred_pred
-            else:
-                predictions.append(np.array(image))
+        for input_images in image:
 
-        if predict_direct:
-            return np.array(predictions[-1])[np.newaxis]
-        else:
-            if img_timestamp is not None:
-                predict_timestamp = pd.date_range(
-                    start=img_timestamp,
-                    periods=predict_horizon+1,
-                    freq='10min'
-                )
-                return np.array(predictions), predict_timestamp
+            if not predict_direct:
+                # generate a prediction for each time step
+                predictions = []
+                for i in range(predict_horizon):
+                    predictions.append(self.generate_prediction(input_images, i))
+                predictions = np.array(predictions)
+
             else:
-                return np.array(predictions)
+                predictions = self.generate_prediction(input_images)
+                predictions = predictions[np.newaxis]
+
+            predictions_list.append(predictions)
+
+        return np.array(predictions_list)
 
 
 class NoisyPersistence(Persistence):
@@ -66,9 +61,13 @@ class NoisyPersistence(Persistence):
     Args:
         Persistence ([type]): [description]
     """
-    def __init__(self, sigma):
+    def __init__(self, sigma: int):
         # sigma (int): standard deviation of the gauss noise
+        super().__init__()
         self.sigma = sigma
+
+    def generate_prediction(self, image, i: int = 0):
+        return np.clip(image + np.random.normal(0, self.sigma, image.shape), 0, 1)
 
 
 class BlurredPersistence(Persistence):
@@ -79,6 +78,14 @@ class BlurredPersistence(Persistence):
         Persistence ([type]): [description]
     """
     def __init__(self, kernel_size=(0, 0), kernel_size_list=None):
+        super().__init__()
         # kernel_size (tuple): size of kernel
         self.kernel_size = kernel_size
         self.kernel_size_list = kernel_size_list
+
+    def generate_prediction(self, image, i: int = 0):
+        if self.kernel_size_list:
+            kernel_size = self.kernel_size_list[i]
+        else:
+            kernel_size = self.kernel_size
+        return cv.GaussianBlur(image, kernel_size, 0)

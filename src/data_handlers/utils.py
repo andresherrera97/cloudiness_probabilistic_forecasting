@@ -1,12 +1,11 @@
 import datetime
 import os
 import re
-
+import pandas as pd
 import cv2 as cv
 import numpy as np
 from torch.utils.data._utils.collate import default_collate
-
-import src.lib.preprocessing_functions as pf
+import lib.preprocessing_functions as pf
 
 
 def collate_fn_sw(batch):
@@ -14,16 +13,16 @@ def collate_fn_sw(batch):
        using a moving window
 
     Returns:
-        [dict]: {'images': images, 'time_stamps': time_stamps} 
-                Includes key 'cosangs_masks' if load_mask = True 
+        [dict]: {'images': images, 'time_stamps': time_stamps}
+                Includes key 'cosangs_masks' if load_mask = True
                 in SatelliteImagesDatasetSW.
     """
     samples = default_collate(batch)
-    samples['images'] = samples['images'].squeeze()
-    samples['time_stamps'] = [''.join(ts) for ts in samples['time_stamps']]
+    samples["images"] = samples["images"].squeeze()
+    samples["time_stamps"] = ["".join(ts) for ts in samples["time_stamps"]]
 
     if len(samples.keys()) == 3:
-        samples['cosangs_masks'] = samples['cosangs_masks'].squeeze()
+        samples["cosangs_masks"] = samples["cosangs_masks"].squeeze()
     return samples
 
 
@@ -56,14 +55,20 @@ def load_images_from_folder(folder, crop_region=0):
             current_imgs.append(img)
 
         img_name = re.sub("[^0-9]", "", filename)
-        dt_image = dia_ref + datetime.timedelta(days=int(img_name[4:7]), hours=int(img_name[7:9]),
-                                                minutes=int(img_name[9:11]), seconds=int(img_name[11:]))
+        dt_image = dia_ref + datetime.timedelta(
+            days=int(img_name[4:7]),
+            hours=int(img_name[7:9]),
+            minutes=int(img_name[9:11]),
+            seconds=int(img_name[11:]),
+        )
         time_stamp.append(dt_image)
 
     return current_imgs, time_stamp
 
 
-def load_by_batches(folder, current_imgs, time_stamp, list_size, last_img_filename="", crop_region=0):
+def load_by_batches(
+    folder, current_imgs, time_stamp, list_size, last_img_filename="", crop_region=0
+):
     """Loads the first "list_size" images from "folder" if "current_imgs"=[],
         if not, deletes the first element in the list, shift left on position, and
         reads the next image and time-stamp
@@ -99,7 +104,7 @@ def load_by_batches(folder, current_imgs, time_stamp, list_size, last_img_filena
                 days=int(img_name[4:7]),
                 hours=int(img_name[7:9]),
                 minutes=int(img_name[9:11]),
-                seconds=int(img_name[11:])
+                seconds=int(img_name[11:]),
             )
             time_stamp.append(dt_image)
     else:
@@ -113,8 +118,12 @@ def load_by_batches(folder, current_imgs, time_stamp, list_size, last_img_filena
         current_imgs.append(np.load(os.path.join(folder, new_img_filename)))
 
         img_name = re.sub("[^0-9]", "", new_img_filename)
-        dt_image = dia_ref + datetime.timedelta(days=int(img_name[4:7]), hours=int(img_name[7:9]),
-                                                minutes=int(img_name[9:11]), seconds=int(img_name[11:]))
+        dt_image = dia_ref + datetime.timedelta(
+            days=int(img_name[4:7]),
+            hours=int(img_name[7:9]),
+            minutes=int(img_name[9:11]),
+            seconds=int(img_name[11:]),
+        )
         time_stamp.append(dt_image)
 
         filename = new_img_filename
@@ -122,12 +131,13 @@ def load_by_batches(folder, current_imgs, time_stamp, list_size, last_img_filena
     return current_imgs, time_stamp, filename
 
 
-def load_img(meta_path='data/meta',
-             img_name='ART_2020020_111017.FR',
-             mk_folder_path='data/C02-MK/2020',
-             img_folder_path='data/C02-FR/2020'
-             ):
-    """ Loads image from .FR .MK and metadata files into Numpy array
+def load_img(
+    meta_path="data/meta",
+    img_name="ART_2020020_111017.FR",
+    mk_folder_path="data/C02-MK/2020",
+    img_folder_path="data/C02-FR/2020",
+):
+    """Loads image from .FR .MK and metadata files into Numpy array
 
     Args:
         meta_path (str, optional): Defaults to 'data/meta'.
@@ -141,24 +151,21 @@ def load_img(meta_path='data/meta',
     dtime = pf.get_dtime(img_name)
 
     cosangs, cos_mask = pf.get_cosangs(dtime, lats, lons)
-    img_mask = pf.load_mask(
-        img_name, mk_folder_path, lats.size, lons.size
-    )
-    img = pf.load_img(
-        img_name, img_folder_path, lats.size, lons.size
-    )
+    img_mask = pf.load_mask(img_name, mk_folder_path, lats.size, lons.size)
+    img = pf.load_img(img_name, img_folder_path, lats.size, lons.size)
     rimg = cv.inpaint(img, img_mask, 3, cv.INPAINT_NS)
     rp_image = pf.normalize(rimg, cosangs, 0.15)
 
     return rp_image
 
 
-def save_imgs_2npy(meta_path='data/meta',
-                   mk_folder_path='data/C02-MK/2020',
-                   img_folder_path='data/C02-FR/2020',
-                   destintation_path='data/images',
-                   split_days_into_folders=True
-                   ):
+def save_imgs_2npy(
+    meta_path="data/meta",
+    mk_folder_path="data/C02-MK/2020",
+    img_folder_path="data/C02-FR/2020",
+    destintation_path="data/images",
+    split_days_into_folders=True,
+):
     """Saves images from "img_folder_path" to "destintation_path" as Numpy arrays
        (Uses load_img() function)
 
@@ -186,33 +193,38 @@ def save_imgs_2npy(meta_path='data/meta',
         if split_days_into_folders:
             day = re.sub("[^0-9]", "", filename)[4:7].lstrip("0")
             try:
-                os.makedirs(os.path.join(
-                    os.getcwd(), destintation_path, "dia_" + day))
+                os.makedirs(os.path.join(os.getcwd(), destintation_path, "dia_" + day))
             except:
                 pass
-            path = os.path.join(destintation_path, "day_" +
-                                day, os.path.splitext(filename)[0] + ".npy")
+            path = os.path.join(
+                destintation_path, "day_" + day, os.path.splitext(filename)[0] + ".npy"
+            )
 
         else:
             try:
-                os.makedirs(os.path.join(
-                    os.getcwd(), destintation_path, "loaded_images"))
+                os.makedirs(
+                    os.path.join(os.getcwd(), destintation_path, "loaded_images")
+                )
             except:
                 pass
-            path = os.path.join(destintation_path, 'loaded_images',
-                                os.path.splitext(filename)[0] + ".npy")
+            path = os.path.join(
+                destintation_path,
+                "loaded_images",
+                os.path.splitext(filename)[0] + ".npy",
+            )
 
         np.save(path, img)
 
 
-def save_imgs_list_2npy(imgs_list=[],
-                        meta_path='data/meta',
-                        mk_folder_path='data/C02-MK/2020',
-                        img_folder_path='data/C02-FR/2020',
-                        destintation_path='data/images',
-                        split_days_into_folders=True,
-                        region=None
-                        ):
+def save_imgs_list_2npy(
+    imgs_list=[],
+    meta_path="data/meta",
+    mk_folder_path="data/C02-MK/2020",
+    img_folder_path="data/C02-FR/2020",
+    destintation_path="data/images",
+    split_days_into_folders=True,
+    region=None,
+):
     """Saves images as Numpy arrays to folders
 
     Args:
@@ -222,7 +234,7 @@ def save_imgs_list_2npy(imgs_list=[],
         img_folder_path (str, optional): Defaults to 'data/C02-FR/2020'.
         destintation_path (str, optional): Defaults to 'data/images'.
         split_days_into_folders (bool, optional): Defaults to False.
-        region (str, optional): Select cropping region. 
+        region (str, optional): Select cropping region.
     """
 
     for filename in imgs_list:
@@ -233,12 +245,12 @@ def save_imgs_list_2npy(imgs_list=[],
             img_folder_path=img_folder_path,
         )
 
-        if region == 'mvd':
-            img = img[1550: 1550 + 256, 1600: 1600 + 256]
-        elif region == 'uru':
-            img = img[1205: 1205 + 512, 1450: 1450 + 512]
-        elif region == 'region3':
-            img = img[800: 800 + 1024, 1250: 1250 + 1024]
+        if region == "mvd":
+            img = img[1550 : 1550 + 256, 1600 : 1600 + 256]
+        elif region == "uru":
+            img = img[1205 : 1205 + 512, 1450 : 1450 + 512]
+        elif region == "region3":
+            img = img[800 : 800 + 1024, 1250 : 1250 + 1024]
 
         # image clipping: sets pixel over 100 to 100
         img = np.clip(img, 0, 100)
@@ -246,20 +258,104 @@ def save_imgs_list_2npy(imgs_list=[],
         if split_days_into_folders:
             day = re.sub("[^0-9]", "", filename)[:7]
             try:
-                os.makedirs(os.path.join(
-                    os.getcwd(), destintation_path, day))
+                os.makedirs(os.path.join(os.getcwd(), destintation_path, day))
             except:
                 pass
-            path = os.path.join(destintation_path,
-                                day, os.path.splitext(filename)[0] + ".npy")
+            path = os.path.join(
+                destintation_path, day, os.path.splitext(filename)[0] + ".npy"
+            )
 
         else:
             try:
-                os.makedirs(os.path.join(
-                    os.getcwd(), destintation_path, "loaded_images"))
+                os.makedirs(
+                    os.path.join(os.getcwd(), destintation_path, "loaded_images")
+                )
             except:
                 pass
-            path = os.path.join(destintation_path, 'loaded_images',
-                                os.path.splitext(filename)[0] + ".npy")
+            path = os.path.join(
+                destintation_path,
+                "loaded_images",
+                os.path.splitext(filename)[0] + ".npy",
+            )
 
         np.save(path, img)
+
+
+def sequence_df_generator_moving_mnist(
+    path: str,
+    in_channel: int = 3,
+):
+    """Generates DataFrame that contains all possible sequences for images separated by day
+
+    Args:
+        path (str): path to folder containing images '/train'
+        in_channel (int): Quantity of input images in sequence
+
+    Returns:
+        [pd.DataFrame]: Rows contain all sequences
+    """
+
+    folders = os.listdir(path)
+    folders = [folder for folder in folders if folder[0] != "." and folder[0] != "_"]
+
+    sequences_df = []
+
+    for folder in folders:
+        sequence_folder = os.path.join(path, folder)
+        folderfiles = sorted(os.listdir(sequence_folder))
+
+        len_day = len(folderfiles)
+        for i in range(
+            len_day - in_channel
+        ):  # me fijo si puedo completar un conjunto de datos
+            sequence = []
+            for filename in folderfiles[i : i + in_channel + 1]:
+                sequence.append(os.path.join(sequence_folder, filename))
+            sequences_df.append(sequence)
+
+    sequences_df = pd.DataFrame(sequences_df)
+    return sequences_df
+
+
+def create_moving_mnist_dataset():
+    moving_mnist_dataset = np.load("datasets/mnist_test_seq.npy")
+
+    for n in range(moving_mnist_dataset.shape[1]):
+        print(n)
+        # create directory for each sequence of the moving mnist dataset
+        os.mkdir(f"datasets/moving_mnist_dataset/{str(n).zfill(4)}")
+        for i in range(moving_mnist_dataset.shape[0]):
+            # save the image of the moving mnist dataset as a npy file
+            moving_mnist_dataset[i, n, :, :].dump(
+                f"datasets/moving_mnist_dataset/{str(n).zfill(4)}/{str(i).zfill(3)}.npy"
+            )
+
+
+def classify_array_in_bins(input_array: np.ndarray, num_bins: int):
+    """Classify an array of continous values with one-hot encoding"""
+
+    if np.max(input_array) > 1 or np.min(input_array) < 0:
+        raise ValueError("Input array must be in the range [0, 1]")
+
+    # Compute bin indices for each element
+    bin_indices = np.digitize(input_array, np.linspace(0, 1, num_bins + 1))
+
+    # Create binary array with 1s in the corresponding bin positions
+    bin_array = np.zeros((num_bins, *input_array.shape), dtype=int)
+
+    for bin_idx in range(1, num_bins + 1):
+        bin_mask = bin_indices == bin_idx
+        bin_array[bin_idx - 1][bin_mask] = 1
+
+    return bin_array
+
+
+def classify_array_in_integer_classes(input_array: np.ndarray, num_bins: int):
+    """Classify an array of continous values into integer classes"""
+    if np.max(input_array) > 1 or np.min(input_array) < 0:
+        raise ValueError("Input array must be in the range [0, 1]")
+
+    # Compute bin indices for each element
+    bin_indices = np.digitize(input_array, np.linspace(0, 1, num_bins)) - 1
+
+    return bin_indices

@@ -102,46 +102,47 @@ class MontevideoFoldersDataset(Dataset):
         self.data_aug = data_aug
 
     def __getitem__(self, index):
-        # images loading 
+        # images loading
 
         for i in range(self.in_channel + self.out_channel):
             if i == 0:  # first image in in_frames
-                in_frames = np.load(os.path.join(
-                    self.path,self.sequence_df.values[index][i][4:11] ,self.sequence_df.values[index][i]))
+                in_frames = np.load(
+                    os.path.join(self.path, self.sequence_df.values[index][i][4: 11], self.sequence_df.values[index][i])
+                )
                 in_frames = in_frames[np.newaxis]
             if i > 0 and i < self.in_channel:  # next images in in_frames
                 aux = np.load(os.path.join(
-                    self.path,self.sequence_df.values[index][i][4:11] , self.sequence_df.values[index][i]))
+                    self.path, self.sequence_df.values[index][i][4:11], self.sequence_df.values[index][i]))
                 aux = aux[np.newaxis]
                 in_frames = np.concatenate((in_frames, aux), axis=0)
             if self.output_last:
-                if i == (self.in_channel + self.out_channel -1):  # first image in out_frames
+                if i == (self.in_channel + self.out_channel - 1):  # first image in out_frames
                     out_frames = np.load(os.path.join(
-                        self.path,self.sequence_df.values[index][i][4:11] , self.sequence_df.values[index][i]))
+                        self.path, self.sequence_df.values[index][i][4:11], self.sequence_df.values[index][i]))
                     out_frames = out_frames[np.newaxis]
             else:
                 if i == self.in_channel:  # first image in out_frames
                     out_frames = np.load(os.path.join(
-                        self.path,self.sequence_df.values[index][i][4:11] , self.sequence_df.values[index][i]))
+                        self.path, self.sequence_df.values[index][i][4:11], self.sequence_df.values[index][i]))
                     out_frames = out_frames[np.newaxis]
                 if i > self.in_channel:
                     aux = np.load(os.path.join(
-                        self.path,self.sequence_df.values[index][i][4:11] , self.sequence_df.values[index][i]))
+                        self.path, self.sequence_df.values[index][i][4:11], self.sequence_df.values[index][i]))
                     aux = aux[np.newaxis]
                     out_frames = np.concatenate((out_frames, aux), axis=0)
 
         if self.transform:
             if type(self.transform) == list:
                 for function in self.transform:
-                    in_frames, out_frames = function(in_frames,out_frames) 
+                    in_frames, out_frames = function(in_frames, out_frames) 
             else:
-                in_frames, out_frames = self.transform(in_frames,out_frames) 
-        
+                in_frames, out_frames = self.transform(in_frames, out_frames)
+
         if self.data_aug:
-            rot_angle = np.random.randint(0,4) * 90
-            in_frames = rotate(in_frames, angle=rot_angle, axes=(1,2))
-            out_frames = rotate(out_frames, angle=rot_angle, axes=(1,2))
-            
+            rot_angle = np.random.randint(0, 4) * 90
+            in_frames = rotate(in_frames, angle=rot_angle, axes=(1, 2))
+            out_frames = rotate(out_frames, angle=rot_angle, axes=(1, 2))
+
         return in_frames, out_frames
 
     def __len__(self):
