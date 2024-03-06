@@ -1,23 +1,22 @@
 import time
 import copy
 import torch
-from data_handlers import MovingMnistDataset
-from torch.utils.data import DataLoader
-from models import Persistence, UNet, weights_init
-import torch.nn as nn
+import models.probabilistic_unet as p_unet
+from models import (
+    MeanStdUNet,
+    BinClassifierUNet,
+    QuantileRegressorUNet,
+    MonteCarloDropoutUNet,
+)
 import matplotlib.pyplot as plt
 from typing import Optional
-from metrics import crps_batch, QuantileLoss
-import numpy as np
+from metrics import crps_batch
 
 
 def train_model_moving_mnist(
-    model,
-    criterion,
+    probabilistic_model,
     optimizer,
     device,
-    train_loader,
-    val_loader,
     epochs: int = 1,
     num_train_samples: Optional[int] = None,
     num_val_samples: Optional[int] = None,
@@ -33,9 +32,11 @@ def train_model_moving_mnist(
         start_epoch = time.time()
         train_loss_in_epoch_list = []  # stores values inside the current epoch
         val_loss_in_epoch = []  # stores values inside the current epoch
-        model.train()
+        probabilistic_model.model.train()
 
-        for batch_idx, (in_frames, out_frames) in enumerate(train_loader):
+        for batch_idx, (in_frames, out_frames) in enumerate(
+            probabilistic_model.train_loader
+        ):
 
             start_batch = time.time()
 
@@ -44,13 +45,8 @@ def train_model_moving_mnist(
             out_frames = out_frames.to(device=device).float()
 
             # forward
-            frames_pred = model(in_frames.float())
-            out_frames = out_frames.repeat(1, frames_pred.shape[1], 1, 1)
-
-            print(f"frames_pred: {frames_pred[0, :, 32, 32]}")
-            print(f"out_frames: {out_frames[0, :, 32, 32]}")
-
-            loss = criterion(frames_pred, out_frames)
+            frames_pred = probabilistic_model.model(in_frames.float())
+            loss = probabilistic_model.calculate_loss(frames_pred, out_frames)
 
             # backward
             optimizer.zero_grad()
@@ -64,7 +60,10 @@ def train_model_moving_mnist(
             train_loss_in_epoch_list.append(loss.detach().item())
 
             if verbose and batch_idx % 500 == 0:
-                print(f"BATCH({batch_idx + 1}/{len(train_loader)}) | ", end="")
+                print(
+                    f"BATCH({batch_idx + 1}/{len(probabilistic_model.train_loader)}) | ",
+                    end="",
+                )
                 print(f"Train loss({loss.detach().item():.4f}) | ", end="")
                 print(f"Time Batch({(end_batch - start_batch):.2f}) | ")
 
@@ -75,19 +74,20 @@ def train_model_moving_mnist(
             train_loss_in_epoch_list
         )
 
-        model.eval()
+        probabilistic_model.model.eval()
         VAL_LOSS_LOCAL = []  # stores values for this validation run
         # val_crps_local = []
         with torch.no_grad():
-            for val_batch_idx, (in_frames, out_frames) in enumerate(val_loader):
+            for val_batch_idx, (in_frames, out_frames) in enumerate(
+                probabilistic_model.val_loader
+            ):
 
                 in_frames = in_frames.to(device=device).float()
                 out_frames = out_frames.to(device=device).float()
 
-                frames_pred = model(in_frames.float())
-                out_frames = out_frames.repeat(1, frames_pred.shape[1], 1, 1)
+                frames_pred = probabilistic_model.model(in_frames.float())
 
-                val_loss = criterion(frames_pred, out_frames)
+                val_loss = probabilistic_model.calculate_loss(frames_pred, out_frames)
                 # val_crps_local.append(crps_batch(frames_pred, out_frames))
 
                 VAL_LOSS_LOCAL.append(val_loss.detach().item())
@@ -116,7 +116,9 @@ def train_model_moving_mnist(
             BEST_VAL_ACC = val_loss_in_epoch
             best_model_dict = {
                 "epoch": epoch + 1,
-                "model_state_dict": copy.deepcopy(model.state_dict()),
+                "model_state_dict": copy.deepcopy(
+                    probabilistic_model.model.state_dict()
+                ),
                 "optimizer_state_dict": copy.deepcopy(optimizer.state_dict()),
                 "train_loss_per_batch": train_loss_in_epoch_list,
                 "train_loss_epoch_mean": train_loss_in_epoch,
@@ -129,56 +131,53 @@ if __name__ == "__main__":
 
     NUM_BINS = 10
     INPUT_FRAMES = 3
-    EPOCHS = 100
-    NUM_TRAIN_SAMPLES = 1000
-    NUM_VAL_SAMPLES = None
-    BATCH_SIZE = 32
+    EPOCHS = 3
+    NUM_TRAIN_SAMPLES = 100
+    NUM_VAL_SAMPLES = 100
+    BATCH_SIZE = 16
+    FILTERS = 2
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"using device: {device}")
 
-    model = UNet(
-        in_frames=INPUT_FRAMES,
-        n_classes=NUM_BINS,
-        filters=2,
-    ).to(device)
+    for cls in map(p_unet.__dict__.get, p_unet.__all__):
+        if cls.__name__ == MeanStdUNet.__name__:
+            print("=" * 3, "MeanStdUNet", "=" * 3)
+            probabilistic_unet = cls(in_frames=INPUT_FRAMES, filters=FILTERS)
+        elif cls.__name__ == BinClassifierUNet.__name__:
+            print("=" * 3, "BinClassifierUNet", "=" * 3)
+            probabilistic_unet = cls(
+                n_bins=NUM_BINS, in_frames=INPUT_FRAMES, filters=FILTERS
+            )
+        elif cls.__name__ == QuantileRegressorUNet.__name__:
+            print("=" * 3, "QuantileRegressorUNet", "=" * 3)
+            probabilistic_unet = cls(
+                quantiles=[0.1, 0.5, 0.9], in_frames=INPUT_FRAMES, filters=FILTERS
+            )
+        elif cls.__name__ == MonteCarloDropoutUNet.__name__:
+            print("=" * 3, "MonteCarloDropoutUNet", "=" * 3)
+            probabilistic_unet = cls(
+                dropout_p=0.5, in_frames=INPUT_FRAMES, filters=FILTERS
+            )
+        else:
+            print("Wrong class type!")
 
-    model.apply(weights_init)
-    optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+        probabilistic_unet.model.to(device)
+        probabilistic_unet.initialize_weights()
 
-    train_dataset = MovingMnistDataset(
-        path="datasets/moving_mnist_dataset/train/",
-        input_frames=INPUT_FRAMES,
-        # num_bins=NUM_BINS,
-        num_bins=None,
-        shuffle=False,
-    )
-    val_dataset = MovingMnistDataset(
-        path="datasets/moving_mnist_dataset/validation/",
-        input_frames=INPUT_FRAMES,
-        # num_bins=NUM_BINS,
-        num_bins=None,
-        shuffle=False,
-    )
+        optimizer = torch.optim.SGD(
+            probabilistic_unet.model.parameters(), lr=0.001, momentum=0.9
+        )
+        probabilistic_unet.create_dataloaders(
+            path="datasets/moving_mnist_dataset/", batch_size=BATCH_SIZE
+        )
 
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=True)
-
-    mae_loss = nn.L1Loss()
-    cross_entropy_loss = nn.CrossEntropyLoss()
-    quantile_loss = QuantileLoss(
-        quantiles=[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1]
-    )
-
-    best_model_dict, train_loss, val_loss = train_model_moving_mnist(
-        model=model,
-        criterion=quantile_loss,
-        optimizer=optimizer,
-        device=device,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        epochs=EPOCHS,
-        num_train_samples=NUM_TRAIN_SAMPLES,
-        num_val_samples=NUM_VAL_SAMPLES,
-        verbose=True,
-    )
+        best_model_dict, train_loss, val_loss = train_model_moving_mnist(
+            probabilistic_model=probabilistic_unet,
+            optimizer=optimizer,
+            device=device,
+            epochs=EPOCHS,
+            num_train_samples=NUM_TRAIN_SAMPLES,
+            num_val_samples=NUM_VAL_SAMPLES,
+            verbose=True,
+        )
