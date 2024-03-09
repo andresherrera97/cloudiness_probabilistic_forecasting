@@ -1,13 +1,21 @@
-import torch
-from .unet import UNet
-from abc import ABC, abstractmethod
-import torch.nn as nn
-from metrics import QuantileLoss, mean_std_loss
-from typing import List, Optional
-from data_handlers import MovingMnistDataset
-from torch.utils.data import DataLoader
-from .weight_initialization import weights_init
+# Standard library imports
 import os
+import time
+import copy
+from typing import List, Optional
+from abc import ABC, abstractmethod
+
+# Related third-party imports
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader
+import wandb
+
+# Local application/library specific imports
+from metrics import QuantileLoss, mean_std_loss
+from data_handlers import MovingMnistDataset
+from .unet import UNet
+from .model_initialization import weights_init, optimizer_init
 
 
 __all__ = [
@@ -19,34 +27,63 @@ __all__ = [
 
 
 class ProbabilisticUNet(ABC):
-    def fit(self, X, y, n_epochs=1):
+    """
+    Abstract base class for probabilistic U-Net models.
+
+    Subclasses must implement the abstract methods to provide specific
+    implementations for initializing weights, optimizers, dataloaders,
+    calculating loss, and cumulative distribution function (CDF).
+    """
+
+    def fit(
+        self,
+        n_epochs: int,
+        num_train_samples: int,
+        num_val_samples: int,
+        device: str,
+        run,
+        verbose: bool,
+    ):
+        """Train the model on the given input data and labels for a specified number of epochs."""
         pass
 
     def compute_extra_params(self, X, y):
+        """Compute and return any extra parameters needed during training."""
         return None
 
     def predict(self, X, iterations: int):
+        """Generate predictions for the input data."""
         pass
 
     @abstractmethod
     def initialize_weights(self):
+        """Abstract method to initialize the weights of the model."""
+        pass
+
+    @abstractmethod
+    def initialize_optimizer(self, method: str, lr: float):
+        """Abstract method to initialize the optimizer for training the model."""
         pass
 
     @abstractmethod
     def create_dataloaders(self, path: str, batch_size: int):
+        """Abstract method to create dataloaders for training and validation data."""
         pass
 
     @abstractmethod
     def calculate_loss(self, predictions, y_target):
+        """Abstract method to calculate the loss between predicted and target values."""
         pass
 
     @abstractmethod
     def cdf(self, predicted_params, extra_params, points_to_evaluate):
+        """Abstract method to compute the cumulative distribution function."""
         pass
 
     @property
     @abstractmethod
     def name(self):
+        """Abstract property to get a unique identifier or name for the model."""
         pass
 
 
@@ -61,9 +98,13 @@ class BinClassifierUNet(ProbabilisticUNet):
         self.loss_fn = nn.CrossEntropyLoss()
         self.train_loader = None
         self.val_loader = None
+        self.optimizer = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
+
+    def initialize_optimizer(self, method: str, lr: float):
+        self.optimizer = optimizer_init(self.model, method, lr)
 
     def create_dataloaders(self, path: str, batch_size: int):
         train_dataset = MovingMnistDataset(
@@ -84,7 +125,15 @@ class BinClassifierUNet(ProbabilisticUNet):
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    def fit(self, X, y, n_epochs=1):
+    def fit(
+        self,
+        n_epochs: int,
+        num_train_samples: int,
+        num_val_samples: int,
+        device: str,
+        run,
+        verbose: bool,
+    ):
         pass
 
     def predict(self, X, iterations: int):
@@ -123,9 +172,13 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self.loss_fn = QuantileLoss(quantiles=self.quantiles)
         self.train_loader = None
         self.val_loader = None
+        self.optimizer = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
+
+    def initialize_optimizer(self, method: str, lr: float):
+        self.optimizer = optimizer_init(self.model, method, lr)
 
     def create_dataloaders(self, path: str, batch_size: int):
         train_dataset = MovingMnistDataset(
@@ -146,7 +199,15 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    def fit(self, X, y, n_epochs=1):
+    def fit(
+        self,
+        n_epochs: int,
+        num_train_samples: int,
+        num_val_samples: int,
+        device: str,
+        run,
+        verbose: bool,
+    ):
         pass
 
     def predict(self, X, iterations: int):
@@ -177,13 +238,18 @@ class MeanStdUNet(ProbabilisticUNet):
             n_classes=2,
             filters=self.filters,
         )
+        self.best_model_dict = None
 
         self.loss_fn = mean_std_loss
         self.train_loader = None
         self.val_loader = None
+        self.optimizer = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
+
+    def initialize_optimizer(self, method: str, lr: float):
+        self.optimizer = optimizer_init(self.model, method, lr)
 
     def create_dataloaders(self, path: str, batch_size: int):
         train_dataset = MovingMnistDataset(
@@ -204,8 +270,138 @@ class MeanStdUNet(ProbabilisticUNet):
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    def fit(self, X, y, n_epochs=1):
-        pass
+    def fit(
+        self,
+        n_epochs=1,
+        num_train_samples: int = 1000,
+        num_val_samples: int = 1000,
+        device: str = "cpu",
+        run=None,
+        verbose: bool = True,
+    ):
+        TRAIN_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+        VAL_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+
+        BEST_VAL_ACC = 1e5
+
+        for epoch in range(n_epochs):
+            start_epoch = time.time()
+            train_loss_in_epoch_list = []  # stores values inside the current epoch
+            val_loss_in_epoch = []  # stores values inside the current epoch
+            self.model.train()
+
+            for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
+
+                start_batch = time.time()
+
+                # data to cuda if possible
+                in_frames = in_frames.to(device=device).float()
+                out_frames = out_frames.to(device=device).float()
+
+                # forward
+                frames_pred = self.model(in_frames.float())
+                loss = self.calculate_loss(frames_pred, out_frames)
+
+                # backward
+                self.optimizer.zero_grad()
+                loss.backward()
+
+                # gradient descent or adam step
+                self.optimizer.step()
+
+                end_batch = time.time()
+
+                train_loss_in_epoch_list.append(loss.detach().item())
+
+                if verbose and batch_idx % 500 == 0:
+                    print(
+                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | ",
+                        end="",
+                    )
+                    print(f"Train loss({loss.detach().item():.4f}) | ", end="")
+                    print(f"Time Batch({(end_batch - start_batch):.2f}) | ")
+
+                if num_train_samples is not None and batch_idx >= num_train_samples:
+                    break
+
+            train_loss_in_epoch = sum(train_loss_in_epoch_list) / len(
+                train_loss_in_epoch_list
+            )
+
+            self.model.eval()
+            VAL_LOSS_LOCAL = []  # stores values for this validation run
+            # val_crps_local = []
+            with torch.no_grad():
+                for val_batch_idx, (in_frames, out_frames) in enumerate(
+                    self.val_loader
+                ):
+
+                    in_frames = in_frames.to(device=device).float()
+                    out_frames = out_frames.to(device=device).float()
+
+                    frames_pred = self.model(in_frames.float())
+
+                    val_loss = self.calculate_loss(frames_pred, out_frames)
+                    # val_crps_local.append(crps_batch(frames_pred, out_frames))
+
+                    VAL_LOSS_LOCAL.append(val_loss.detach().item())
+
+                    if num_val_samples is not None and val_batch_idx >= num_val_samples:
+                        break
+            # print(f"val_crps: {np.mean(val_crps_local)}")
+            val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
+
+            if run is not None:
+
+                run.log({"train_loss": train_loss_in_epoch}, step=epoch)
+                run.log({"val_loss": val_loss_in_epoch}, step=epoch)
+
+                wandb_target_img = wandb.Image(
+                    out_frames[0, 0, :, :].unsqueeze(-1).cpu().numpy()
+                )
+                wandb_mean_img = wandb.Image(
+                    frames_pred[0, 0, :, :].unsqueeze(-1).cpu().numpy(),
+                    caption=f"min: {frames_pred[0, 0, :, :].min():.2f}, max: {frames_pred[0, 0, :, :].max():.2f}",
+                )
+                wandb_std_img = wandb.Image(
+                    frames_pred[0, 1, :, :].unsqueeze(-1).cpu().numpy(),
+                    caption=f"min: {frames_pred[0, 0, :, :].min():.2f}, max: {frames_pred[0, 0, :, :].max():.2f}, mean: {frames_pred[0, 0, :, :].mean():.2f}",
+                )
+
+                my_table = wandb.Table(
+                    columns=["target", "mean", "std"],
+                    data=[[wandb_target_img, wandb_mean_img, wandb_std_img]],
+                )
+
+                # Log your Table to W&B
+                run.log({f"epoch_{epoch}": my_table}, step=epoch)
+
+            end_epoch = time.time()
+
+            if verbose:
+                print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
+                print(
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | ",
+                    end="",
+                )
+                print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
+
+            # epoch end
+            end_epoch = time.time()
+            TRAIN_LOSS_GLOBAL.append(train_loss_in_epoch)
+            VAL_LOSS_GLOBAL.append(val_loss_in_epoch)
+
+            if val_loss_in_epoch < BEST_VAL_ACC:
+                BEST_VAL_ACC = val_loss_in_epoch
+                self.best_model_dict = {
+                    "epoch": epoch + 1,
+                    "model_state_dict": copy.deepcopy(self.model.state_dict()),
+                    "optimizer_state_dict": copy.deepcopy(self.optimizer.state_dict()),
+                    "train_loss_per_batch": train_loss_in_epoch_list,
+                    "train_loss_epoch_mean": train_loss_in_epoch,
+                }
+
+        return TRAIN_LOSS_GLOBAL, VAL_LOSS_GLOBAL
 
     def predict(self, X, iterations: int):
         return self.model(X.float())
@@ -245,9 +441,13 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.loss_fn = nn.L1Loss()
         self.train_loader = None
         self.val_loader = None
+        self.optimizer = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
+
+    def initialize_optimizer(self, method: str, lr: float):
+        self.optimizer = optimizer_init(self.model, method, lr)
 
     def create_dataloaders(self, path: str, batch_size: int):
         train_dataset = MovingMnistDataset(
@@ -268,7 +468,15 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    def fit(self, X, y, n_epochs=1):
+    def fit(
+        self,
+        n_epochs: int,
+        num_train_samples: int,
+        num_val_samples: int,
+        device: str,
+        run,
+        verbose: bool,
+    ):
         pass
 
     def predict(self, X, iterations: int):
