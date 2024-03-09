@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 import wandb
 
 # Local application/library specific imports
-from metrics import QuantileLoss, mean_std_loss
+from metrics import QuantileLoss, mean_std_loss, crps_gaussian
 from data_handlers import MovingMnistDataset
 from .unet import UNet
 from .model_initialization import weights_init, optimizer_init
@@ -39,6 +39,7 @@ class ProbabilisticUNet(ABC):
         self,
         n_epochs: int,
         num_train_samples: int,
+        print_train_every_n_batch: Optional[int],
         num_val_samples: int,
         device: str,
         run,
@@ -129,6 +130,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         self,
         n_epochs: int,
         num_train_samples: int,
+        print_train_every_n_batch: Optional[int],
         num_val_samples: int,
         device: str,
         run,
@@ -203,6 +205,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self,
         n_epochs: int,
         num_train_samples: int,
+        print_train_every_n_batch: Optional[int],
         num_val_samples: int,
         device: str,
         run,
@@ -274,6 +277,7 @@ class MeanStdUNet(ProbabilisticUNet):
         self,
         n_epochs=1,
         num_train_samples: int = 1000,
+        print_train_every_n_batch: Optional[int] = 500,
         num_val_samples: int = 1000,
         device: str = "cpu",
         run=None,
@@ -309,11 +313,14 @@ class MeanStdUNet(ProbabilisticUNet):
                 # gradient descent or adam step
                 self.optimizer.step()
 
+                train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
 
-                train_loss_in_epoch_list.append(loss.detach().item())
-
-                if verbose and batch_idx % 500 == 0:
+                if (
+                    verbose
+                    and print_train_every_n_batch is not None
+                    and batch_idx % print_train_every_n_batch == 0
+                ):
                     print(
                         f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | ",
                         end="",
@@ -330,7 +337,9 @@ class MeanStdUNet(ProbabilisticUNet):
 
             self.model.eval()
             VAL_LOSS_LOCAL = []  # stores values for this validation run
-            # val_crps_local = []
+            mae_loss_mean_pred = []
+            crps_gaussian_list = []
+
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
                     self.val_loader
@@ -342,19 +351,36 @@ class MeanStdUNet(ProbabilisticUNet):
                     frames_pred = self.model(in_frames.float())
 
                     val_loss = self.calculate_loss(frames_pred, out_frames)
-                    # val_crps_local.append(crps_batch(frames_pred, out_frames))
 
                     VAL_LOSS_LOCAL.append(val_loss.detach().item())
+
+                    # calculate auxiliary metrics
+                    mae_loss_mean_pred.append(
+                        nn.L1Loss()(frames_pred[:, 0, :, :], out_frames[:, 0, :, :])
+                    )
+                    crps_gaussian_list.append(
+                        crps_gaussian(
+                            out_frames[:, 0, :, :],
+                            frames_pred[:, 0, :, :],
+                            frames_pred[:, 1, :, :],
+                        )
+                    )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
             # print(f"val_crps: {np.mean(val_crps_local)}")
             val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
+            mae_loss_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(
+                mae_loss_mean_pred
+            )
+            crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
 
             if run is not None:
 
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
+                run.log({"mae_loss_mean_pred": mae_loss_mean_pred_in_epoch}, step=epoch)
+                run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
 
                 wandb_target_img = wandb.Image(
                     out_frames[0, 0, :, :].unsqueeze(-1).cpu().numpy()
@@ -381,7 +407,7 @@ class MeanStdUNet(ProbabilisticUNet):
             if verbose:
                 print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
                 print(
-                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | ",
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | MAE({mae_loss_mean_pred_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f} | ",
                     end="",
                 )
                 print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
@@ -472,6 +498,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self,
         n_epochs: int,
         num_train_samples: int,
+        print_train_every_n_batch: Optional[int],
         num_val_samples: int,
         device: str,
         run,
