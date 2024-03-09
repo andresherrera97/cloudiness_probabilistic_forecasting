@@ -5,7 +5,7 @@ import pandas as pd
 import cv2 as cv
 import numpy as np
 from torch.utils.data._utils.collate import default_collate
-import lib.preprocessing_functions as pf
+import utils.preprocessing_functions as pf
 
 
 def collate_fn_sw(batch):

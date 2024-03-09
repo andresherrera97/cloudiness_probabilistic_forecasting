@@ -6,14 +6,14 @@ from datetime import timedelta
 from tqdm import tqdm
 from src import data, evaluate, model, visualization
 from src.data_handlers import preprocessing
-from src.lib import utils
+from src.utils import utils
 from src.data import MontevideoFoldersDataset, MontevideoFoldersDataset_w_time
 import torch
 from torch.utils.data import DataLoader
 import torch.nn as nn
 from src.models.unet import UNet, UNet2
-from src.lib.latex_options import Colors, Linestyles
-from src.lib.utils import get_model_name
+from src.utils.latex_options import Colors, Linestyles
+from src.utils.utils import get_model_name
 
 ### SETUP #############################################################################
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")

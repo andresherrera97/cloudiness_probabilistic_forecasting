@@ -15,7 +15,7 @@ from piqa import SSIM
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-import src.lib.utils as utils
+import src.utils.utils as utils
 from src import model
 from src.data import MontevideoFoldersDataset
 

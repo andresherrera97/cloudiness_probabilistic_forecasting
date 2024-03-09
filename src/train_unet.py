@@ -3,12 +3,11 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
 import argparse
 import multiprocessing
 from .model_training import train_model_full
-from lib import out_channel_calculator
-from src.data import MontevideoFoldersDataset
+from utils import out_channel_calculator
+from data_handlers.data import MontevideoFoldersDataset
 from models import UNet, UNet2, weights_init
 
 

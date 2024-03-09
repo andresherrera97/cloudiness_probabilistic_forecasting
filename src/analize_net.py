@@ -6,7 +6,7 @@ from datetime import timedelta
 from tqdm import tqdm
 from src import data, evaluate, model, visualization
 from src.data_handlers import preprocessing
-from src.lib import utils
+from src.utils import utils
 from src.data import MontevideoFoldersDataset, MontevideoFoldersDataset_w_time
 import torch
 from torch.utils.data import DataLoader
@@ -15,8 +15,8 @@ from piqa import SSIM
 from src.dl_models.unet import UNet, UNet2
 from src.dl_models.unet_advanced import R2U_Net, AttU_Net, R2AttU_Net, NestedUNet
 import scipy.stats as st
-from src.lib.latex_options import Colors, Linestyles
-from src.lib.utils import get_model_name
+from src.utils.latex_options import Colors, Linestyles
+from src.utils.utils import get_model_name
 
 ## CONFIGURATION #########
 
