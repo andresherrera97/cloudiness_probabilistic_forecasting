@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 from scipy import stats
+import properscoring as ps
+from math import isclose
 
 
 def crps_batch(predictions, ground_truth):
@@ -61,3 +63,15 @@ if __name__ == "__main__":
         print("CORRECT: CRPS increases with mu distance from target")
     else:
         print("INCORRECT: CRPS does not increases with mu distance from target")
+
+    one_target_array = np.ones_like(target)
+    mean_target_array = np.ones_like(target) * 0.3
+    std_target_array = np.ones_like(target) * 0.5
+
+    if isclose(
+        crps_gaussian(one_target_array, mean_target_array, std_target_array),
+        ps.crps_gaussian(1, mu=0.3, sig=0.5),
+    ):
+        print("CORRECT: CRPS is equal to properscoring package")
+    else:
+        print("INCORRECT: CRPS is not equal to properscoring package")
