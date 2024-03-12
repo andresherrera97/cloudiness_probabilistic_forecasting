@@ -1,6 +1,4 @@
-import random
 import numpy as np
-import torch
 from torch.utils.data import Dataset
 from .utils import (
     sequence_df_generator_moving_mnist,
@@ -16,15 +14,22 @@ class MovingMnistDataset(Dataset):
         path: str,
         input_frames: int = 3,
         num_bins: Optional[int] = None,
-        shuffle: bool = False,
+        binarization_method: Optional[str] = None,
     ):
         super(MovingMnistDataset, self).__init__()
+        if binarization_method is not None and binarization_method not in [
+            "one_hot_encoding",
+            "integer_classes",
+            "both",
+        ]:
+            raise ValueError(
+                "binarization_method must be either 'one_hot_encoding' ,'integer_classes' or 'both'"
+            )
 
         self.path = path
-        self.shuffle = shuffle
         self.input_frames = input_frames
         self.num_bins = num_bins
-
+        self.binarization_method = binarization_method
         # list all of the folders in path
         self.sequence_df = sequence_df_generator_moving_mnist(
             path=path,
@@ -46,8 +51,20 @@ class MovingMnistDataset(Dataset):
         out_frames = out_frames / 255
 
         if self.num_bins is not None and self.num_bins > 0:
-            # out_frames = classify_array_in_integer_classes(out_frames[0], self.num_bins)
-            out_frames = classify_array_in_bins(out_frames[0], self.num_bins)
+            if self.binarization_method == "one_hot_encoding":
+                out_frames = classify_array_in_bins(out_frames[0], self.num_bins)
+            elif self.binarization_method == "integer_classes":
+                out_frames = classify_array_in_integer_classes(
+                    out_frames[0], self.num_bins
+                )
+            elif self.binarization_method == "both":
+                out_frames_one_hot = classify_array_in_bins(
+                    out_frames[0], self.num_bins
+                )
+                out_frames_integer = classify_array_in_integer_classes(
+                    out_frames[0], self.num_bins
+                )
+                out_frames = (out_frames_one_hot, out_frames_integer)
 
         return in_frames, out_frames
 

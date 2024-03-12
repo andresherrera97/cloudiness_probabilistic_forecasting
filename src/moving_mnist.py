@@ -23,6 +23,7 @@ if __name__ == "__main__":
     INPUT_FRAMES = 3
     EPOCHS = 5
     NUM_TRAIN_SAMPLES = 1
+    PRINT_EVERY_N_BATCHES = 500
     NUM_VAL_SAMPLES = 1
     BATCH_SIZE = 32
     FILTERS = 2
@@ -34,9 +35,9 @@ if __name__ == "__main__":
     for cls in map(p_unet.__dict__.get, p_unet.__all__):
         if cls.__name__ == MeanStdUNet.__name__:
             print("=" * 3, "MeanStdUNet", "=" * 3)
+            continue
             probabilistic_unet = cls(in_frames=INPUT_FRAMES, filters=FILTERS)
         elif cls.__name__ == BinClassifierUNet.__name__:
-            continue
             print("=" * 3, "BinClassifierUNet", "=" * 3)
             probabilistic_unet = cls(
                 n_bins=NUM_BINS, in_frames=INPUT_FRAMES, filters=FILTERS
@@ -73,7 +74,9 @@ if __name__ == "__main__":
         probabilistic_unet.initialize_weights()
         probabilistic_unet.initialize_optimizer(method="SGD", lr=LEARNING_RATE)
         probabilistic_unet.create_dataloaders(
-            path="datasets/moving_mnist_dataset/", batch_size=BATCH_SIZE
+            path="datasets/moving_mnist_dataset/",
+            batch_size=BATCH_SIZE,
+            binarization_method="integer_classes",  # needed for BinClassifierUNet
         )
 
         # Magic
@@ -82,6 +85,7 @@ if __name__ == "__main__":
         train_loss, val_loss = probabilistic_unet.fit(
             n_epochs=EPOCHS,
             num_train_samples=NUM_TRAIN_SAMPLES,
+            print_train_every_n_batch=PRINT_EVERY_N_BATCHES,
             num_val_samples=NUM_VAL_SAMPLES,
             device=device,
             run=run,
