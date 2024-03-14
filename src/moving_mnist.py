@@ -35,7 +35,7 @@ if __name__ == "__main__":
 
     for cls in map(p_unet.__dict__.get, p_unet.__all__):
         if cls.__name__ == MeanStdUNet.__name__:
-            conitnue
+            continue
             print("=" * 3, "MeanStdUNet", "=" * 3)
             probabilistic_unet = cls(in_frames=INPUT_FRAMES, filters=FILTERS)
         elif cls.__name__ == BinClassifierUNet.__name__:
