@@ -334,7 +334,121 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         run,
         verbose: bool,
     ):
-        pass
+        TRAIN_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+        VAL_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+
+        BEST_VAL_ACC = 1e5
+
+        for epoch in range(n_epochs):
+            start_epoch = time.time()
+            train_loss_in_epoch_list = []  # stores values inside the current epoch
+            val_loss_in_epoch = []  # stores values inside the current epoch
+            self.model.train()
+
+            for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
+
+                start_batch = time.time()
+
+                # data to cuda if possible
+                in_frames = in_frames.to(device=device).float()
+                out_frames = out_frames.to(device=device).float()
+
+                # forward
+                frames_pred = self.model(in_frames.float())
+                loss = self.calculate_loss(frames_pred, out_frames)
+
+                # backward
+                self.optimizer.zero_grad()
+                loss.backward()
+
+                # gradient descent or adam step
+                self.optimizer.step()
+
+                train_loss_in_epoch_list.append(loss.detach().item())
+                end_batch = time.time()
+
+                if (
+                    verbose
+                    and print_train_every_n_batch is not None
+                    and batch_idx % print_train_every_n_batch == 0
+                ):
+                    print(
+                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | ",
+                        end="",
+                    )
+                    print(f"Train loss({loss.detach().item():.4f}) | ", end="")
+                    print(f"Time Batch({(end_batch - start_batch):.2f}) | ")
+
+                if num_train_samples is not None and batch_idx >= num_train_samples:
+                    break
+
+            train_loss_in_epoch = sum(train_loss_in_epoch_list) / len(
+                train_loss_in_epoch_list
+            )
+
+            self.model.eval()
+            VAL_LOSS_LOCAL = []  # stores values for this validation run
+            # crps_bin_list = []
+            # precision_list = []
+
+            with torch.no_grad():
+                for val_batch_idx, (in_frames, out_frames) in enumerate(
+                    self.val_loader
+                ):
+
+                    in_frames = in_frames.to(device=device).float()
+                    out_frames = out_frames.to(device=device)
+
+                    frames_pred = self.model(in_frames.float())
+
+                    val_loss = self.calculate_loss(frames_pred, out_frames)
+
+                    VAL_LOSS_LOCAL.append(val_loss.detach().item())
+
+                    # calculate auxiliary metrics
+                    # crps_bin_list.append(
+                    #     crps_bin_classification(frames_pred, out_frames.unsqueeze(1))
+                    # )
+
+                    if num_val_samples is not None and val_batch_idx >= num_val_samples:
+                        break
+
+            val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
+            # crps_in_epoch = sum(crps_bin_list) / len(crps_bin_list)
+
+            if run is not None:
+
+                run.log({"train_loss": train_loss_in_epoch}, step=epoch)
+                run.log({"val_loss": val_loss_in_epoch}, step=epoch)
+                # run.log({"crps_bin": crps_in_epoch}, step=epoch)
+
+            end_epoch = time.time()
+
+            if verbose:
+                print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
+                print(
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | ",
+                    end="",
+                )
+                print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
+
+            # epoch end
+            end_epoch = time.time()
+            TRAIN_LOSS_GLOBAL.append(train_loss_in_epoch)
+            VAL_LOSS_GLOBAL.append(val_loss_in_epoch)
+
+            if val_loss_in_epoch < BEST_VAL_ACC:
+                print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
+                BEST_VAL_ACC = val_loss_in_epoch
+                self.best_model_dict = {
+                    "epoch": epoch + 1,
+                    "model_state_dict": copy.deepcopy(self.model.state_dict()),
+                    "optimizer_state_dict": copy.deepcopy(self.optimizer.state_dict()),
+                    "train_loss_per_batch": train_loss_in_epoch_list,
+                    "train_loss_epoch_mean": train_loss_in_epoch,
+                }
+
+        return TRAIN_LOSS_GLOBAL, VAL_LOSS_GLOBAL
 
     def predict(self, X, iterations: int):
         return self.model(X.float())
@@ -348,7 +462,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
     @property
     def name(self):
-        return f"QuantileRegressorUNet_{self.n_bins}bins_{self.in_frames}frames_{self.n_classes}classes_{self.filters}filters"
+        return f"QuantileRegressorUNet_{self.n_bins}bins_{self.in_frames}frames_{self.filters}filters"
 
 
 class MeanStdUNet(ProbabilisticUNet):

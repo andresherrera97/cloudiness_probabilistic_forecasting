@@ -28,47 +28,35 @@ if __name__ == "__main__":
     BATCH_SIZE = 32
     FILTERS = 2
     LEARNING_RATE = 1e-3
+    SAVE_EXPERIMENT = False
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"using device: {device}")
 
     for cls in map(p_unet.__dict__.get, p_unet.__all__):
         if cls.__name__ == MeanStdUNet.__name__:
+            conitnue
             print("=" * 3, "MeanStdUNet", "=" * 3)
-            continue
             probabilistic_unet = cls(in_frames=INPUT_FRAMES, filters=FILTERS)
         elif cls.__name__ == BinClassifierUNet.__name__:
+            continue
             print("=" * 3, "BinClassifierUNet", "=" * 3)
             probabilistic_unet = cls(
                 n_bins=NUM_BINS, in_frames=INPUT_FRAMES, filters=FILTERS
             )
         elif cls.__name__ == QuantileRegressorUNet.__name__:
             print("=" * 3, "QuantileRegressorUNet", "=" * 3)
-            continue
             probabilistic_unet = cls(
                 quantiles=[0.1, 0.5, 0.9], in_frames=INPUT_FRAMES, filters=FILTERS
             )
         elif cls.__name__ == MonteCarloDropoutUNet.__name__:
-            print("=" * 3, "MonteCarloDropoutUNet", "=" * 3)
             continue
+            print("=" * 3, "MonteCarloDropoutUNet", "=" * 3)
             probabilistic_unet = cls(
                 dropout_p=0.5, in_frames=INPUT_FRAMES, filters=FILTERS
             )
         else:
             print("Wrong class type!")
-
-        # start a new wandb run to track this script
-        run = wandb.init(
-            project="cloudiness_probabilistic_forecasting",
-            name=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-            config={
-                "optimizer": "SGD",
-                "learning_rate": LEARNING_RATE,
-                "architecture": probabilistic_unet.name,
-                "dataset": "moving_mnist",
-                "epochs": EPOCHS,
-            },
-        )
 
         probabilistic_unet.model.to(device)
         probabilistic_unet.initialize_weights()
@@ -79,8 +67,23 @@ if __name__ == "__main__":
             binarization_method="integer_classes",  # needed for BinClassifierUNet
         )
 
-        # Magic
-        wandb.watch(probabilistic_unet.model, log_freq=100)
+        # start a new wandb run to track this script
+        if SAVE_EXPERIMENT:
+            run = wandb.init(
+                project="cloudiness_probabilistic_forecasting",
+                name=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                config={
+                    "optimizer": "SGD",
+                    "learning_rate": LEARNING_RATE,
+                    "architecture": probabilistic_unet.name,
+                    "dataset": "moving_mnist",
+                    "epochs": EPOCHS,
+                },
+            )
+
+            wandb.watch(probabilistic_unet.model, log_freq=100)
+        else:
+            run = None
 
         train_loss, val_loss = probabilistic_unet.fit(
             n_epochs=EPOCHS,
@@ -92,4 +95,5 @@ if __name__ == "__main__":
             verbose=True,
         )
 
-        wandb.finish()
+        if SAVE_EXPERIMENT:
+            wandb.finish()
