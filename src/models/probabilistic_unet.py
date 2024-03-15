@@ -13,7 +13,13 @@ from torchmetrics.classification import MulticlassPrecision
 import wandb
 
 # Local application/library specific imports
-from metrics import QuantileLoss, mean_std_loss, crps_gaussian, crps_bin_classification
+from metrics import (
+    QuantileLoss,
+    mean_std_loss,
+    crps_gaussian,
+    crps_bin_classification,
+    crps_quantile,
+)
 from data_handlers import MovingMnistDataset
 from .unet import UNet
 from .model_initialization import weights_init, optimizer_init
@@ -391,7 +397,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
             self.model.eval()
             VAL_LOSS_LOCAL = []  # stores values for this validation run
-            # crps_bin_list = []
+            crps_quantile_list = []
             # precision_list = []
 
             with torch.no_grad():
@@ -409,28 +415,28 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     VAL_LOSS_LOCAL.append(val_loss.detach().item())
 
                     # calculate auxiliary metrics
-                    # crps_bin_list.append(
-                    #     crps_bin_classification(frames_pred, out_frames.unsqueeze(1))
-                    # )
+                    crps_quantile_list.append(
+                        crps_quantile(frames_pred, out_frames, self.quantiles)
+                    )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
             val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
-            # crps_in_epoch = sum(crps_bin_list) / len(crps_bin_list)
+            crps_in_epoch = sum(crps_quantile_list) / len(crps_quantile_list)
 
             if run is not None:
 
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
-                # run.log({"crps_bin": crps_in_epoch}, step=epoch)
+                run.log({"crps_quantile": crps_in_epoch}, step=epoch)
 
             end_epoch = time.time()
 
             if verbose:
                 print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
                 print(
-                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | ",
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f}) | ",
                     end="",
                 )
                 print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")

@@ -45,12 +45,12 @@ if __name__ == "__main__":
                 n_bins=NUM_BINS, in_frames=INPUT_FRAMES, filters=FILTERS
             )
         elif cls.__name__ == QuantileRegressorUNet.__name__:
-            continue
             print("=" * 3, "QuantileRegressorUNet", "=" * 3)
             probabilistic_unet = cls(
                 quantiles=[0.1, 0.5, 0.9], in_frames=INPUT_FRAMES, filters=FILTERS
             )
         elif cls.__name__ == MonteCarloDropoutUNet.__name__:
+            continue
             print("=" * 3, "MonteCarloDropoutUNet", "=" * 3)
             probabilistic_unet = cls(
                 dropout_p=0.5, in_frames=INPUT_FRAMES, filters=FILTERS

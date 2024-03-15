@@ -4,9 +4,12 @@ import numpy as np
 from scipy import stats
 import properscoring as ps
 from math import isclose
+from typing import List
 
 
-def crps_bin_classification(predictions, ground_truth):
+def crps_bin_classification(
+    predictions: torch.Tensor, ground_truth: torch.Tensor
+) -> float:
     """
     Calculate the Continuous Ranked Probability Score (CRPS) for a batch of images.
 
@@ -18,7 +21,7 @@ def crps_bin_classification(predictions, ground_truth):
                    side function is calculated.
 
     Returns:
-    - crps: Numpy array with shape (batch_size,) representing the CRPS for each image in the batch.
+    - crps: float representing the mean CRPS for the batch.
     """
     if predictions.shape != ground_truth.shape and ground_truth.shape[1] != 1:
         raise ValueError(
@@ -46,7 +49,13 @@ def crps_bin_classification(predictions, ground_truth):
     return crps
 
 
-def crps_gaussian(target, mu, sig, sample_weight=None, eps=1e-12):
+def crps_gaussian(
+    target: torch.Tensor,
+    mu: torch.Tensor,
+    sig: torch.Tensor,
+    sample_weight=None,
+    eps: float = 1e-12,
+) -> float:
     sig = sig + eps  # Avoid division by zero
     sx = (target - mu) / sig
     pdf = stats.norm.pdf(sx)
@@ -55,12 +64,70 @@ def crps_gaussian(target, mu, sig, sample_weight=None, eps=1e-12):
     return np.average(per_obs_crps, weights=sample_weight)
 
 
+def crps_quantile(
+    predictions: torch.Tensor, ground_truth: torch.Tensor, quantiles: List[float]
+):
+    """
+    Calculate the Continuous Ranked Probability Score (CRPS) for a batch of images.
+
+    Parameters:
+    - predictions: Numpy array with shape (batch_size, num_bins, height, width)
+                   representing the predicted probabilities for each pixel.
+    - ground_truth: Numpy array with shape (batch_size, num_bins, height, width) or (batch_size, 1, height, width)
+                   representing the ground truth values for each pixel. If dim 1 has shape 1, then the heavy
+                   side function is calculated.
+    - quantiles: List of floats representing the quantiles to be predicted.
+
+    Returns:
+    - crps: float representing the mean CRPS for the batch.
+    """
+    if predictions.shape[1] != len(quantiles):
+        raise ValueError(
+            "The shape of the preds in dim 1 must be equal to quantiles predicted."
+        )
+
+    predictions = torch.cat((torch.zeros_like(ground_truth), predictions), dim=1)
+    predictions = torch.cat((predictions, torch.ones_like(ground_truth)), dim=1)
+
+    quantiles = quantiles + [1]
+
+    crps_point_wise = torch.zeros(
+        (predictions.shape[0], predictions.shape[2], predictions.shape[3])
+    )
+
+    for i, q in enumerate(quantiles[:-1]):
+        # bin_prob = q - sum(quantiles[:i])
+        bin_prob = q  # para la probabilidad acumulada creo que iria aca
+        tau_i = predictions[:, i, :, :]
+        tau_f = predictions[:, i + 1, :, :]
+
+        tau_f_under_gt_mask = tau_f <= ground_truth[:, 0, :, :]
+        complete_bin = bin_prob * (tau_f - tau_i)
+        crps_point_wise[tau_f_under_gt_mask] += complete_bin[
+            tau_f_under_gt_mask
+        ].float()
+
+        tau_f_over_gt_mask = tau_f > ground_truth[:, 0, :, :]
+        bin_tau_i_target = bin_prob * (ground_truth[:, 0, :, :] - tau_i)
+        bin_target_tau_f = (1 - bin_prob) * (tau_f - ground_truth[:, 0, :, :])
+        crps_point_wise[tau_f_over_gt_mask] += (
+            bin_tau_i_target[tau_f_over_gt_mask].float()
+            + bin_target_tau_f[tau_f_over_gt_mask].float()
+        )
+
+    crps_point_wise = crps_point_wise**2  # esta bien hacer esto aca o es antes?
+
+    crps = torch.mean(crps_point_wise)
+
+    return crps
+
+
 if __name__ == "__main__":
     N_BINS = 10
     BATCH_SIZE = 8
     IMG_SIZE = 32
 
-    print("=== TESTING: CRPS_BATCH ===")
+    print("=== TESTING: CRPS_BIN ===")
     bin_target = torch.rand(
         BATCH_SIZE, N_BINS, IMG_SIZE, IMG_SIZE
     )  # (batch_size, num_bins, height, width)
@@ -141,3 +208,6 @@ if __name__ == "__main__":
         print("CORRECT: CRPS is equal to properscoring package")
     else:
         print("INCORRECT: CRPS is not equal to properscoring package")
+
+    print("=== TESTING: CRPS_QUANTILE ===")
+    # TODO: impelement test for this function
