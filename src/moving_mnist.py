@@ -8,7 +8,6 @@ from models import (
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
 )
-import matplotlib.pyplot as plt
 import numpy as np
 import random
 
@@ -28,6 +27,7 @@ if __name__ == "__main__":
     BATCH_SIZE = 32
     FILTERS = 2
     LEARNING_RATE = 1e-3
+    ENSEMBLE_PREDICTIONS = 1
     SAVE_EXPERIMENT = False
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -45,16 +45,17 @@ if __name__ == "__main__":
                 n_bins=NUM_BINS, in_frames=INPUT_FRAMES, filters=FILTERS
             )
         elif cls.__name__ == QuantileRegressorUNet.__name__:
+            continue
             print("=" * 3, "QuantileRegressorUNet", "=" * 3)
             probabilistic_unet = cls(
                 quantiles=[0.1, 0.5, 0.9], in_frames=INPUT_FRAMES, filters=FILTERS
             )
         elif cls.__name__ == MonteCarloDropoutUNet.__name__:
-            continue
             print("=" * 3, "MonteCarloDropoutUNet", "=" * 3)
             probabilistic_unet = cls(
                 dropout_p=0.5, in_frames=INPUT_FRAMES, filters=FILTERS
             )
+            ENSEMBLE_PREDICTIONS = 3
         else:
             print("Wrong class type!")
 
@@ -93,6 +94,7 @@ if __name__ == "__main__":
             device=device,
             run=run,
             verbose=True,
+            ensemble_predictions=ENSEMBLE_PREDICTIONS,
         )
 
         if SAVE_EXPERIMENT:

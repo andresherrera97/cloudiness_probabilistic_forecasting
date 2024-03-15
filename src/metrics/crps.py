@@ -47,6 +47,8 @@ def crps_bin_classification(predictions, ground_truth):
 
 
 def crps_gaussian(target, mu, sig, sample_weight=None):
+    # TODO: it is detected that ensemble predictions might come with some
+    # sig values equal to 0 which causes the CRPS to be NaN.
     sx = (target - mu) / sig
     pdf = stats.norm.pdf(sx)
     cdf = stats.norm.cdf(sx)
