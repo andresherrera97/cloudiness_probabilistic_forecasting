@@ -7,3 +7,4 @@ from .probabilistic_unet import (
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
 )
+from .probabilistic_persistence import PersistenceEnsemble

@@ -15,6 +15,7 @@ class MovingMnistDataset(Dataset):
         input_frames: int = 3,
         num_bins: Optional[int] = None,
         binarization_method: Optional[str] = None,
+        use_previous_sequence: bool = False,
     ):
         super(MovingMnistDataset, self).__init__()
         if binarization_method is not None and binarization_method not in [
@@ -34,6 +35,7 @@ class MovingMnistDataset(Dataset):
         self.sequence_df = sequence_df_generator_moving_mnist(
             path=path,
             in_channel=input_frames,
+            use_previous_sequence=use_previous_sequence,
         )
 
     def __getitem__(self, idx):

@@ -7,9 +7,51 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 import os
+from typing import Optional
 
 
-# rolo graph
+def show_image_list(
+    images_list,
+    rows: int = 1,
+    fig_name: Optional[str] = None,
+    show_fig: bool = False,
+    save_fig: bool = False,
+) -> None:
+    """Shows the images passed in a grid
+
+    Args:
+        images_list (list): Each element is a numpy array
+        rows (int): Number of rows in the grid
+        fig_name (str): Name of the file to save the figure
+        show_fig (bool): If True, shows the figure
+        save_fig (bool): If True, saves the figure
+    """
+    len_list = len(images_list)
+
+    if len_list % rows == 0:
+        cols = len_list // rows
+    else:
+        cols = len_list // rows + 1
+
+    plt.figure(figsize=(cols * 5, rows * 6))
+    for num, img in enumerate(images_list):
+
+        plt.subplot(rows, cols, num + 1)
+        plt.title("img_" + str(num))
+        plt.axis("off")
+        plt.imshow(img)
+        num += 1
+
+    plt.subplots_adjust(wspace=1, hspace=1)
+    plt.tight_layout()
+    if save_fig:
+        plt.savefig(fig_name)
+    if show_fig:
+        plt.show()
+    else:
+        plt.close()
+
+
 def matrix_graph(error_array):
     """
     Takes an array where the rows advance with time of the day and each column
@@ -179,37 +221,6 @@ def plot_graph_multiple(
     plt.legend()
     if save_file is not None:
         plt.savefig(save_file)
-    plt.show()
-
-
-def show_image_list(images_list, rows, fig_name=None, save_fig=False):
-    """Shows the images passed in a grid
-
-    Args:
-        images_list (list): Each element is a numpy array
-        rows (int): Number of rows in the grid
-    """
-    num = 0
-    len_list = len(images_list)
-
-    if len_list % rows == 0:
-        cols = len_list // rows
-    else:
-        cols = len_list // rows + 1
-
-    plt.figure(figsize=(rows * 5, cols * 5))
-    for img in images_list:
-
-        plt.subplot(rows, cols, num + 1)
-        plt.title("img" + str(num))
-        plt.axis("off")
-        plt.imshow(img)
-        num += 1
-
-    plt.subplots_adjust(wspace=1, hspace=1)
-    plt.tight_layout()
-    if save_fig:
-        plt.savefig(fig_name)
     plt.show()
 
 

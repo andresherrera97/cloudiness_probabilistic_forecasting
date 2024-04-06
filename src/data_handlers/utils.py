@@ -284,33 +284,44 @@ def save_imgs_list_2npy(
 def sequence_df_generator_moving_mnist(
     path: str,
     in_channel: int = 3,
+    use_previous_sequence: bool = False,
 ):
     """Generates DataFrame that contains all possible sequences for images separated by day
 
     Args:
         path (str): path to folder containing images '/train'
         in_channel (int): Quantity of input images in sequence
+        use_previous_sequence (bool): If True, uses the last images in the previous sequence as input
 
     Returns:
         [pd.DataFrame]: Rows contain all sequences
     """
 
     folders = os.listdir(path)
-    folders = [folder for folder in folders if folder[0] != "." and folder[0] != "_"]
+    folders = sorted(
+        [folder for folder in folders if folder[0] != "." and folder[0] != "_"]
+    )
 
     sequences_df = []
 
-    for folder in folders:
+    for i, folder in enumerate(folders):
         sequence_folder = os.path.join(path, folder)
         folderfiles = sorted(os.listdir(sequence_folder))
 
-        len_day = len(folderfiles)
+        if use_previous_sequence:
+            previous_sequence_folder = os.path.join(path, folders[i - 1])
+            previous_sequence_folderfiles = sorted(os.listdir(previous_sequence_folder))
+            folderfiles = previous_sequence_folderfiles[-in_channel:] + folderfiles
+
         for i in range(
-            len_day - in_channel
-        ):  # me fijo si puedo completar un conjunto de datos
+            len(folderfiles) - in_channel
+        ):  # check if a set of in_channel images can be completed
             sequence = []
-            for filename in folderfiles[i : i + in_channel + 1]:
-                sequence.append(os.path.join(sequence_folder, filename))
+            for n, filename in enumerate(folderfiles[i : i + in_channel + 1]):
+                if use_previous_sequence and i + n < in_channel:
+                    sequence.append(os.path.join(previous_sequence_folder, filename))
+                else:
+                    sequence.append(os.path.join(sequence_folder, filename))
             sequences_df.append(sequence)
 
     sequences_df = pd.DataFrame(sequences_df)
