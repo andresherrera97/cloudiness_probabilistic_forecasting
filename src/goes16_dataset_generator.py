@@ -25,19 +25,26 @@ os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "5000000"  # 5MB
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
 
 BUCKET = "noaa-goes16"
-# PREFIX = "ABI-L1b-RadF"  # Advanced Baseline Imager Level 1b Full Disk
-PREFIX = "ABI-L1b-RadC"  # Advanced Baseline Imager Level 1b CONUS
+
+SENSOR = "ABI"  # Advanced Baseline Imager
+PROCESSING_LEVEL = "L2"  # [L1b, L2]
+PRODUCT = "CMIP"  # [CMIP, Rad]
+HDF5_PRODUCT = "CMI"  # [CMI, Rad]
+REGION = "C"  # [C, F]
+
+PREFIX = f"{SENSOR}-{PROCESSING_LEVEL}-{PRODUCT}{REGION}"
+
 CHANNEL = "C02"  # Visible Red Band
 
 
 def read_crop(f, x, y, size, verbose=False):
     timing_start = time.time()
-    with rasterio.open("HDF5:/vsis3/" + BUCKET + "/" + f + "://Rad") as ds:
+    with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{HDF5_PRODUCT}") as ds:
         # Read only a window from the entire file
         crop = ds.read(window=((y, y + size), (x, x + size)))[0, ...]
     if verbose:
         print(
-            f"Downloading crop: {'HDF5:/vsis3/' + BUCKET + '/' + f + '://Rad'} in {time.time() - timing_start}"
+            f"Downloading crop: HDF5:/vsis3/{BUCKET}/{f}://{PRODUCT} in {(time.time() - timing_start):.2f}"
         )
     return crop.astype(np.float32)
 
@@ -68,8 +75,6 @@ def download_and_process(
     bucket = s3.Bucket(BUCKET)
     filter_prefix = PREFIX + f"/{year}/{date:03}/{hour}/"
     objects = [o.key for o in bucket.objects.filter(Prefix=filter_prefix)]
-    if save_only_first_of_hour:
-        objects = objects[:1]
     # objects[0] type -> str
 
     if verbose:
@@ -78,9 +83,16 @@ def download_and_process(
     # Filter C02 files from the objects list
     files_c02 = natsorted([f for f in objects if CHANNEL in f])
 
+    if save_only_first_of_hour:
+        files_c02 = files_c02[:1]
+
+    print(f"files_c02: {files_c02}")
+
     crops_c02 = np.asarray(
-        [read_crop(f, 2 * x, 2 * y, 2 * size, verbose) for f in files_c02]
-    )  # Array: [12, 2*size, 2*size]
+        [read_crop(f, x, y, size, verbose) for f in files_c02]
+    )  # Array: [12, size, size]
+
+    print(crops_c02.shape)
 
     return crops_c02
 
@@ -114,10 +126,7 @@ def main(
     ds = netCDF4.Dataset(lat_lon_file)
     REF_LAT, REF_LON = ds["latitude"][:], ds["longitude"][:]
 
-    print(f"REF_LAT: {REF_LAT.shape}, REF_LON: {REF_LON.shape}")
-
     distances = np.sqrt((REF_LAT - lat) ** 2 + (REF_LON - lon) ** 2)
-    print(f"dists: {distances.shape}")
 
     y, x = np.unravel_index(np.nanargmin(distances), distances.shape)
     x = max(0, x - size // 2)
@@ -127,6 +136,7 @@ def main(
     date = datetime.datetime.fromisoformat(date)
 
     # Download ref date
+    time_download_start = time.time()
     ref = np.concatenate(
         [
             download_and_process(
@@ -142,7 +152,11 @@ def main(
             for h in tqdm(hours)
         ],
         axis=0,
-    )  # Array: [12*n_hours, 2*size, 2*size]
+    )  # Array: [12*n_hours, size, size]
+    print(
+        f"Downloading and procedding time for {ref.shape[0]} images: {time.time() - time_download_start:.2f}"
+    )
+
     # For CONUS there is an image every 5 minutes (60/5 = 12 images per hour)
     print(f"ref min-max values: {np.min(ref)}, {np.max(ref)}")
 
@@ -156,18 +170,18 @@ def main(
         ).convert("L")
         # im = Image.fromarray(im, mode="F")  # float32
         # im.save(out + f"/{i}.tiff", "TIFF")
-        im.save(out + f"/{i}.png")
+        im.save(out + f"/{i}.jpeg")
 
 
 if __name__ == "__main__":
     main(
-        date="2021-05-28",
-        lat=500,
-        lon=500,
-        size=64,
-        out="datasets/goes16_conus_64x64/",
+        date="2023-05-28",
+        lat=0,
+        lon=0,
+        size=1024,
+        out="datasets/goes16/",
         hours=[16],
         lat_lon_file="datasets/goes16_abi_conus_lat_lon.nc",
-        save_only_first_of_hour=False,
+        save_only_first_of_hour=True,
         verbose=True,
     )
