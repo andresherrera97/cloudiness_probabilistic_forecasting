@@ -1,4 +1,5 @@
-# noaa goes 16 files https://noaa-goes16.s3.amazonaws.com/index.html
+# Download goes-16 lat-lon conversion files: https://www.star.nesdis.noaa.gov/atmospheric-composition-training/satellite_data_goes_imager_projection.php
+# NOAA goes-16 Amazon S3 Bucket: https://noaa-goes16.s3.amazonaws.com/index.html
 
 import rasterio
 from tqdm import tqdm
@@ -30,11 +31,20 @@ SENSOR = "ABI"  # Advanced Baseline Imager
 PROCESSING_LEVEL = "L2"  # [L1b, L2]
 PRODUCT = "CMIP"  # [CMIP, Rad]
 HDF5_PRODUCT = "CMI"  # [CMI, Rad]
+
 REGION = "C"  # [C, F]
+# For CONUS there is an image every 5 minutes (60/5 = 12 images per hour)
+# Full-Disk has an image every 10 minutes (60/10 = 6 images per hour)
+
 
 PREFIX = f"{SENSOR}-{PROCESSING_LEVEL}-{PRODUCT}{REGION}"
 
 CHANNEL = "C02"  # Visible Red Band
+
+if REGION == "C":
+    LAT_LON_FILE = "datasets/goes16_abi_conus_lat_lon.nc"
+elif REGION == "F":
+    LAT_LON_FILE = "datasets/goes16_abi_full_disk_lat_lon.nc"
 
 
 def read_crop(f, x, y, size, verbose=False):
@@ -75,26 +85,22 @@ def download_and_process(
     bucket = s3.Bucket(BUCKET)
     filter_prefix = PREFIX + f"/{year}/{date:03}/{hour}/"
     objects = [o.key for o in bucket.objects.filter(Prefix=filter_prefix)]
-    # objects[0] type -> str
+    # objects: List[str]
 
     if verbose:
         print(f"Filtering: {filter_prefix} in {time.time() - timing_start}")
 
     # Filter C02 files from the objects list
-    files_c02 = natsorted([f for f in objects if CHANNEL in f])
+    channel_files = natsorted([f for f in objects if CHANNEL in f])
 
     if save_only_first_of_hour:
-        files_c02 = files_c02[:1]
+        channel_files = channel_files[:1]
 
-    print(f"files_c02: {files_c02}")
-
-    crops_c02 = np.asarray(
-        [read_crop(f, x, y, size, verbose) for f in files_c02]
+    crops = np.asarray(
+        [read_crop(f, x, y, size, verbose) for f in channel_files]
     )  # Array: [12, size, size]
 
-    print(crops_c02.shape)
-
-    return crops_c02
+    return crops, channel_files
 
 
 def main(
@@ -135,53 +141,62 @@ def main(
     # Transform string date to year + ordinal day and hour
     date = datetime.datetime.fromisoformat(date)
 
+    out_path = os.path.join(out, f"{date.year}", f"{date.timetuple().tm_yday}")
+    os.makedirs(out_path, exist_ok=True)
+
     # Download ref date
     time_download_start = time.time()
-    ref = np.concatenate(
-        [
-            download_and_process(
-                x,
-                y,
-                size,
-                date.year,
-                date.timetuple().tm_yday,
-                h,
-                save_only_first_of_hour,
-                verbose=verbose,
-            )
-            for h in tqdm(hours)
-        ],
-        axis=0,
-    )  # Array: [12*n_hours, size, size]
+
+    day_crops_per_hour = []
+    day_filenames_per_hour = []
+
+    for h in tqdm(sorted(hours)):
+        hour_crops, hour_filenames = download_and_process(
+            x,
+            y,
+            size,
+            date.year,
+            date.timetuple().tm_yday,
+            h,
+            save_only_first_of_hour,
+            verbose=verbose,
+        )
+        day_crops_per_hour.append(hour_crops)
+        day_filenames_per_hour += hour_filenames
+
+    day_crops_array = np.concatenate(day_crops_per_hour, axis=0)
+
+    time_download_end = time.time()
     print(
-        f"Downloading and procedding time for {ref.shape[0]} images: {time.time() - time_download_start:.2f}"
+        f"Downloading and processing time for {day_crops_array.shape[0]} images: {(time_download_end - time_download_start):.2f}"
+    )
+    print(
+        f"    - Mean time per image: {(time_download_end - time_download_start) / day_crops_array.shape[0]:.2f}"
     )
 
-    # For CONUS there is an image every 5 minutes (60/5 = 12 images per hour)
-    print(f"ref min-max values: {np.min(ref)}, {np.max(ref)}")
-
-    # TODO better naming of the result
-    os.makedirs(out, exist_ok=True)
     print("Saving images...")
 
-    for i, im in enumerate(ref):
+    # TODO: Check if its better to save images per hour or per day
+
+    for i, im in enumerate(day_crops_array):
+        crop_filename = day_filenames_per_hour[i].split("/")[-1].split(".")[0]
         im = Image.fromarray(
             ((im - np.min(im)) / (np.max(im) - np.min(im))) * 255
         ).convert("L")
         # im = Image.fromarray(im, mode="F")  # float32
         # im.save(out + f"/{i}.tiff", "TIFF")
-        im.save(out + f"/{i}.jpeg")
+        im.save(out_path + f"/{crop_filename}.jpeg")
 
 
 if __name__ == "__main__":
     main(
-        date="2023-05-28",
+        date="2023-05-29",
         lat=0,
         lon=0,
         size=1024,
         out="datasets/goes16/",
         hours=[16],
-        lat_lon_file="datasets/goes16_abi_conus_lat_lon.nc",
+        lat_lon_file=LAT_LON_FILE,
         save_only_first_of_hour=True,
         verbose=True,
     )
