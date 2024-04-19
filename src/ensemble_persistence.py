@@ -25,3 +25,11 @@ if __name__ == "__main__":
         fig_name="figures/peen_quantiles_pred.jpg",
         save_fig=True,
     )
+
+    viz.plot_quantile_predictions(
+        input_images=in_frames[0],
+        pred_quantiles=predictions[0],
+        quantiles=peen.quantiles,
+        target_img=out_frames[0],
+        pixel_coords=[32, 32],
+    )

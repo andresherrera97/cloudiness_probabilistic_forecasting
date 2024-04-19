@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pickle
 import os
-from typing import Optional
+from typing import Optional, List
+import torch
 
 
 def show_image_list(
@@ -50,6 +51,78 @@ def show_image_list(
         plt.show()
     else:
         plt.close()
+
+
+def plot_quantile_predictions(
+    input_images: torch.Tensor,
+    pred_quantiles: torch.Tensor,
+    quantiles: List[float],
+    target_img: torch.Tensor,
+    pixel_coords: tuple[int, int],
+    fig_name: Optional[str] = None,
+    width: int = 3,
+) -> None:
+    """
+    Plots the input time series and the quantile predictions.
+
+    Parameters:
+        time_series (array-like): The input time series.
+        quantile_predictions (dict): A dictionary where keys are quantile values (floats between 0 and 1),
+                                     and values are arrays containing predictions for each quantile.
+        quantiles (list): A list of quantiles to plot.
+
+    Returns:
+        None
+    """
+
+    time_series = input_images[:, pixel_coords[0], pixel_coords[1]].tolist()
+    quantile_predictions = pred_quantiles[:, pixel_coords[0], pixel_coords[1]].tolist()
+    target_value = target_img[0, pixel_coords[0], pixel_coords[1]]
+
+    # Plot the input time series
+    plt.figure(figsize=(10, 5))
+    plt.plot(time_series, "-*")
+
+    # Plot the target value
+    plt.plot(len(time_series) + 1, target_value, "ro", label="Target")
+
+    # Get length of the input time series
+    n = len(time_series)
+
+    # Plot quantile predictions after the input time series ends
+    for i, quantile in enumerate(quantiles):
+        quantile_values = [quantile_predictions[i]] * width
+
+        plt.plot(
+            np.arange(n, n + len(quantile_values)),
+            quantile_values,
+            label=f"$q_{{{quantile:.2f}}}$",
+            color=f"C{i}",
+        )
+
+        # Fill the area between quantile predictions
+        if i > 0:
+            prev_quantile_values = [quantile_predictions[i - 1]] * width
+
+            plt.fill_between(
+                np.arange(n, n + len(quantile_values)),
+                prev_quantile_values,
+                quantile_values,
+                color=f"C{i}",
+                alpha=0.3,
+            )
+
+    plt.xlabel("Time")
+    plt.ylabel("Pixel Value")
+    plt.title("Time Series with Quantile Predictions")
+    plt.legend(loc="center left", bbox_to_anchor=(1, 0.5), reverse=True)
+    plt.tight_layout()
+
+    if fig_name is not None:
+        plt.savefig(fig_name)
+        plt.close()
+    else:
+        plt.show()
 
 
 def matrix_graph(error_array):
