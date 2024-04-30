@@ -51,10 +51,12 @@ def read_crop(f, x, y, size, verbose=False):
     timing_start = time.time()
     with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{HDF5_PRODUCT}") as ds:
         # Read only a window from the entire file
-        crop = ds.read(window=((y, y + size), (x, x + size)))[0, ...]
+        crop = ds.read(
+            window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
+        )[0, ...]
     if verbose:
         print(
-            f"Downloading crop: HDF5:/vsis3/{BUCKET}/{f}://{PRODUCT} in {(time.time() - timing_start):.2f}"
+            f"Downloading crop: HDF5:/vsis3/{BUCKET}/{f}://{PRODUCT} in {(time.time() - timing_start):.2f} sec"
         )
     return crop.astype(np.float32)
 
@@ -130,14 +132,50 @@ def main(
     """
 
     ds = netCDF4.Dataset(lat_lon_file)
+
     REF_LAT, REF_LON = ds["latitude"][:], ds["longitude"][:]
 
-    distances = np.sqrt((REF_LAT - lat) ** 2 + (REF_LON - lon) ** 2)
+    if not (np.min(REF_LAT) < lat < np.max(REF_LAT)):
+        raise ValueError(
+            f"Latitude {lat} out of range. Latitude degrees covered: {np.min(REF_LAT)} - {np.max(REF_LAT)}"
+        )
 
+    if not (np.min(REF_LON) < lon < np.max(REF_LON)):
+        raise ValueError(
+            f"Longitude {lon} out of range. Longitude degrees covered: {np.min(REF_LON)} - {np.max(REF_LON)}"
+        )
+
+    # find closest coordinates to the given lat, lon and transform to pixel coordinates
+    distances = abs(REF_LAT - lat) + abs(REF_LON - lon)
+    # TODO: check if this is the correct way to get the pixel coordinates
     y, x = np.unravel_index(np.nanargmin(distances), distances.shape)
-    x = max(0, x - size // 2)
-    y = max(0, y - size // 2)
-    print(f"x: {x}, y: {y}")
+    # avoid negative pixel coordinates
+
+    if x - size // 2 < 0 or y - size // 2 == 0:
+        raise ValueError(
+            "Crop around lat-lon coordinates is outside the area covered. Reduce size or change coordinates."
+        )
+
+    if x + size // 2 >= REF_LAT.shape[1] or y + size // 2 >= REF_LAT.shape[0]:
+        raise ValueError(
+            "Crop around lat-lon coordinates is outside the area covered. Reduce size or change coordinates."
+        )
+
+    top_left_pixel_coord = (y - size // 2, x - size // 2)
+    top_right_pixel_coord = (y - size // 2, x + size // 2)
+    bottom_left_pixel_coord = (y + size // 2, x - size // 2)
+    bottom_right_pixel_coord = (y + size // 2, x + size // 2)
+
+    print(f"lat: {lat}, lon: {lon} -> pixel coords x={x}, y={y}")
+    print("geographic coords covered:")
+    print(
+        f"({REF_LAT[top_left_pixel_coord]:.1f}, {REF_LON[top_left_pixel_coord]:.1f}) -- ({REF_LAT[top_right_pixel_coord]:.1f}, {REF_LON[top_right_pixel_coord]:.1f})"
+    )
+    print("      |                  |")
+    print(
+        f"({REF_LAT[bottom_left_pixel_coord]:.1f}, {REF_LON[bottom_left_pixel_coord]:.1f}) -- ({REF_LAT[bottom_right_pixel_coord]:.1f}, {REF_LON[bottom_right_pixel_coord]:.1f})"
+    )
+
     # Transform string date to year + ordinal day and hour
     date = datetime.datetime.fromisoformat(date)
 
@@ -190,10 +228,10 @@ def main(
 
 if __name__ == "__main__":
     main(
-        date="2023-05-29",
-        lat=0,
-        lon=0,
-        size=1024,
+        date="2023-05-31",
+        lat=36.5,
+        lon=-80,
+        size=128,
         out="datasets/goes16/",
         hours=[16],
         lat_lon_file=LAT_LON_FILE,
