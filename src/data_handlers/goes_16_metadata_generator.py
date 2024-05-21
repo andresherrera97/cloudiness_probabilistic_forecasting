@@ -92,7 +92,7 @@ def main(region: str = "conus"):
             metadata[key] = list(nc_dataset.variables[key][:].astype(float))
 
     # Convert and write JSON object to file
-    with open(os.path.join(OUTPUT_FOLDER, f"{region}_metadata.json"), "w") as outfile:
+    with open(os.path.join(OUTPUT_FOLDER, "metadata.json"), "w") as outfile:
         json.dump(metadata, outfile, indent=4)
 
     abi_lat, abi_lon = calculate_degrees(nc_dataset)
@@ -104,8 +104,8 @@ def main(region: str = "conus"):
         (abi_lon.data[None, ...], abi_lon.mask[None, ...]), axis=0
     )
 
-    np.save(os.path.join(OUTPUT_FOLDER, f"{region}_lat.npy"), abi_lat_data_mask)
-    np.save(os.path.join(OUTPUT_FOLDER, f"{region}_lon.npy"), abi_lon_data_mask)
+    np.save(os.path.join(OUTPUT_FOLDER, "lat.npy"), abi_lat_data_mask)
+    np.save(os.path.join(OUTPUT_FOLDER, "lon.npy"), abi_lon_data_mask)
 
 
 if __name__ == "__main__":
