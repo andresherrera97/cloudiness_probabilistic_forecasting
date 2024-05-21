@@ -111,8 +111,7 @@ def main(
         bucket, date.timetuple().tm_yday, date.year
     )
 
-    # for filename in tqdm(all_files_in_day):
-    for filename in all_files_in_day:
+    for filename in tqdm(all_files_in_day):
 
         t_coverage = filename.split("/")[-1].split("_")[3][1:]
 
@@ -125,23 +124,16 @@ def main(
         hh = t_coverage[7:9]
         mm = t_coverage[9:11]
         ss = t_coverage[11:13]
-
-        res = datetime.datetime.strptime(yl + "-" + day_of_year, "%Y-%j").strftime(
-            "%m-%d-%Y"
-        )
-
-        dd = res.split("-")[1]
-        mt = res.split("-")[0]
+        dd = str(date.day).zfill(2)
+        mt = str(date.month).zfill(2)
 
         str_date = (
             str(dd) + "/" + str(mt) + "/" + str(yl) + " " + str(hh) + ":" + str(mm)
         )
 
         filename_date = datetime.datetime.strptime(str_date, "%d/%m/%Y %H:%M")
-        print(filename_date)
         cosangs, _ = sat_functions.get_cosangs(filename_date, crop_lats, crop_lons)
         is_full_day = sat_functions.is_a_full_day_crop(cosangs)
-        print(f"    - is_full_day: {is_full_day}")
 
         if is_full_day:
             CMI_DQF_crop = sat_functions.read_crop(
@@ -178,7 +170,7 @@ def main(
 
 if __name__ == "__main__":
     main(
-        date="2024-01-21",
+        date="2024-05-19",
         lat=-34,
         lon=-55,
         size=512,
