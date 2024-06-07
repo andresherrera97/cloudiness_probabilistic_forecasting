@@ -2,8 +2,10 @@
 import os
 import time
 import copy
-from typing import List, Optional
+import datetime
+from typing import List, Optional, Tuple
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 # Related third-party imports
 import torch
@@ -51,6 +53,8 @@ class ProbabilisticUNet(ABC):
         device: str,
         run,
         verbose: bool,
+        model_name: str,
+        checkpoint_path: Optional[str],
         ensemble_predictions: int,
     ):
         """Train the model on the given input data and labels for a specified number of epochs."""
@@ -91,6 +95,11 @@ class ProbabilisticUNet(ABC):
         """Abstract method to compute the cumulative distribution function."""
         pass
 
+    @abstractmethod
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        """Abstract method to load a trained checkpoint of the model."""
+        pass
+
     @property
     @abstractmethod
     def name(self):
@@ -113,6 +122,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         self.multiclass_precision_metric = MulticlassPrecision(
             num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
         )
+        self.best_model_dict = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -148,12 +158,19 @@ class BinClassifierUNet(ProbabilisticUNet):
         device: str,
         run,
         verbose: bool,
+        model_name: str,
+        checkpoint_path: Optional[str] = None,
         ensemble_predictions: int = 1,
-    ):
-        TRAIN_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
-        VAL_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+    ) -> Tuple[List[float], List[float]]:
+        # create checkpoint directory if it does not exist 
+        if checkpoint_path is not None:
+            Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
 
-        BEST_VAL_ACC = 1e5
+        train_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        val_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        crps_per_epoch = []
+
+        best_val_loss = 1e5
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -203,7 +220,7 @@ class BinClassifierUNet(ProbabilisticUNet):
             )
 
             self.model.eval()
-            VAL_LOSS_LOCAL = []  # stores values for this validation run
+            val_loss_per_batch = []  # stores values for this validation run
             crps_bin_list = []
             precision_list = []
 
@@ -219,7 +236,7 @@ class BinClassifierUNet(ProbabilisticUNet):
 
                     val_loss = self.calculate_loss(frames_pred, out_frames)
 
-                    VAL_LOSS_LOCAL.append(val_loss.detach().item())
+                    val_loss_per_batch.append(val_loss.detach().item())
 
                     # calculate auxiliary metrics
                     crps_bin_list.append(
@@ -232,7 +249,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
+            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             crps_in_epoch = sum(crps_bin_list) / len(crps_bin_list)
             precision_in_epoch = sum(precision_list) / len(precision_list)
 
@@ -255,21 +272,31 @@ class BinClassifierUNet(ProbabilisticUNet):
 
             # epoch end
             end_epoch = time.time()
-            TRAIN_LOSS_GLOBAL.append(train_loss_in_epoch)
-            VAL_LOSS_GLOBAL.append(val_loss_in_epoch)
+            train_loss_per_epoch.append(train_loss_in_epoch)
+            val_loss_per_epoch.append(val_loss_in_epoch)
+            crps_per_epoch.append(crps_in_epoch)
 
-            if val_loss_in_epoch < BEST_VAL_ACC:
+            if val_loss_in_epoch < best_val_loss:
                 print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
-                BEST_VAL_ACC = val_loss_in_epoch
+                best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
+                    "num_input_frames": self.in_frames,
+                    "num_filters": self.filters,
+                    "num_bins": self.n_bins,
                     "epoch": epoch + 1,
+                    "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
                     "optimizer_state_dict": copy.deepcopy(self.optimizer.state_dict()),
-                    "train_loss_per_batch": train_loss_in_epoch_list,
+                    "train_loss_per_epoch": train_loss_per_epoch,
+                    "val_loss_per_epoch": val_loss_per_epoch,
+                    "crps_per_epoch": crps_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
+                if checkpoint_path is not None:
+                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    torch.save(self.best_model_dict, os.path.join(checkpoint_path, checkpoint_name))
 
-        return TRAIN_LOSS_GLOBAL, VAL_LOSS_GLOBAL
+        return train_loss_per_epoch, val_loss_per_epoch
 
     def predict(self, X, iterations: int):
         return self.model(X.float())
@@ -278,6 +305,10 @@ class BinClassifierUNet(ProbabilisticUNet):
         return self.loss_fn(predictions, y_target)
 
     def cdf(self, predicted_params, extra_params, points_to_evaluate):
+        pass
+
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        """Abstract method to load a trained checkpoint of the model."""
         pass
 
     @property
@@ -308,6 +339,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
+        self.best_model_dict = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -341,12 +373,20 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         device: str,
         run,
         verbose: bool,
+        model_name: str,
+        checkpoint_path: Optional[str] = None,
         ensemble_predictions: int = 1,
-    ):
-        TRAIN_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
-        VAL_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+    ) -> Tuple[List[float], List[float]]:
 
-        BEST_VAL_ACC = 1e5
+        # create checkpoint directory if it does not exist
+        if checkpoint_path is not None:
+            Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
+
+        train_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        val_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        crps_per_epoch = []
+
+        best_val_loss = 1e5
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -396,9 +436,8 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             )
 
             self.model.eval()
-            VAL_LOSS_LOCAL = []  # stores values for this validation run
+            val_loss_per_batch = []  # stores values for this validation run
             crps_quantile_list = []
-            # precision_list = []
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -412,7 +451,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
                     val_loss = self.calculate_loss(frames_pred, out_frames)
 
-                    VAL_LOSS_LOCAL.append(val_loss.detach().item())
+                    val_loss_per_batch.append(val_loss.detach().item())
 
                     # calculate auxiliary metrics
                     crps_quantile_list.append(
@@ -422,7 +461,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
+            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             crps_in_epoch = sum(crps_quantile_list) / len(crps_quantile_list)
 
             if run is not None:
@@ -443,21 +482,31 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
             # epoch end
             end_epoch = time.time()
-            TRAIN_LOSS_GLOBAL.append(train_loss_in_epoch)
-            VAL_LOSS_GLOBAL.append(val_loss_in_epoch)
+            train_loss_per_epoch.append(train_loss_in_epoch)
+            val_loss_per_epoch.append(val_loss_in_epoch)
+            crps_per_epoch.append(crps_in_epoch)
 
-            if val_loss_in_epoch < BEST_VAL_ACC:
+            if val_loss_in_epoch < best_val_loss:
                 print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
-                BEST_VAL_ACC = val_loss_in_epoch
+                best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
+                    "num_input_frames": self.in_frames,
+                    "num_filters": self.filters,
+                    "quantiles": self.quantiles,
                     "epoch": epoch + 1,
+                    "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
                     "optimizer_state_dict": copy.deepcopy(self.optimizer.state_dict()),
-                    "train_loss_per_batch": train_loss_in_epoch_list,
+                    "train_loss_per_epoch": train_loss_per_epoch,
+                    "val_loss_per_epoch": val_loss_per_epoch,
+                    "crps_per_epoch": crps_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
+                if checkpoint_path is not None:
+                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    torch.save(self.best_model_dict, os.path.join(checkpoint_path, checkpoint_name))
 
-        return TRAIN_LOSS_GLOBAL, VAL_LOSS_GLOBAL
+        return train_loss_per_epoch, val_loss_per_epoch
 
     def predict(self, X, iterations: int):
         return self.model(X.float())
@@ -468,6 +517,11 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
     def cdf(self, predicted_params, extra_params, points_to_evaluate):
         pass
+
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        """Abstract method to load a trained checkpoint of the model."""
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        self.model.load_state_dict(checkpoint["model_state_dict"])
 
     @property
     def name(self):
@@ -526,12 +580,20 @@ class MeanStdUNet(ProbabilisticUNet):
         device: str = "cpu",
         run=None,
         verbose: bool = True,
+        model_name: str = "mean_std_unet",
+        checkpoint_path: Optional[str] = None,
         ensemble_predictions: int = 1,
-    ):
-        TRAIN_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
-        VAL_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+    ) -> Tuple[List[float], List[float]]:
 
-        BEST_VAL_ACC = 1e5
+        # create checkpoint directory if it does not exist
+        if checkpoint_path is not None:
+            Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
+
+        train_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        val_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        crps_per_epoch = []
+
+        best_val_loss = 1e5
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -581,7 +643,7 @@ class MeanStdUNet(ProbabilisticUNet):
             )
 
             self.model.eval()
-            VAL_LOSS_LOCAL = []  # stores values for this validation run
+            val_loss_per_batch = []  # stores values for this validation run
             mae_loss_mean_pred = []
             crps_gaussian_list = []
 
@@ -597,7 +659,7 @@ class MeanStdUNet(ProbabilisticUNet):
 
                     val_loss = self.calculate_loss(frames_pred, out_frames)
 
-                    VAL_LOSS_LOCAL.append(val_loss.detach().item())
+                    val_loss_per_batch.append(val_loss.detach().item())
 
                     # calculate auxiliary metrics
                     mae_loss_mean_pred.append(
@@ -614,7 +676,7 @@ class MeanStdUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
             # print(f"val_crps: {np.mean(val_crps_local)}")
-            val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
+            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             mae_loss_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(
                 mae_loss_mean_pred
             )
@@ -659,20 +721,30 @@ class MeanStdUNet(ProbabilisticUNet):
 
             # epoch end
             end_epoch = time.time()
-            TRAIN_LOSS_GLOBAL.append(train_loss_in_epoch)
-            VAL_LOSS_GLOBAL.append(val_loss_in_epoch)
+            train_loss_per_epoch.append(train_loss_in_epoch)
+            val_loss_per_epoch.append(val_loss_in_epoch)
+            crps_per_epoch.append(crps_in_epoch)
 
-            if val_loss_in_epoch < BEST_VAL_ACC:
-                BEST_VAL_ACC = val_loss_in_epoch
+            if val_loss_in_epoch < best_val_loss:
+                print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
+                best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
+                    "num_input_frames": self.in_frames,
+                    "num_filters": self.filters,
                     "epoch": epoch + 1,
+                    "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
                     "optimizer_state_dict": copy.deepcopy(self.optimizer.state_dict()),
-                    "train_loss_per_batch": train_loss_in_epoch_list,
+                    "train_loss_per_epoch": train_loss_per_epoch,
+                    "val_loss_per_epoch": val_loss_per_epoch,
+                    "crps_per_epoch": crps_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
+                if checkpoint_path is not None:
+                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    torch.save(self.best_model_dict, os.path.join(checkpoint_path, checkpoint_name))
 
-        return TRAIN_LOSS_GLOBAL, VAL_LOSS_GLOBAL
+        return train_loss_per_epoch, val_loss_per_epoch
 
     def predict(self, X, iterations: int):
         return self.model(X.float())
@@ -686,6 +758,10 @@ class MeanStdUNet(ProbabilisticUNet):
         )
         dist = torch.distributions.Normal(mu, torch.sqrt(sigma2))
         return dist.cdf(points_to_evaluate)
+
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        """Abstract method to load a trained checkpoint of the model."""
+        pass
 
     @property
     def name(self):
@@ -713,6 +789,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
+        self.best_model_dict = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -746,12 +823,20 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         device: str,
         run,
         verbose: bool,
+        model_name: str,
+        checkpoint_path: Optional[str] = None,
         ensemble_predictions: int = 1,
-    ):
-        TRAIN_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
-        VAL_LOSS_GLOBAL = []  # perists through epochs, stores the mean of each epoch
+    ) -> Tuple[List[float], List[float]]:
 
-        BEST_VAL_ACC = 1e5
+        # create checkpoint directory if it does not exist
+        if checkpoint_path is not None:
+            Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
+
+        train_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        val_loss_per_epoch = []  # perists through epochs, stores the mean of each epoch
+        crps_per_epoch = []
+
+        best_val_loss = 1e5
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -803,7 +888,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             # by using F.droput in the UNet, the model can still be set to eval mode
             self.model.eval()
 
-            VAL_LOSS_LOCAL = []  # stores values for this validation run
+            val_loss_per_batch = []  # stores values for this validation run
             crps_gaussian_list = []
             mean_std_list = []
 
@@ -822,7 +907,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
                     val_loss = self.calculate_loss(mean_pred, out_frames)
 
-                    VAL_LOSS_LOCAL.append(val_loss.detach().item())
+                    val_loss_per_batch.append(val_loss.detach().item())
 
                     # calculate auxiliary metrics
                     if std_pred is not None:
@@ -838,7 +923,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
             # print(f"val_crps: {np.mean(val_crps_local)}")
-            val_loss_in_epoch = sum(VAL_LOSS_LOCAL) / len(VAL_LOSS_LOCAL)
+            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             if len(crps_gaussian_list) > 0:
                 crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
                 mean_std_in_epoch = sum(mean_std_list) / len(mean_std_list)
@@ -865,20 +950,31 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
             # epoch end
             end_epoch = time.time()
-            TRAIN_LOSS_GLOBAL.append(train_loss_in_epoch)
-            VAL_LOSS_GLOBAL.append(val_loss_in_epoch)
+            train_loss_per_epoch.append(train_loss_in_epoch)
+            val_loss_per_epoch.append(val_loss_in_epoch)
+            crps_per_epoch.append(crps_in_epoch)
 
-            if val_loss_in_epoch < BEST_VAL_ACC:
-                BEST_VAL_ACC = val_loss_in_epoch
+            if val_loss_in_epoch < best_val_loss:
+                print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
+                best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
+                    "num_input_frames": self.in_frames,
+                    "num_filters": self.filters,
+                    "dropout_p": self.dropout_p,
                     "epoch": epoch + 1,
+                    "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
                     "optimizer_state_dict": copy.deepcopy(self.optimizer.state_dict()),
-                    "train_loss_per_batch": train_loss_in_epoch_list,
+                    "train_loss_per_epoch": train_loss_per_epoch,
+                    "val_loss_per_epoch": val_loss_per_epoch,
+                    "crps_per_epoch": crps_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
+                if checkpoint_path is not None:
+                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    torch.save(self.best_model_dict, os.path.join(checkpoint_path, checkpoint_name))
 
-        return TRAIN_LOSS_GLOBAL, VAL_LOSS_GLOBAL
+        return train_loss_per_epoch, val_loss_per_epoch
 
     def predict(self, X, iterations: int):
         # as images get bigger the computational cost can be too high, find better way to do this
@@ -906,6 +1002,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         )
         dist = torch.distributions.Normal(mu, torch.sqrt(sigma2))
         return dist.cdf(points_to_evaluate)
+
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        """Abstract method to load a trained checkpoint of the model."""
+        pass
 
     @property
     def name(self):
