@@ -94,8 +94,20 @@ if __name__ == "__main__":
             device=device,
             run=run,
             verbose=True,
+            model_name="qr_model_mmnist_test",
+            checkpoint_path="checkpoints/prueba/",
             ensemble_predictions=ENSEMBLE_PREDICTIONS,
         )
+        print("Training done.")
+        print(f"    - Train loss: {train_loss[-1]}")
+        print(f"    - Val loss: {val_loss[-1]}")
 
         if SAVE_EXPERIMENT:
             wandb.finish()
+
+        print("Loading model from best checkpoint...")
+        probabilistic_unet.load_checkpoint(
+            checkpoint_path="checkpoints/prueba/qr_model_mmnist_test_005.pt",
+            device=device,
+        )
+        print("Loading done.")

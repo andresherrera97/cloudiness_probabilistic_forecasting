@@ -162,6 +162,7 @@ cython_debug/
 .DS_Store
 
 datasets/
+checkpoints/
 
 #experiment tracker
 wandb/
