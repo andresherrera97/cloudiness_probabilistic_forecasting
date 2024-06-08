@@ -65,7 +65,7 @@ def crps_gaussian(
 
 
 def crps_quantile(
-    predictions: torch.Tensor, ground_truth: torch.Tensor, quantiles: List[float]
+    predictions: torch.Tensor, ground_truth: torch.Tensor, quantiles: List[float], device: str
 ):
     """
     Calculate the Continuous Ranked Probability Score (CRPS) for a batch of images.
@@ -93,7 +93,7 @@ def crps_quantile(
 
     crps_point_wise = torch.zeros(
         (predictions.shape[0], predictions.shape[2], predictions.shape[3])
-    )
+    ).to(device=device)
 
     for i, q in enumerate(quantiles[:-1]):
         # bin_prob = q - sum(quantiles[:i])

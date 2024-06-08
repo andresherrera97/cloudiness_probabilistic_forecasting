@@ -455,7 +455,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
                     # calculate auxiliary metrics
                     crps_quantile_list.append(
-                        crps_quantile(frames_pred, out_frames, self.quantiles)
+                        crps_quantile(frames_pred, out_frames, self.quantiles, device)
                     )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
