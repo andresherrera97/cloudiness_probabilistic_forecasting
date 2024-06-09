@@ -11,7 +11,12 @@ import numpy as np
 import random
 import fire
 from typing import Optional, List
+import logging
 
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("Train MMNIST")
 
 torch.manual_seed(0)
 random.seed(0)
@@ -36,46 +41,46 @@ def main(
 ):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    print(f"using device: {device}")
+    logger.info(f"Using device: {device}")
 
     if model_name == "mean_std":
-        print("Selected model: MeanStdUNet")
-        print(f"    - input_frames: {input_frames}")
-        print(f"    - filters: {num_filters}")
+        logger.info("Selected model: MeanStdUNet")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = MeanStdUNet(
             in_frames=input_frames,
             filters=num_filters
         )
-    elif model_name == "bin_classifier":
-        print("Selected model: BinClassifierUNet")
-        print(f"    - Bins: {num_bins}")
-        print(f"    - input_frames: {input_frames}")
-        print(f"    - filters: {num_filters}")
+    elif model_name in ["bin_classifier", "bin"]:
+        logger.info("Selected model: BinClassifierUNet")
+        logger.info(f"    - Bins: {num_bins}")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = BinClassifierUNet(
             n_bins=num_bins, in_frames=input_frames, filters=num_filters
         )
     elif model_name in ["quantile_regressor", "qr"]:
-        print("Selected model: QuantileRegressorUNet")
-        print(f"    - Quantiles: {quantiles}")
-        print(f"    - input_frames: {input_frames}")
-        print(f"    - filters: {num_filters}")
+        logger.info("Selected model: QuantileRegressorUNet")
+        logger.info(f"    - Quantiles: {quantiles}")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = QuantileRegressorUNet(
             quantiles=quantiles,
             in_frames=input_frames,
             filters=num_filters
         )
     elif model_name == "monte_carlo_dropout":
-        print("Selected model: MonteCarloDropoutUNet")
-        print(f"    - Dropout prob: {dropout_p}")
-        print(f"    - input_frames: {input_frames}")
-        print(f"    - filters: {num_filters}")
+        logger.info("Selected model: MonteCarloDropoutUNet")
+        logger.info(f"    - Dropout prob: {dropout_p}")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = MonteCarloDropoutUNet(
             dropout_p=dropout_p, in_frames=input_frames, filters=num_filters
         )
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")
 
-    print("Initializing model...")
+    logger.info("Initializing model...")
     probabilistic_unet.model.to(device)
     probabilistic_unet.initialize_weights()
     probabilistic_unet.initialize_optimizer(method="SGD", lr=learning_rate)
@@ -84,7 +89,7 @@ def main(
         batch_size=batch_size,
         binarization_method="integer_classes",  # needed for BinClassifierUNet
     )
-    print("Initialization done.")
+    logger.info("Initialization done.")
 
     # start a new wandb run to track this script
     if save_experiment:
@@ -104,7 +109,7 @@ def main(
     else:
         run = None
 
-    print("Starting training...")
+    logger.info("Starting training...")
     train_loss, val_loss = probabilistic_unet.fit(
         n_epochs=epochs,
         num_train_samples=num_train_samples,
@@ -117,20 +122,19 @@ def main(
         checkpoint_path=f"checkpoints/mmnist/{model_name}/",
         ensemble_predictions=num_ensemble_preds,
     )
-    print("Training done.")
-    print(f"    - Train loss: {train_loss[-1]}")
-    print(f"    - Val loss: {val_loss[-1]}")
+    logger.info("Training done.")
+    logger.info(f"    - Train loss: {train_loss[-1]}")
+    logger.info(f"    - Val loss: {val_loss[-1]}")
 
     if save_experiment:
         wandb.finish()
 
-    # print("Loading model from best checkpoint...")
+    # logger.info("Loading model from best checkpoint...")
     # probabilistic_unet.load_checkpoint(
     #     checkpoint_path="checkpoints/prueba/qr_model_mmnist_test_005.pt",
     #     device=device,
     # )
-    # print("Loading done.")
-
+    # logger.info("Loading done.")
 
 if __name__ == "__main__":
     fire.Fire(main)

@@ -25,6 +25,11 @@ from metrics import (
 from data_handlers import MovingMnistDataset
 from .unet import UNet
 from .model_initialization import weights_init, optimizer_init
+import logging
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 
 __all__ = [
@@ -123,6 +128,7 @@ class BinClassifierUNet(ProbabilisticUNet):
             num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
         ).to(device=device)
         self.best_model_dict = None
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -205,12 +211,11 @@ class BinClassifierUNet(ProbabilisticUNet):
                     and print_train_every_n_batch is not None
                     and batch_idx % print_train_every_n_batch == 0
                 ):
-                    print(
-                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | ",
-                        end="",
+                    self._logger.info(
+                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | "
+                        f"Train loss({loss.detach().item():.4f}) | "
+                        f"Time Batch({(end_batch - start_batch):.2f}) | "
                     )
-                    print(f"Train loss({loss.detach().item():.4f}) | ", end="")
-                    print(f"Time Batch({(end_batch - start_batch):.2f}) | ")
 
                 if num_train_samples is not None and batch_idx >= num_train_samples:
                     break
@@ -263,12 +268,10 @@ class BinClassifierUNet(ProbabilisticUNet):
             end_epoch = time.time()
 
             if verbose:
-                print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
-                print(
-                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f} | precision({precision_in_epoch:.4f} | ",
-                    end="",
+                self._logger.info(f"Epoch({epoch + 1}/{n_epochs}) | "
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f} | precision({precision_in_epoch:.4f} | "
+                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
-                print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
 
             # epoch end
             end_epoch = time.time()
@@ -277,7 +280,7 @@ class BinClassifierUNet(ProbabilisticUNet):
             crps_per_epoch.append(crps_in_epoch)
 
             if val_loss_in_epoch < best_val_loss:
-                print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
+                self._logger.info(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
                 best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
@@ -340,6 +343,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self.val_loader = None
         self.optimizer = None
         self.best_model_dict = None
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -421,12 +425,11 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     and print_train_every_n_batch is not None
                     and batch_idx % print_train_every_n_batch == 0
                 ):
-                    print(
-                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | ",
-                        end="",
+                    self._logger.info(
+                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | "
+                        f"Train loss({loss.detach().item():.4f}) | "
+                        f"Time Batch({(end_batch - start_batch):.2f}) | "
                     )
-                    print(f"Train loss({loss.detach().item():.4f}) | ", end="")
-                    print(f"Time Batch({(end_batch - start_batch):.2f}) | ")
 
                 if num_train_samples is not None and batch_idx >= num_train_samples:
                     break
@@ -473,12 +476,11 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             end_epoch = time.time()
 
             if verbose:
-                print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
-                print(
-                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f}) | ",
-                    end="",
+                self._logger.info(
+                    f"Epoch({epoch + 1}/{n_epochs}) | "
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f}) | "
+                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
-                print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
 
             # epoch end
             end_epoch = time.time()
@@ -487,7 +489,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             crps_per_epoch.append(crps_in_epoch)
 
             if val_loss_in_epoch < best_val_loss:
-                print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
+                self._logger.info(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
                 best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
@@ -525,7 +527,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
         # update quantiles
         if len(self.quantiles) != len(checkpoint["quantiles"]) or self.quantiles != list(checkpoint["quantiles"]):
-            print(f"Updating quantiles to match checkpoint: {checkpoint['quantiles']}")
+            self._logger.info(f"Updating quantiles to match checkpoint: {checkpoint['quantiles']}")
             self.quantiles = list(checkpoint["quantiles"])
             self.n_bins = len(self.quantiles)
 
@@ -553,6 +555,7 @@ class MeanStdUNet(ProbabilisticUNet):
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -634,12 +637,11 @@ class MeanStdUNet(ProbabilisticUNet):
                     and print_train_every_n_batch is not None
                     and batch_idx % print_train_every_n_batch == 0
                 ):
-                    print(
-                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | ",
-                        end="",
+                    self._logger.info(
+                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | "
+                        f"Train loss({loss.detach().item():.4f}) | "
+                        f"Time Batch({(end_batch - start_batch):.2f}) | "
                     )
-                    print(f"Train loss({loss.detach().item():.4f}) | ", end="")
-                    print(f"Time Batch({(end_batch - start_batch):.2f}) | ")
 
                 if num_train_samples is not None and batch_idx >= num_train_samples:
                     break
@@ -681,7 +683,7 @@ class MeanStdUNet(ProbabilisticUNet):
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
-            # print(f"val_crps: {np.mean(val_crps_local)}")
+            # self._logger.info(f"val_crps: {np.mean(val_crps_local)}")
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             mae_loss_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(
                 mae_loss_mean_pred
@@ -718,12 +720,11 @@ class MeanStdUNet(ProbabilisticUNet):
             end_epoch = time.time()
 
             if verbose:
-                print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
-                print(
-                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | MAE({mae_loss_mean_pred_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f} | ",
-                    end="",
+                self._logger.info(
+                    f"Epoch({epoch + 1}/{n_epochs}) | "
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | MAE({mae_loss_mean_pred_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f} | "
+                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
-                print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
 
             # epoch end
             end_epoch = time.time()
@@ -732,7 +733,7 @@ class MeanStdUNet(ProbabilisticUNet):
             crps_per_epoch.append(crps_in_epoch)
 
             if val_loss_in_epoch < best_val_loss:
-                print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
+                self._logger.info(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
                 best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
@@ -796,6 +797,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.val_loader = None
         self.optimizer = None
         self.best_model_dict = None
+        self._logger = logging.getLogger(self.__class__.__name__)
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -877,12 +879,12 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     and print_train_every_n_batch is not None
                     and batch_idx % print_train_every_n_batch == 0
                 ):
-                    print(
+                    self._logger.info(
                         f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | ",
                         end="",
                     )
-                    print(f"Train loss({loss.detach().item():.4f}) | ", end="")
-                    print(f"Time Batch({(end_batch - start_batch):.2f}) | ")
+                    self._logger.info(f"Train loss({loss.detach().item():.4f}) | ", end="")
+                    self._logger.info(f"Time Batch({(end_batch - start_batch):.2f}) | ")
 
                 if num_train_samples is not None and batch_idx >= num_train_samples:
                     break
@@ -928,7 +930,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
-            # print(f"val_crps: {np.mean(val_crps_local)}")
+            # self._logger.info(f"val_crps: {np.mean(val_crps_local)}")
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             if len(crps_gaussian_list) > 0:
                 crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
@@ -947,12 +949,12 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             end_epoch = time.time()
 
             if verbose:
-                print(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
-                print(
+                self._logger.info(f"Epoch({epoch + 1}/{n_epochs}) | ", end="")
+                self._logger.info(
                     f"Train_loss({(train_loss_in_epoch):06.4f}) | Val_loss({val_loss_in_epoch:.4f}) | CRPS({crps_in_epoch:.4f}) | STD({mean_std_in_epoch:.4f}) | ",
                     end="",
                 )
-                print(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
+                self._logger.info(f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |")
 
             # epoch end
             end_epoch = time.time()
@@ -961,7 +963,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             crps_per_epoch.append(crps_in_epoch)
 
             if val_loss_in_epoch < best_val_loss:
-                print(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
+                self._logger.info(f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}")
                 best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
