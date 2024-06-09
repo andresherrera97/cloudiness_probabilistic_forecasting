@@ -12,7 +12,7 @@ import torch
 
 
 def show_image_list(
-    images_list,
+    images_list: List[np.ndarray],
     rows: int = 1,
     fig_name: Optional[str] = None,
     show_fig: bool = False,
@@ -75,9 +75,9 @@ def plot_quantile_predictions(
         None
     """
 
-    time_series = input_images[:, pixel_coords[0], pixel_coords[1]].tolist()
-    quantile_predictions = pred_quantiles[:, pixel_coords[0], pixel_coords[1]].tolist()
-    target_value = target_img[0, pixel_coords[0], pixel_coords[1]]
+    time_series = input_images[:, pixel_coords[0], pixel_coords[1]].cpu().tolist()
+    quantile_predictions = pred_quantiles[:, pixel_coords[0], pixel_coords[1]].cpu().tolist()
+    target_value = target_img[0, pixel_coords[0], pixel_coords[1]].cpu()
 
     # Plot the input time series
     plt.figure(figsize=(10, 5))

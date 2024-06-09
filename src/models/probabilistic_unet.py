@@ -108,20 +108,20 @@ class ProbabilisticUNet(ABC):
 
 
 class BinClassifierUNet(ProbabilisticUNet):
-    def __init__(self, n_bins=10, in_frames=3, filters=16):
+    def __init__(self, n_bins=10, in_frames=3, filters=16, device="cpu"):
         self.n_bins = n_bins
         self.in_frames = in_frames
         self.filters = filters
         self.model = UNet(
             in_frames=self.in_frames, n_classes=self.n_bins, filters=self.filters
         )
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.loss_fn = nn.CrossEntropyLoss().to(device=device)
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
         self.multiclass_precision_metric = MulticlassPrecision(
             num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
-        )
+        ).to(device=device)
         self.best_model_dict = None
 
     def initialize_weights(self):
@@ -508,7 +508,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def predict(self, X, iterations: int):
+    def predict(self, X, iterations: Optional[int] = None):
         return self.model(X.float())
 
     def calculate_loss(self, predictions, y_target):
@@ -522,6 +522,12 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
         self.model.load_state_dict(checkpoint["model_state_dict"])
+
+        # update quantiles
+        if len(self.quantiles) != len(checkpoint["quantiles"]) or self.quantiles != list(checkpoint["quantiles"]):
+            print(f"Updating quantiles to match checkpoint: {checkpoint['quantiles']}")
+            self.quantiles = list(checkpoint["quantiles"])
+            self.n_bins = len(self.quantiles)
 
     @property
     def name(self):
