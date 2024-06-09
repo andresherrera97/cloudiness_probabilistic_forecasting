@@ -170,4 +170,5 @@ wandb/
 # cluster files
 servidorjupyter.sh
 servidorjupyter-mac.sh
+sbatch_output/
 
