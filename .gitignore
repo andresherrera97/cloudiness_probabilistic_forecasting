@@ -164,5 +164,10 @@ cython_debug/
 datasets/
 checkpoints/
 
-#experiment tracker
+# experiment tracker
 wandb/
+
+# cluster files
+servidorjupyter.sh
+servidorjupyter-mac.sh
+
