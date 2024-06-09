@@ -1,7 +1,6 @@
 import datetime
 import wandb
 import torch
-import models.probabilistic_unet as p_unet
 from models import (
     MeanStdUNet,
     BinClassifierUNet,
@@ -10,104 +9,128 @@ from models import (
 )
 import numpy as np
 import random
+import fire
+from typing import Optional, List
 
 
-if __name__ == "__main__":
+torch.manual_seed(0)
+random.seed(0)
+np.random.seed(0)
 
-    torch.manual_seed(0)
-    random.seed(0)
-    np.random.seed(0)
 
-    NUM_BINS = 10
-    INPUT_FRAMES = 3
-    EPOCHS = 5
-    NUM_TRAIN_SAMPLES = 1
-    PRINT_EVERY_N_BATCHES = 500
-    NUM_VAL_SAMPLES = 1
-    BATCH_SIZE = 32
-    FILTERS = 2
-    LEARNING_RATE = 1e-3
-    ENSEMBLE_PREDICTIONS = 1
-    SAVE_EXPERIMENT = False
+def main(
+    model_name: str,
+    num_bins: int = 10,
+    input_frames: int = 3,
+    epochs: int = 5,
+    num_train_samples: Optional[int] = None,
+    print_every_n_batches: int = 500,
+    num_val_samples: Optional[int] = None,
+    batch_size: int = 32,
+    num_filters: int = 16,
+    learning_rate: float = 1e-3,
+    quantiles: List[float] = [0.1, 0.25, 0.5, 0.75, 0.9],
+    dropout_p: float = 0.5,
+    num_ensemble_preds: int = 1,
+    save_experiment: bool = False,
+):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print(f"using device: {device}")
 
-    for cls in map(p_unet.__dict__.get, p_unet.__all__):
-        if cls.__name__ == MeanStdUNet.__name__:
-            continue
-            print("=" * 3, "MeanStdUNet", "=" * 3)
-            probabilistic_unet = cls(in_frames=INPUT_FRAMES, filters=FILTERS)
-        elif cls.__name__ == BinClassifierUNet.__name__:
-            continue
-            print("=" * 3, "BinClassifierUNet", "=" * 3)
-            probabilistic_unet = cls(
-                n_bins=NUM_BINS, in_frames=INPUT_FRAMES, filters=FILTERS
-            )
-        elif cls.__name__ == QuantileRegressorUNet.__name__:
-            print("=" * 3, "QuantileRegressorUNet", "=" * 3)
-            probabilistic_unet = cls(
-                quantiles=[0.1, 0.5, 0.9], in_frames=INPUT_FRAMES, filters=FILTERS
-            )
-        elif cls.__name__ == MonteCarloDropoutUNet.__name__:
-            continue
-            print("=" * 3, "MonteCarloDropoutUNet", "=" * 3)
-            probabilistic_unet = cls(
-                dropout_p=0.5, in_frames=INPUT_FRAMES, filters=FILTERS
-            )
-            ENSEMBLE_PREDICTIONS = 3
-        else:
-            print("Wrong class type!")
+    if model_name == "mean_std":
+        print("Selected model: MeanStdUNet")
+        print(f"    - input_frames: {input_frames}")
+        print(f"    - filters: {num_filters}")
+        probabilistic_unet = MeanStdUNet(
+            in_frames=input_frames,
+            filters=num_filters
+        )
+    elif model_name == "bin_classifier":
+        print("Selected model: BinClassifierUNet")
+        print(f"    - Bins: {num_bins}")
+        print(f"    - input_frames: {input_frames}")
+        print(f"    - filters: {num_filters}")
+        probabilistic_unet = BinClassifierUNet(
+            n_bins=num_bins, in_frames=input_frames, filters=num_filters
+        )
+    elif model_name in ["quantile_regressor", "qr"]:
+        print("Selected model: QuantileRegressorUNet")
+        print(f"    - Quantiles: {quantiles}")
+        print(f"    - input_frames: {input_frames}")
+        print(f"    - filters: {num_filters}")
+        probabilistic_unet = QuantileRegressorUNet(
+            quantiles=quantiles,
+            in_frames=input_frames,
+            filters=num_filters
+        )
+    elif model_name == "monte_carlo_dropout":
+        print("Selected model: MonteCarloDropoutUNet")
+        print(f"    - Dropout prob: {dropout_p}")
+        print(f"    - input_frames: {input_frames}")
+        print(f"    - filters: {num_filters}")
+        probabilistic_unet = MonteCarloDropoutUNet(
+            dropout_p=dropout_p, in_frames=input_frames, filters=num_filters
+        )
+    else:
+        raise ValueError(f"Wrong class type! {model_name} not recognized.")
 
-        probabilistic_unet.model.to(device)
-        probabilistic_unet.initialize_weights()
-        probabilistic_unet.initialize_optimizer(method="SGD", lr=LEARNING_RATE)
-        probabilistic_unet.create_dataloaders(
-            path="datasets/moving_mnist_dataset/",
-            batch_size=BATCH_SIZE,
-            binarization_method="integer_classes",  # needed for BinClassifierUNet
+    print("Initializing model...")
+    probabilistic_unet.model.to(device)
+    probabilistic_unet.initialize_weights()
+    probabilistic_unet.initialize_optimizer(method="SGD", lr=learning_rate)
+    probabilistic_unet.create_dataloaders(
+        path="datasets/moving_mnist_dataset/",
+        batch_size=batch_size,
+        binarization_method="integer_classes",  # needed for BinClassifierUNet
+    )
+    print("Initialization done.")
+
+    # start a new wandb run to track this script
+    if save_experiment:
+        run = wandb.init(
+            project="cloudiness_probabilistic_forecasting",
+            name=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            config={
+                "optimizer": "SGD",
+                "learning_rate": learning_rate,
+                "architecture": probabilistic_unet.name,
+                "dataset": "moving_mnist",
+                "epochs": epochs,
+            },
         )
 
-        # start a new wandb run to track this script
-        if SAVE_EXPERIMENT:
-            run = wandb.init(
-                project="cloudiness_probabilistic_forecasting",
-                name=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
-                config={
-                    "optimizer": "SGD",
-                    "learning_rate": LEARNING_RATE,
-                    "architecture": probabilistic_unet.name,
-                    "dataset": "moving_mnist",
-                    "epochs": EPOCHS,
-                },
-            )
+        wandb.watch(probabilistic_unet.model, log_freq=100)
+    else:
+        run = None
 
-            wandb.watch(probabilistic_unet.model, log_freq=100)
-        else:
-            run = None
+    print("Starting training...")
+    train_loss, val_loss = probabilistic_unet.fit(
+        n_epochs=epochs,
+        num_train_samples=num_train_samples,
+        print_train_every_n_batch=print_every_n_batches,
+        num_val_samples=num_val_samples,
+        device=device,
+        run=run,
+        verbose=True,
+        model_name=probabilistic_unet.name,
+        checkpoint_path=f"checkpoints/mmnist/{model_name}/",
+        ensemble_predictions=num_ensemble_preds,
+    )
+    print("Training done.")
+    print(f"    - Train loss: {train_loss[-1]}")
+    print(f"    - Val loss: {val_loss[-1]}")
 
-        train_loss, val_loss = probabilistic_unet.fit(
-            n_epochs=EPOCHS,
-            num_train_samples=NUM_TRAIN_SAMPLES,
-            print_train_every_n_batch=PRINT_EVERY_N_BATCHES,
-            num_val_samples=NUM_VAL_SAMPLES,
-            device=device,
-            run=run,
-            verbose=True,
-            model_name="qr_model_mmnist_test",
-            checkpoint_path="checkpoints/prueba/",
-            ensemble_predictions=ENSEMBLE_PREDICTIONS,
-        )
-        print("Training done.")
-        print(f"    - Train loss: {train_loss[-1]}")
-        print(f"    - Val loss: {val_loss[-1]}")
+    if save_experiment:
+        wandb.finish()
 
-        if SAVE_EXPERIMENT:
-            wandb.finish()
+    # print("Loading model from best checkpoint...")
+    # probabilistic_unet.load_checkpoint(
+    #     checkpoint_path="checkpoints/prueba/qr_model_mmnist_test_005.pt",
+    #     device=device,
+    # )
+    # print("Loading done.")
 
-        print("Loading model from best checkpoint...")
-        probabilistic_unet.load_checkpoint(
-            checkpoint_path="checkpoints/prueba/qr_model_mmnist_test_005.pt",
-            device=device,
-        )
-        print("Loading done.")
+
+if __name__ == "__main__":
+    fire.Fire(main)
