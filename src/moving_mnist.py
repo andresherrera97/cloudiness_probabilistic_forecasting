@@ -57,7 +57,7 @@ def main(
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = BinClassifierUNet(
-            n_bins=num_bins, in_frames=input_frames, filters=num_filters
+            n_bins=num_bins, in_frames=input_frames, filters=num_filters, device=device
         )
     elif model_name in ["quantile_regressor", "qr"]:
         logger.info("Selected model: QuantileRegressorUNet")
