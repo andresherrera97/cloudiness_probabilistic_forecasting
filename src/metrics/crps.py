@@ -56,6 +56,10 @@ def crps_gaussian(
     sample_weight=None,
     eps: float = 1e-12,
 ) -> float:
+    mu = mu.cpu().numpy()
+    target = target.cpu().numpy()
+    sig = sig.cpu().numpy()
+
     sig = sig + eps  # Avoid division by zero
     sx = (target - mu) / sig
     pdf = stats.norm.pdf(sx)
