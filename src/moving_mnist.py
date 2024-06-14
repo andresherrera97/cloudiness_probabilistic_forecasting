@@ -28,6 +28,7 @@ def main(
     num_bins: int = 10,
     input_frames: int = 3,
     epochs: int = 5,
+    optimizer: str = "SGD",
     num_train_samples: Optional[int] = None,
     print_every_n_batches: int = 500,
     num_val_samples: Optional[int] = None,
@@ -43,14 +44,11 @@ def main(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    if model_name == "mean_std":
+    if model_name in ["mean_std", "meanstd"]:
         logger.info("Selected model: MeanStdUNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
-        probabilistic_unet = MeanStdUNet(
-            in_frames=input_frames,
-            filters=num_filters
-        )
+        probabilistic_unet = MeanStdUNet(in_frames=input_frames, filters=num_filters)
     elif model_name in ["bin_classifier", "bin"]:
         logger.info("Selected model: BinClassifierUNet")
         logger.info(f"    - Bins: {num_bins}")
@@ -65,17 +63,19 @@ def main(
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = QuantileRegressorUNet(
-            quantiles=quantiles,
-            in_frames=input_frames,
-            filters=num_filters
+            quantiles=quantiles, in_frames=input_frames, filters=num_filters
         )
-    elif model_name == "monte_carlo_dropout":
+    elif model_name in ["monte_carlo_dropout", "mcd"]:
         logger.info("Selected model: MonteCarloDropoutUNet")
         logger.info(f"    - Dropout prob: {dropout_p}")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
+        logger.info(f"    - Ensemble preds: {num_ensemble_preds}")
         probabilistic_unet = MonteCarloDropoutUNet(
-            dropout_p=dropout_p, in_frames=input_frames, filters=num_filters
+            dropout_p=dropout_p,
+            in_frames=input_frames,
+            filters=num_filters,
+            n_quantiles=num_ensemble_preds,
         )
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")
@@ -83,7 +83,7 @@ def main(
     logger.info("Initializing model...")
     probabilistic_unet.model.to(device)
     probabilistic_unet.initialize_weights()
-    probabilistic_unet.initialize_optimizer(method="SGD", lr=learning_rate)
+    probabilistic_unet.initialize_optimizer(method=optimizer, lr=learning_rate)
     probabilistic_unet.create_dataloaders(
         path="datasets/moving_mnist_dataset/",
         batch_size=batch_size,
@@ -97,7 +97,7 @@ def main(
             project="cloudiness_probabilistic_forecasting",
             name=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
             config={
-                "optimizer": "SGD",
+                "optimizer": optimizer,
                 "learning_rate": learning_rate,
                 "architecture": probabilistic_unet.name,
                 "dataset": "moving_mnist",
@@ -120,7 +120,6 @@ def main(
         verbose=True,
         model_name=probabilistic_unet.name,
         checkpoint_path=f"checkpoints/mmnist/{model_name}/",
-        ensemble_predictions=num_ensemble_preds,
     )
     logger.info("Training done.")
     logger.info(f"    - Train loss: {train_loss[-1]}")
@@ -135,6 +134,7 @@ def main(
     #     device=device,
     # )
     # logger.info("Loading done.")
+
 
 if __name__ == "__main__":
     fire.Fire(main)
