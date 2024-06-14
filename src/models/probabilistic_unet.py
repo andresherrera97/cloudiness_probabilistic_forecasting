@@ -824,7 +824,20 @@ class MeanStdUNet(ProbabilisticUNet):
 
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
-        pass
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+
+        self.in_frames = checkpoint["num_input_frames"]
+        self.filters = checkpoint["num_filters"]
+
+        # Generate same architecture
+        self.model = UNet(
+            in_frames=self.in_frames,
+            n_classes=2,
+            filters=self.filters,
+        )
+
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.to(device=device)
 
     @property
     def name(self):
@@ -845,7 +858,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=1,
-            dropout_p=dropout_p,
+            dropout_p=self.dropout_p,
             filters=self.filters,
         )
         self.n_quantiles = n_quantiles
@@ -1046,7 +1059,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         for _ in range(iterations - 1):
             predictions = torch.cat((predictions, self.model(X.float())), dim=1)
 
-        return torch.sort(X, dim=1)[0]
+        return torch.sort(predictions, dim=1)[0]
 
     def calculate_loss(self, predictions, y_target):
         return self.loss_fn(predictions, y_target)
@@ -1061,8 +1074,25 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
-        pass
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+
+        self.in_frames = checkpoint["num_input_frames"]
+        self.filters = checkpoint["num_filters"]
+        self.dropout_p = checkpoint["dropout_p"]
+        self.n_quantiles = checkpoint["n_quantiles"]
+        self.quantiles = checkpoint["quantiles"]
+
+        # Generate same architecture
+        self.model = UNet(
+            in_frames=self.in_frames,
+            n_classes=1,
+            dropout_p=self.dropout_p,
+            filters=self.filters,
+        )
+
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.to(device=device)
 
     @property
     def name(self):
-        return f"MCDropoutUNet_{self.in_frames}frames_{self.filters}filters_{self.dropout_p}dropout_p"
+        return f"MCDUNet_{self.in_frames}frames_{self.filters}filters_{self.dropout_p}dropoutp_{self.n_quantiles}quantiles"
