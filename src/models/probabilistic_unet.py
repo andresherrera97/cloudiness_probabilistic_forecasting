@@ -301,7 +301,7 @@ class BinClassifierUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def predict(self, X, iterations: int):
+    def predict(self, X, iterations: Optional[int] = None):
         return self.model(X.float())
 
     def calculate_loss(self, predictions, y_target):
@@ -312,7 +312,21 @@ class BinClassifierUNet(ProbabilisticUNet):
 
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
-        pass
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+
+        self.in_frames = checkpoint["num_input_frames"]
+        self.filters = checkpoint["num_filters"]
+        self.n_bins = checkpoint["num_bins"]
+
+        # Generate same architecture
+        self.model = UNet(
+            in_frames=self.in_frames,
+            n_classes=self.n_bins,
+            filters=self.filters,
+        )
+        
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.to(device=device)
 
     @property
     def name(self):
@@ -523,13 +537,21 @@ class QuantileRegressorUNet(ProbabilisticUNet):
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
-        self.model.load_state_dict(checkpoint["model_state_dict"])
 
-        # update quantiles
-        if len(self.quantiles) != len(checkpoint["quantiles"]) or self.quantiles != list(checkpoint["quantiles"]):
-            self._logger.info(f"Updating quantiles to match checkpoint: {checkpoint['quantiles']}")
-            self.quantiles = list(checkpoint["quantiles"])
-            self.n_bins = len(self.quantiles)
+        self.in_frames = checkpoint["num_input_frames"]
+        self.filters = checkpoint["num_filters"]
+        self.quantiles = list(checkpoint["quantiles"])
+        self.n_bins = len(self.quantiles)
+
+        # Generate same architecture
+        self.model = UNet(
+            in_frames=self.in_frames,
+            n_classes=self.n_bins,
+            filters=self.filters,
+        )
+        
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.to(device=device)
 
     @property
     def name(self):
