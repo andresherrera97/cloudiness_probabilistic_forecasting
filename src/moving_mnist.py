@@ -1,6 +1,10 @@
 import datetime
 import wandb
 import torch
+import os
+import random
+import fire
+import logging
 from models import (
     MeanStdUNet,
     BinClassifierUNet,
@@ -8,10 +12,7 @@ from models import (
     MonteCarloDropoutUNet,
 )
 import numpy as np
-import random
-import fire
 from typing import Optional, List
-import logging
 
 
 # Configure logging
@@ -38,6 +39,7 @@ def main(
     quantiles: List[float] = [0.1, 0.25, 0.5, 0.75, 0.9],
     dropout_p: float = 0.5,
     num_ensemble_preds: int = 1,
+    checkpoint_folder: str = "",
     save_experiment: bool = False,
 ):
 
@@ -93,9 +95,10 @@ def main(
 
     # start a new wandb run to track this script
     if save_experiment:
+        run_name = f'{model_name}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
             project="cloudiness_probabilistic_forecasting",
-            name=datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            name=run_name,
             config={
                 "optimizer": optimizer,
                 "learning_rate": learning_rate,
@@ -119,7 +122,9 @@ def main(
         run=run,
         verbose=True,
         model_name=probabilistic_unet.name,
-        checkpoint_path=f"checkpoints/mmnist/{model_name}/",
+        checkpoint_path=os.path.join(
+            "checkpoints/mmnist/", checkpoint_folder, model_name
+        ),
     )
     logger.info("Training done.")
     logger.info(f"    - Train loss: {train_loss[-1]}")
@@ -127,13 +132,6 @@ def main(
 
     if save_experiment:
         wandb.finish()
-
-    # logger.info("Loading model from best checkpoint...")
-    # probabilistic_unet.load_checkpoint(
-    #     checkpoint_path="checkpoints/prueba/qr_model_mmnist_test_005.pt",
-    #     device=device,
-    # )
-    # logger.info("Loading done.")
 
 
 if __name__ == "__main__":

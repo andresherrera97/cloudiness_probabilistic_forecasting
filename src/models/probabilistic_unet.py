@@ -302,7 +302,10 @@ class BinClassifierUNet(ProbabilisticUNet):
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
                 if checkpoint_path is not None:
-                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    checkpoint_name = (
+                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                    )
                     torch.save(
                         self.best_model_dict,
                         os.path.join(checkpoint_path, checkpoint_name),
@@ -532,7 +535,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
                 if checkpoint_path is not None:
-                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    checkpoint_name = (
+                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                    )
                     torch.save(
                         self.best_model_dict,
                         os.path.join(checkpoint_path, checkpoint_name),
@@ -801,7 +807,10 @@ class MeanStdUNet(ProbabilisticUNet):
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
                 if checkpoint_path is not None:
-                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    checkpoint_name = (
+                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                    )
                     torch.save(
                         self.best_model_dict,
                         os.path.join(checkpoint_path, checkpoint_name),
@@ -1044,7 +1053,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "train_loss_epoch_mean": train_loss_in_epoch,
                 }
                 if checkpoint_path is not None:
-                    checkpoint_name = f"{model_name}_{str(epoch + 1).zfill(3)}.pt"
+                    checkpoint_name = (
+                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                    )
                     torch.save(
                         self.best_model_dict,
                         os.path.join(checkpoint_path, checkpoint_name),
