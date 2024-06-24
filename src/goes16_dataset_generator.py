@@ -1,6 +1,8 @@
 import os
 import time
 import datetime
+import logging
+import fire
 import numpy as np
 import cv2
 from tqdm import tqdm
@@ -13,6 +15,10 @@ from botocore.config import Config
 import satellite.constants as sat_cts
 import satellite.functions as sat_functions
 
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("GOES16 Dataset Generator")
 
 # Define environment variable to speed up gdal
 os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY"
@@ -33,13 +39,13 @@ elif sat_cts.REGION == "F":
 
 
 def main(
-    date: str,
-    lat: float,
-    lon: float,
-    size: int,
-    out: str,
+    date: str = "2024-05-19",
+    lat: float = -34,
+    lon: float = -55,
+    size: int = 512,
+    out: str = "datasets/goes16/",
     save_only_first_img: bool = False,
-    verbose: bool = False,
+    verbose: bool = True,
 ):
     """Download/load images and perform a background substraction.
 
@@ -150,7 +156,7 @@ def main(
             planetary_reflectance[np.isnan(planetary_reflectance)] = 0
             planetary_reflectance = np.clip(planetary_reflectance, 0, 1.0)
             planetary_reflectance *= 100
-            print(
+            logger.info(
                 f"    - min-max values for PR: {np.nanmin(planetary_reflectance)} "
                 f"- {np.nanmax(planetary_reflectance)}"
             )
@@ -163,18 +169,10 @@ def main(
                 break
 
     time_download_end = time.time()
-    print(
+    logger.info(
         f"Downloading and processing time {(time_download_end - time_download_start):.2f}"
     )
 
 
 if __name__ == "__main__":
-    main(
-        date="2024-05-19",
-        lat=-34,
-        lon=-55,
-        size=512,
-        out="datasets/goes16/",
-        save_only_first_img=True,
-        verbose=True,
-    )
+    fire.Fire(main)
