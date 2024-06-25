@@ -40,6 +40,7 @@ def main(
     dropout_p: float = 0.5,
     num_ensemble_preds: int = 1,
     checkpoint_folder: str = "",
+    checkpoint_metric: str = "crps",
     save_experiment: bool = False,
 ):
 
@@ -122,6 +123,7 @@ def main(
         run=run,
         verbose=True,
         model_name=probabilistic_unet.name,
+        checkpoint_metric=checkpoint_metric,
         checkpoint_path=os.path.join(
             "checkpoints/mmnist/", checkpoint_folder, model_name
         ),

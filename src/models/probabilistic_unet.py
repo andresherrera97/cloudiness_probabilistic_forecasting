@@ -60,6 +60,7 @@ class ProbabilisticUNet(ABC):
         run,
         verbose: bool,
         model_name: str,
+        checkpoint_metric: str,
         checkpoint_path: Optional[str],
     ):
         """Train the model on the given input data and labels for a specified number of epochs."""
@@ -165,6 +166,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         run,
         verbose: bool,
         model_name: str,
+        checkpoint_metric: str = "crps",
         checkpoint_path: Optional[str] = None,
     ) -> Tuple[List[float], List[float]]:
         # create checkpoint directory if it does not exist
@@ -263,6 +265,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_bin": crps_in_epoch}, step=epoch)
+                run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log({"precision": precision_in_epoch}, step=epoch)
 
             end_epoch = time.time()
@@ -283,11 +286,19 @@ class BinClassifierUNet(ProbabilisticUNet):
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
 
-            if val_loss_in_epoch < best_val_loss:
+            if checkpoint_metric == "crps":
+                checkpoint_metric_in_epoch = crps_in_epoch
+            elif checkpoint_metric == "precision":
+                checkpoint_metric_in_epoch = 1 - precision_in_epoch
+            else:
+                checkpoint_metric_in_epoch = val_loss_in_epoch
+
+            if checkpoint_metric_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
+                    f"Saving best model. Best {checkpoint_metric}: "
+                    f"{checkpoint_metric_in_epoch:.4f}"
                 )
-                best_val_loss = val_loss_in_epoch
+                best_val_loss = checkpoint_metric_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -300,6 +311,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                     "val_loss_per_epoch": val_loss_per_epoch,
                     "crps_per_epoch": crps_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
+                    "checkpoint_metric": checkpoint_metric,
                 }
                 if checkpoint_path is not None:
                     checkpoint_name = (
@@ -336,7 +348,7 @@ class BinClassifierUNet(ProbabilisticUNet):
             n_classes=self.n_bins,
             filters=self.filters,
         )
-        
+
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
 
@@ -404,6 +416,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         run,
         verbose: bool,
         model_name: str,
+        checkpoint_metric: str = "crps",
         checkpoint_path: Optional[str] = None,
     ) -> Tuple[List[float], List[float]]:
 
@@ -498,6 +511,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_quantile": crps_in_epoch}, step=epoch)
+                run.log({"crps": crps_in_epoch}, step=epoch)
 
             end_epoch = time.time()
 
@@ -516,11 +530,16 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
 
-            if val_loss_in_epoch < best_val_loss:
+            if checkpoint_metric == "crps":
+                checkpoint_metric_in_epoch = crps_in_epoch
+            else:
+                checkpoint_metric_in_epoch = val_loss_in_epoch
+
+            if checkpoint_metric_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
+                    f"Saving best model. Best {checkpoint_metric}: {checkpoint_metric_in_epoch:.4f}"
                 )
-                best_val_loss = val_loss_in_epoch
+                best_val_loss = checkpoint_metric_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -533,6 +552,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     "val_loss_per_epoch": val_loss_per_epoch,
                     "crps_per_epoch": crps_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
+                    "checkpoint_metric": checkpoint_metric,
                 }
                 if checkpoint_path is not None:
                     checkpoint_name = (
@@ -634,6 +654,7 @@ class MeanStdUNet(ProbabilisticUNet):
         run=None,
         verbose: bool = True,
         model_name: str = "mean_std_unet",
+        checkpoint_metric: str = "crps",
         checkpoint_path: Optional[str] = None,
     ) -> Tuple[List[float], List[float]]:
 
@@ -741,33 +762,7 @@ class MeanStdUNet(ProbabilisticUNet):
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"val_mae_mean_pred": val_mae_mean_pred_in_epoch}, step=epoch)
                 run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
-
-                wandb_target_img = wandb.Image(
-                    out_frames[0, 0, :, :].unsqueeze(-1).cpu().numpy()
-                )
-                wandb_mean_img = wandb.Image(
-                    frames_pred[0, 0, :, :].unsqueeze(-1).cpu().numpy(),
-                    caption=(
-                        f"min: {frames_pred[0, 0, :, :].min():.2f}, "
-                        f"max: {frames_pred[0, 0, :, :].max():.2f}"
-                    ),
-                )
-                wandb_std_img = wandb.Image(
-                    frames_pred[0, 1, :, :].unsqueeze(-1).cpu().numpy(),
-                    caption=(
-                        f"min: {frames_pred[0, 0, :, :].min():.2f}, "
-                        f"max: {frames_pred[0, 0, :, :].max():.2f}, "
-                        f"mean: {frames_pred[0, 0, :, :].mean():.2f}"
-                    ),
-                )
-
-                my_table = wandb.Table(
-                    columns=["target", "mean", "std"],
-                    data=[[wandb_target_img, wandb_mean_img, wandb_std_img]],
-                )
-
-                # Log your Table to W&B
-                run.log({f"epoch_{epoch}": my_table}, step=epoch)
+                run.log({"crps": crps_in_epoch}, step=epoch)
 
             end_epoch = time.time()
 
@@ -788,11 +783,18 @@ class MeanStdUNet(ProbabilisticUNet):
             crps_per_epoch.append(crps_in_epoch)
             val_mae_per_epoch.append(val_mae_mean_pred_in_epoch)
 
-            if val_loss_in_epoch < best_val_loss:
+            if checkpoint_metric == "crps":
+                checkpoint_metric_in_epoch = crps_in_epoch
+            elif checkpoint_metric == "mae":
+                checkpoint_metric_in_epoch = val_mae_mean_pred_in_epoch
+            else:
+                checkpoint_metric_in_epoch = val_loss_in_epoch
+
+            if checkpoint_metric_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
+                    f"Saving best model. Best val loss: {checkpoint_metric_in_epoch:.4f}"
                 )
-                best_val_loss = val_loss_in_epoch
+                best_val_loss = checkpoint_metric_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -805,6 +807,7 @@ class MeanStdUNet(ProbabilisticUNet):
                     "crps_per_epoch": crps_per_epoch,
                     "val_mae_per_epoch": val_mae_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
+                    "checkpoint_metric": checkpoint_metric,
                 }
                 if checkpoint_path is not None:
                     checkpoint_name = (
@@ -913,6 +916,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         run,
         verbose: bool,
         model_name: str,
+        checkpoint_metric: str = "crps",
         checkpoint_path: Optional[str] = None,
     ) -> Tuple[List[float], List[float]]:
 
@@ -1014,6 +1018,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_quantile": crps_in_epoch}, step=epoch)
+                run.log({"crps": crps_in_epoch}, step=epoch)
 
             end_epoch = time.time()
 
@@ -1032,11 +1037,16 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
 
-            if val_loss_in_epoch < best_val_loss:
+            if checkpoint_metric == "crps":
+                checkpoint_metric_in_epoch = crps_in_epoch
+            else:
+                checkpoint_metric_in_epoch = val_loss_in_epoch
+
+            if checkpoint_metric_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
+                    f"Saving best model. Best {checkpoint_metric}: {checkpoint_metric_in_epoch:.4f}"
                 )
-                best_val_loss = val_loss_in_epoch
+                best_val_loss = checkpoint_metric_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -1051,6 +1061,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "val_loss_per_epoch": val_loss_per_epoch,
                     "crps_per_epoch": crps_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
+                    "checkpoint_metric": checkpoint_metric,
                 }
                 if checkpoint_path is not None:
                     checkpoint_name = (
