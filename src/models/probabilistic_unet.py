@@ -25,7 +25,7 @@ from metrics import (
 )
 from data_handlers import MovingMnistDataset
 from .unet import UNet
-from .model_initialization import weights_init, optimizer_init
+from .model_initialization import weights_init, optimizer_init, scheduler_init
 import logging
 
 
@@ -85,6 +85,18 @@ class ProbabilisticUNet(ABC):
         pass
 
     @abstractmethod
+    def initialize_scheduler(
+        self,
+        method: str,
+        step_size: int,
+        gamma: float,
+        patience: int,
+        min_lr: float,
+    ):
+        """Abstract method to initialize the learning rate scheduler for training the model."""
+        pass
+
+    @abstractmethod
     def create_dataloaders(
         self, path: str, batch_size: int, binarization_method: Optional[str]
     ):
@@ -125,6 +137,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
+        self.scheduler = None
         self.multiclass_precision_metric = MulticlassPrecision(
             num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
         ).to(device=device)
@@ -136,6 +149,18 @@ class BinClassifierUNet(ProbabilisticUNet):
 
     def initialize_optimizer(self, method: str, lr: float):
         self.optimizer = optimizer_init(self.model, method, lr)
+
+    def initialize_scheduler(
+        self,
+        method: str,
+        step_size: int,
+        gamma: float,
+        patience: int,
+        min_lr: float,
+    ):
+        self.scheduler = scheduler_init(
+            self.optimizer, method, step_size, gamma, patience, min_lr
+        )
 
     def create_dataloaders(self, path: str, batch_size: int, binarization_method: str):
         train_dataset = MovingMnistDataset(
@@ -380,6 +405,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
+        self.scheduler = None
         self.best_model_dict = None
         self._logger = logging.getLogger(self.__class__.__name__)
 
@@ -388,6 +414,18 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
     def initialize_optimizer(self, method: str, lr: float):
         self.optimizer = optimizer_init(self.model, method, lr)
+
+    def initialize_scheduler(
+        self,
+        method: str,
+        step_size: int,
+        gamma: float,
+        patience: int,
+        min_lr: float,
+    ):
+        self.scheduler = scheduler_init(
+            self.optimizer, method, step_size, gamma, patience, min_lr
+        )
 
     def create_dataloaders(self, path: str, batch_size: int, binarization_method=None):
         train_dataset = MovingMnistDataset(
@@ -619,6 +657,7 @@ class MeanStdUNet(ProbabilisticUNet):
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
+        self.scheduler = None
         self._logger = logging.getLogger(self.__class__.__name__)
 
     def initialize_weights(self):
@@ -626,6 +665,18 @@ class MeanStdUNet(ProbabilisticUNet):
 
     def initialize_optimizer(self, method: str, lr: float):
         self.optimizer = optimizer_init(self.model, method, lr)
+
+    def initialize_scheduler(
+        self,
+        method: str,
+        step_size: int,
+        gamma: float,
+        patience: int,
+        min_lr: float,
+    ):
+        self.scheduler = scheduler_init(
+            self.optimizer, method, step_size, gamma, patience, min_lr
+        )
 
     def create_dataloaders(self, path: str, batch_size: int, binarization_method=None):
         train_dataset = MovingMnistDataset(
@@ -880,6 +931,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
+        self.scheduler = None
         self.best_model_dict = None
         self._logger = logging.getLogger(self.__class__.__name__)
 
@@ -888,6 +940,18 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
     def initialize_optimizer(self, method: str, lr: float):
         self.optimizer = optimizer_init(self.model, method, lr)
+
+    def initialize_scheduler(
+        self,
+        method: str,
+        step_size: int,
+        gamma: float,
+        patience: int,
+        min_lr: float,
+    ):
+        self.scheduler = scheduler_init(
+            self.optimizer, method, step_size, gamma, patience, min_lr
+        )
 
     def create_dataloaders(self, path: str, batch_size: int, binarization_method=None):
         train_dataset = MovingMnistDataset(

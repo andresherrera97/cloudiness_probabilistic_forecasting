@@ -30,6 +30,7 @@ def main(
     input_frames: int = 3,
     epochs: int = 5,
     optimizer: str = "SGD",
+    scheduler: Optional[str] = None,
     num_train_samples: Optional[int] = None,
     print_every_n_batches: int = 500,
     num_val_samples: Optional[int] = None,
@@ -87,6 +88,14 @@ def main(
     probabilistic_unet.model.to(device)
     probabilistic_unet.initialize_weights()
     probabilistic_unet.initialize_optimizer(method=optimizer, lr=learning_rate)
+    if scheduler is not None:
+        probabilistic_unet.initialize_scheduler(
+            method=scheduler,
+            step_size=20,
+            gamma=0.3,
+            patience=20,
+            min_lr=1e-7,
+        )
     probabilistic_unet.create_dataloaders(
         path="datasets/moving_mnist_dataset/",
         batch_size=batch_size,
@@ -102,6 +111,7 @@ def main(
             name=run_name,
             config={
                 "optimizer": optimizer,
+                "scheduler": scheduler,
                 "learning_rate": learning_rate,
                 "architecture": probabilistic_unet.name,
                 "dataset": "moving_mnist",
