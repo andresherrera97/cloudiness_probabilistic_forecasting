@@ -1,5 +1,6 @@
 import numpy as np
 from typing import List
+import scipy.stats as stats
 
 
 def bin_2_quantile(
@@ -106,6 +107,99 @@ def quantile_2_bin(
     return bin_probs
 
 
+def gaussian_2_quantile(
+    mean_array: np.ndarray, std_dev_array: np.ndarray, quantiles: List
+):
+    """
+    Compute quantiles for a Gaussian distribution.
+
+    Parameters:
+    mean (float): The mean of the Gaussian distribution.
+    std_dev (float): The standard deviation of the Gaussian distribution.
+    quantiles (list of float): A list of desired quantiles (between 0 and 1).
+
+    Returns:
+    list of float: The values corresponding to the given quantiles.
+    """
+    if len(mean_array.shape) != 4:
+        raise ValueError(
+            "The input quantile values must have shape (batch_size, "
+            "1, height, width)"
+        )
+
+    if len(std_dev_array.shape) != 4:
+        raise ValueError(
+            "The input quantile values must have shape (batch_size, "
+            "1, height, width)"
+        )
+
+    batch_size, _, height, width = mean_array.shape
+    quantiles_values = np.zeros((batch_size, len(quantiles), height, width))
+
+    for n in range(batch_size):
+        for i in range(height):
+            for j in range(width):
+                mean = mean_array[n, 0, i, j]
+                std_dev = std_dev_array[n, 0, i, j]
+                # Create a normal distribution with the given mean and standard deviation
+                distribution = stats.norm(loc=mean, scale=std_dev)
+
+                # Compute the quantiles
+                quantiles_values[n, :, i, j] = distribution.ppf(quantiles)
+
+    return quantiles_values
+
+
+def gaussian_2_bin(
+    mean_array: np.ndarray,
+    std_dev_array: np.ndarray,
+    num_bins: int,
+    min_value: float = 0.0,
+    max_value: float = 1.0,
+):
+    """
+    Compute quantiles for a Gaussian distribution.
+
+    Parameters:
+    mean (float): The mean of the Gaussian distribution.
+    std_dev (float): The standard deviation of the Gaussian distribution.
+    quantiles (list of float): A list of desired quantiles (between 0 and 1).
+
+    Returns:
+    list of float: The values corresponding to the given quantiles.
+    """
+    if len(mean_array.shape) != 4:
+        raise ValueError(
+            "The input quantile values must have shape (batch_size, "
+            "1, height, width)"
+        )
+
+    if len(std_dev_array.shape) != 4:
+        raise ValueError(
+            "The input quantile values must have shape (batch_size, "
+            "1, height, width)"
+        )
+
+    batch_size, _, height, width = mean_array.shape
+    bin_edges = np.linspace(min_value, max_value, num_bins + 1)
+    bin_probs = np.zeros((batch_size, len(bin_edges) - 1, height, width))
+
+    for n in range(batch_size):
+        for i in range(height):
+            for j in range(width):
+                mean = mean_array[n, 0, i, j]
+                std_dev = std_dev_array[n, 0, i, j]
+                # Create a normal distribution with the given mean and standard deviation
+                distribution = stats.norm(loc=mean, scale=std_dev)
+
+                # Compute the quantiles
+                cdf_values = distribution.cdf(bin_edges)
+                # Compute the bin probabilities as differences of successive CDF values
+                bin_probs[n, :, i, j] = np.diff(cdf_values)
+
+    return bin_probs
+
+
 if __name__ == "__main__":
 
     # Example usage:
@@ -135,4 +229,18 @@ if __name__ == "__main__":
     quantiles_values_array[:, 2, :, :] = 0.90
 
     bin_probabilities = quantile_2_bin(quantiles, quantiles_values_array, num_bins=5)
-    print(f"bin probabilities: {bin_probabilities}")
+
+    # gaussina to quantiles
+    # Example usage:
+    mean = 0.5
+    mean_array = np.ones((1, 1, 1, 1))
+    mean_array[:, 0, :, :] = 0.50
+    std_dev = 0.02
+    std_array = np.ones((1, 1, 1, 1))
+    std_array[:, 0, :, :] = 0.2
+
+    quantiles = [0.10, 0.25, 0.5, 0.75, 0.9]  # 25th, 50th, and 75th percentiles
+
+    quantile_values = gaussian_2_quantile(mean_array, std_array, quantiles)
+
+    bin_probs_gaussian = gaussian_2_bin(mean_array, std_array, num_bins=5)
