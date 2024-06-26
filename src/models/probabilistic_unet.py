@@ -448,6 +448,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         path: str,
         batch_size: int,
         time_horizon: int,
+        cosangs_csv_path: Optional[str] = None,
         binarization_method=None,
     ):
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
@@ -465,6 +466,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
             train_dataset = SatelliteDataset(
                 path=os.path.join(path, "train/"),
+                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
                 in_channel=self.in_frames,
                 out_channel=time_horizon,
                 min_time_diff=5,
@@ -476,6 +478,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
             val_dataset = SatelliteDataset(
                 path=os.path.join(path, "validation/"),
+                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
                 in_channel=self.in_frames,
                 out_channel=time_horizon,
                 min_time_diff=5,

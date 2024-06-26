@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import rotate
 from torch.utils.data import Dataset
-import src.utils.utils as utils
+import utils.utils as utils
 from typing import Optional
 
 
@@ -17,7 +17,7 @@ class SatelliteDataset(Dataset):
         out_channel: int = 1,
         min_time_diff: int = 5,
         max_time_diff: int = 15,
-        csv_path: Optional[str] = None,
+        cosangs_csv_path: Optional[str] = None,
         transform=None,
         output_last: bool = True,
         data_aug: bool = False,
@@ -36,8 +36,8 @@ class SatelliteDataset(Dataset):
         self.output_last = output_last
         self.day_pct = day_pct
 
-        if csv_path is not None:
-            cosangs_df = pd.read_csv(csv_path, header=None)
+        if cosangs_csv_path is not None:
+            cosangs_df = pd.read_csv(cosangs_csv_path, header=None)
             cosangs_df = cosangs_df.loc[cosangs_df[1] >= self.day_pct]
             self.sequence_df = utils.sequence_df_generator_w_cosangs_folders(
                 path=path,
