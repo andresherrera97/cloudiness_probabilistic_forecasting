@@ -13,5 +13,12 @@
 source /etc/profile.d/modules.sh
 
 cd /clusteruy/home/andres.herrera/cloudiness_probabilistic_forecasting
-python src/moving_mnist.py --model_name=meanstd --epochs=50 --batch_size=32 --num_filters=16 --save_experiment=True --optimizer=sgd
+python src/moving_mnist.py \
+    --model_name=meanstd \
+    --epochs=100 \
+    --batch_size=32 \
+    --num_filters=16 \
+    --save_experiment=True \
+    --optimizer=sgd \
+    --checkpoint_folder=sgd
 

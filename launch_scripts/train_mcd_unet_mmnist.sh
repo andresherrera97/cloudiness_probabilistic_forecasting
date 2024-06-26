@@ -13,5 +13,16 @@
 source /etc/profile.d/modules.sh
 
 cd /clusteruy/home/andres.herrera/cloudiness_probabilistic_forecasting
-python src/moving_mnist.py --model_name=mcd --epochs=20 --batch_size=32 --dropout_p=0.5 --num_ensemble_preds=5 --num_filters=16 --save_experiment=True --optimizer=sgd
+python src/moving_mnist.py \
+    --model_name=mcd \
+    --epochs=100 \
+    --batch_size=32 \
+    --dropout_p=0.75 \
+    --num_ensemble_preds=5 \
+    --num_filters=16 \
+    --save_experiment=True \
+    --optimizer=adam \
+    --checkpoint_folder=adam \
+    --checkpoint_metric=crps \
+    --scheduler=plateau
 
