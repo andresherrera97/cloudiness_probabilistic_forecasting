@@ -292,6 +292,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                 run.log({"crps_bin": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log({"precision": precision_in_epoch}, step=epoch)
+                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
 
             end_epoch = time.time()
 
@@ -550,6 +551,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_quantile": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
+                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
 
             end_epoch = time.time()
 
@@ -814,6 +816,7 @@ class MeanStdUNet(ProbabilisticUNet):
                 run.log({"val_mae_mean_pred": val_mae_mean_pred_in_epoch}, step=epoch)
                 run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
+                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
 
             end_epoch = time.time()
 
@@ -915,6 +918,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         n_quantiles: int = 5,
         dropout_p: float = 0.5,
     ):
+        if dropout_p is None:
+            raise ValueError("Dropout probability must be specified.")
+
         self.in_frames = in_frames
         self.filters = filters
         self.dropout_p = dropout_p
@@ -1083,6 +1089,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_quantile": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
+                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
 
             end_epoch = time.time()
 

@@ -26,7 +26,7 @@ np.random.seed(0)
 
 def main(
     model_name: str,
-    num_bins: int = 10,
+    num_bins: Optional[int] = None,
     input_frames: int = 3,
     epochs: int = 5,
     optimizer: str = "SGD",
@@ -37,9 +37,9 @@ def main(
     batch_size: int = 32,
     num_filters: int = 16,
     learning_rate: float = 1e-3,
-    quantiles: List[float] = [0.1, 0.25, 0.5, 0.75, 0.9],
-    dropout_p: float = 0.5,
-    num_ensemble_preds: int = 1,
+    quantiles: Optional[List[float]] = None,
+    dropout_p: Optional[float] = None,
+    num_ensemble_preds: Optional[int] = None,
     checkpoint_folder: str = "",
     checkpoint_metric: str = "crps",
     save_experiment: bool = False,
@@ -116,6 +116,12 @@ def main(
                 "architecture": probabilistic_unet.name,
                 "dataset": "moving_mnist",
                 "epochs": epochs,
+                "num_bins": num_bins,
+                "input_frames": input_frames,
+                "batch_size": batch_size,
+                "quantiles": quantiles,
+                "dropout_p": dropout_p,
+                "num_ensemble_preds": num_ensemble_preds,
             },
         )
 
