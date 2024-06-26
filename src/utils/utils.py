@@ -132,7 +132,7 @@ def save_errorarray_as_csv(error_array, time_stamp, filename):
             writer.writerow(row_dict)
 
 
-def get_cosangs_mask(meta_path="data/meta", img_name="ART_2020020_111017.FR"):
+def get_cosangs_mask(meta_path: str = "data/meta", img_name: str = "ART_2020020_111017.FR"):
     """Returns zenithal cos from img_name, with and whitout threshold
 
     Args:

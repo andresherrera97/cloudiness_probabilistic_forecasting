@@ -13,7 +13,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchmetrics.classification import MulticlassPrecision
-import wandb
 
 # Local application/library specific imports
 from metrics import (
@@ -23,7 +22,7 @@ from metrics import (
     crps_bin_classification,
     crps_quantile,
 )
-from data_handlers import MovingMnistDataset
+from data_handlers import MovingMnistDataset, SatelliteDataset, normalize_pixels
 from .unet import UNet
 from .model_initialization import weights_init, optimizer_init, scheduler_init
 import logging
@@ -98,7 +97,12 @@ class ProbabilisticUNet(ABC):
 
     @abstractmethod
     def create_dataloaders(
-        self, path: str, batch_size: int, binarization_method: Optional[str]
+        self,
+        dataset: str,
+        path: str,
+        batch_size: int,
+        time_horizon: int,
+        binarization_method: Optional[str],
     ):
         """Abstract method to create dataloaders for training and validation data."""
         pass
@@ -162,7 +166,14 @@ class BinClassifierUNet(ProbabilisticUNet):
             self.optimizer, method, step_size, gamma, patience, min_lr
         )
 
-    def create_dataloaders(self, path: str, batch_size: int, binarization_method: str):
+    def create_dataloaders(
+        self,
+        dataset: str,
+        path: str,
+        batch_size: int,
+        time_horizon: int,
+        binarization_method: str,
+    ):
         train_dataset = MovingMnistDataset(
             path=os.path.join(path, "train/"),
             input_frames=self.in_frames,
@@ -292,7 +303,10 @@ class BinClassifierUNet(ProbabilisticUNet):
                 run.log({"crps_bin": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log({"precision": precision_in_epoch}, step=epoch)
-                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
+                run.log(
+                    {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
+                    step=epoch,
+                )
 
             end_epoch = time.time()
 
@@ -428,17 +442,50 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             self.optimizer, method, step_size, gamma, patience, min_lr
         )
 
-    def create_dataloaders(self, path: str, batch_size: int, binarization_method=None):
-        train_dataset = MovingMnistDataset(
-            path=os.path.join(path, "train/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
-        val_dataset = MovingMnistDataset(
-            path=os.path.join(path, "validation/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
+    def create_dataloaders(
+        self,
+        dataset: str,
+        path: str,
+        batch_size: int,
+        time_horizon: int,
+        binarization_method=None,
+    ):
+        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
+            train_dataset = MovingMnistDataset(
+                path=os.path.join(path, "train/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+            val_dataset = MovingMnistDataset(
+                path=os.path.join(path, "validation/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+        elif dataset.lower() in ["goes16", "satellite"]:
+
+            train_dataset = SatelliteDataset(
+                path=os.path.join(path, "train/"),
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                min_time_diff=5,
+                max_time_diff=15,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+
+            val_dataset = SatelliteDataset(
+                path=os.path.join(path, "validation/"),
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                min_time_diff=5,
+                max_time_diff=15,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+        else:
+            raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
@@ -551,7 +598,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_quantile": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
-                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
+                run.log(
+                    {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
+                    step=epoch,
+                )
 
             end_epoch = time.time()
 
@@ -680,7 +730,14 @@ class MeanStdUNet(ProbabilisticUNet):
             self.optimizer, method, step_size, gamma, patience, min_lr
         )
 
-    def create_dataloaders(self, path: str, batch_size: int, binarization_method=None):
+    def create_dataloaders(
+        self,
+        dataset: str,
+        path: str,
+        batch_size: int,
+        time_horizon: int,
+        binarization_method=None,
+    ):
         train_dataset = MovingMnistDataset(
             path=os.path.join(path, "train/"),
             input_frames=self.in_frames,
@@ -816,7 +873,10 @@ class MeanStdUNet(ProbabilisticUNet):
                 run.log({"val_mae_mean_pred": val_mae_mean_pred_in_epoch}, step=epoch)
                 run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
-                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
+                run.log(
+                    {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
+                    step=epoch,
+                )
 
             end_epoch = time.time()
 
@@ -959,7 +1019,14 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             self.optimizer, method, step_size, gamma, patience, min_lr
         )
 
-    def create_dataloaders(self, path: str, batch_size: int, binarization_method=None):
+    def create_dataloaders(
+        self,
+        dataset: str,
+        path: str,
+        batch_size: int,
+        time_horizon: int,
+        binarization_method=None,
+    ):
         train_dataset = MovingMnistDataset(
             path=os.path.join(path, "train/"),
             input_frames=self.in_frames,
@@ -1089,7 +1156,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_quantile": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
-                run.log({"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]}, step=epoch)
+                run.log(
+                    {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
+                    step=epoch,
+                )
 
             end_epoch = time.time()
 
