@@ -5,6 +5,10 @@ from scipy.ndimage import rotate
 from torch.utils.data import Dataset
 import utils.utils as utils
 from typing import Optional
+from .utils import (
+    classify_array_in_bins,
+    classify_array_in_integer_classes,
+)
 
 
 class SatelliteDataset(Dataset):
@@ -22,11 +26,22 @@ class SatelliteDataset(Dataset):
         output_last: bool = True,
         data_aug: bool = False,
         day_pct: int = 1,
+        num_bins: Optional[int] = None,
+        binarization_method: Optional[str] = None,
     ):
         super(SatelliteDataset, self).__init__()
 
         if out_channel == 0:
             raise ValueError("out_channel must be greater than 0")
+        if binarization_method is not None and binarization_method not in [
+            "one_hot_encoding",
+            "integer_classes",
+            "both",
+        ]:
+            raise ValueError(
+                "binarization_method must be either 'one_hot_encoding' ,'integer_classes' or 'both'"
+            )
+
         self.path = path
         self.in_channel = in_channel
         self.out_channel = out_channel
@@ -35,6 +50,8 @@ class SatelliteDataset(Dataset):
         self.transform = transform
         self.output_last = output_last
         self.day_pct = day_pct
+        self.num_bins = num_bins
+        self.binarization_method = binarization_method
 
         if cosangs_csv_path is not None:
             cosangs_df = pd.read_csv(cosangs_csv_path, header=None)
@@ -115,7 +132,7 @@ class SatelliteDataset(Dataset):
                     out_frames = np.concatenate((out_frames, aux), axis=0)
 
         if self.transform:
-            if type(self.transform) == list:
+            if isinstance(self.transform, list):
                 for function in self.transform:
                     in_frames, out_frames = function(in_frames, out_frames)
             else:
@@ -125,6 +142,23 @@ class SatelliteDataset(Dataset):
             rot_angle = np.random.randint(0, 4) * 90
             in_frames = rotate(in_frames, angle=rot_angle, axes=(1, 2))
             out_frames = rotate(out_frames, angle=rot_angle, axes=(1, 2))
+
+        # pixel encoding for bin classification
+        if self.num_bins is not None and self.num_bins > 0:
+            if self.binarization_method == "one_hot_encoding":
+                out_frames = classify_array_in_bins(out_frames[0], self.num_bins)
+            elif self.binarization_method == "integer_classes":
+                out_frames = classify_array_in_integer_classes(
+                    out_frames[0], self.num_bins
+                )
+            elif self.binarization_method == "both":
+                out_frames_one_hot = classify_array_in_bins(
+                    out_frames[0], self.num_bins
+                )
+                out_frames_integer = classify_array_in_integer_classes(
+                    out_frames[0], self.num_bins
+                )
+                out_frames = (out_frames_one_hot, out_frames_integer)
 
         return in_frames, out_frames
 

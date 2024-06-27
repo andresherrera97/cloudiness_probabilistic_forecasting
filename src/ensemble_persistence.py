@@ -3,6 +3,7 @@ import visualization as viz
 import logging
 import fire
 import torch
+from typing import Optional
 
 
 # Configure logging
@@ -10,14 +11,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Persistence Ensemble")
 
 
-def main(num_quantiles: int = 10, batch_size: int = 1, create_plots: bool = False):
+def main(
+    dataset: str,
+    time_horizon: Optional[int],
+    num_quantiles: int = 10,
+    batch_size: int = 1,
+    create_plots: bool = False,
+):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
     peen = PersistenceEnsemble(n_quantiles=num_quantiles, device=device)
+
+    if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
+        dataset_path = "datasets/moving_mnist_dataset/"
+    else:
+        dataset_path = "/clusteruy/home03/DeepCloud/deepCloud/data/uru/"
+
     peen.create_dataloaders(
-        path="datasets/moving_mnist_dataset/", batch_size=batch_size
+        dataset=dataset,
+        path=dataset_path,
+        batch_size=batch_size,
+        time_horizon=time_horizon,
+        cosangs_csv_path="datasets/uru2020_day_pct_",  # only for satellite dataset
     )
 
     in_frames, out_frames, predictions, crps = peen.random_example()

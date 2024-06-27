@@ -102,6 +102,7 @@ class ProbabilisticUNet(ABC):
         path: str,
         batch_size: int,
         time_horizon: int,
+        cosangs_csv_path: Optional[str],
         binarization_method: Optional[str],
     ):
         """Abstract method to create dataloaders for training and validation data."""
@@ -172,20 +173,49 @@ class BinClassifierUNet(ProbabilisticUNet):
         path: str,
         batch_size: int,
         time_horizon: int,
-        binarization_method: str,
+        cosangs_csv_path: Optional[str] = None,
+        binarization_method: str = "integer_classes",
     ):
-        train_dataset = MovingMnistDataset(
-            path=os.path.join(path, "train/"),
-            input_frames=self.in_frames,
-            num_bins=self.n_bins,
-            binarization_method=binarization_method,
-        )
-        val_dataset = MovingMnistDataset(
-            path=os.path.join(path, "validation/"),
-            input_frames=self.in_frames,
-            num_bins=self.n_bins,
-            binarization_method=binarization_method,
-        )
+        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
+            train_dataset = MovingMnistDataset(
+                path=os.path.join(path, "train/"),
+                input_frames=self.in_frames,
+                num_bins=self.n_bins,
+                binarization_method=binarization_method,
+            )
+            val_dataset = MovingMnistDataset(
+                path=os.path.join(path, "validation/"),
+                input_frames=self.in_frames,
+                num_bins=self.n_bins,
+                binarization_method=binarization_method,
+            )
+
+        elif dataset.lower() in ["goes16", "satellite"]:
+            train_dataset = SatelliteDataset(
+                path=os.path.join(path, "train/"),
+                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+                num_bins=self.n_bins,
+                binarization_method=binarization_method,
+            )
+            val_dataset = SatelliteDataset(
+                path=os.path.join(path, "validation/"),
+                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+                num_bins=self.n_bins,
+                binarization_method=binarization_method,
+            )
+
+        else:
+            raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
@@ -462,31 +492,27 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 input_frames=self.in_frames,
                 num_bins=None,
             )
-        elif dataset.lower() in ["goes16", "satellite"]:
 
+        elif dataset.lower() in ["goes16", "satellite"]:
             train_dataset = SatelliteDataset(
                 path=os.path.join(path, "train/"),
                 cosangs_csv_path=f"{cosangs_csv_path}train.csv",
                 in_channel=self.in_frames,
                 out_channel=time_horizon,
-                min_time_diff=5,
-                max_time_diff=15,
                 transform=normalize_pixels(mean0=False),
                 output_last=True,
                 day_pct=1,
             )
-
             val_dataset = SatelliteDataset(
                 path=os.path.join(path, "validation/"),
                 cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
                 in_channel=self.in_frames,
                 out_channel=time_horizon,
-                min_time_diff=5,
-                max_time_diff=15,
                 transform=normalize_pixels(mean0=False),
                 output_last=True,
                 day_pct=1,
             )
+
         else:
             raise ValueError(f"Dataset {dataset} not recognized.")
 
@@ -739,18 +765,43 @@ class MeanStdUNet(ProbabilisticUNet):
         path: str,
         batch_size: int,
         time_horizon: int,
+        cosangs_csv_path: Optional[str] = None,
         binarization_method=None,
     ):
-        train_dataset = MovingMnistDataset(
-            path=os.path.join(path, "train/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
-        val_dataset = MovingMnistDataset(
-            path=os.path.join(path, "validation/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
+        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
+            train_dataset = MovingMnistDataset(
+                path=os.path.join(path, "train/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+            val_dataset = MovingMnistDataset(
+                path=os.path.join(path, "validation/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+
+        elif dataset.lower() in ["goes16", "satellite"]:
+            train_dataset = SatelliteDataset(
+                path=os.path.join(path, "train/"),
+                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+            val_dataset = SatelliteDataset(
+                path=os.path.join(path, "validation/"),
+                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+
+        else:
+            raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
@@ -1028,18 +1079,43 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         path: str,
         batch_size: int,
         time_horizon: int,
+        cosangs_csv_path: Optional[str] = None,
         binarization_method=None,
     ):
-        train_dataset = MovingMnistDataset(
-            path=os.path.join(path, "train/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
-        val_dataset = MovingMnistDataset(
-            path=os.path.join(path, "validation/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
+        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
+            train_dataset = MovingMnistDataset(
+                path=os.path.join(path, "train/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+            val_dataset = MovingMnistDataset(
+                path=os.path.join(path, "validation/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+
+        elif dataset.lower() in ["goes16", "satellite"]:
+            train_dataset = SatelliteDataset(
+                path=os.path.join(path, "train/"),
+                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+            val_dataset = SatelliteDataset(
+                path=os.path.join(path, "validation/"),
+                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+
+        else:
+            raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
