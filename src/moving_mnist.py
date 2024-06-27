@@ -97,8 +97,11 @@ def main(
             min_lr=1e-7,
         )
     probabilistic_unet.create_dataloaders(
+        dataset="mmnist",
         path="datasets/moving_mnist_dataset/",
         batch_size=batch_size,
+        cosangs_csv_path=None,
+        time_horizon=None,
         binarization_method="integer_classes",  # needed for BinClassifierUNet
     )
     logger.info("Initialization done.")
