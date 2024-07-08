@@ -4,6 +4,19 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
+class QuantileEmbedding(nn.Module):
+    def __init__(self, num_quantiles, embedding_dim):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.embedding = nn.Linear(1, embedding_dim)
+
+    def forward(self, tau):
+        x = tau.unsqueeze(-1)  # Add feature dimension
+        x = self.embedding(x)
+        x = F.relu(x)
+        return x
+
+
 class DoubleConv(nn.Module):
     """(convolution => [BN] => ReLU) * 2"""
 
@@ -78,28 +91,24 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 
-class UNet(nn.Module):
+class IQN_UNet(nn.Module):
     def __init__(
         self,
         in_frames: int = 3,
         n_classes: int = 1,
         bilinear: bool = True,
         dropout_p: float = 0,
-        output_activation: str = "sigmoid",
         filters: int = 64,
         bias: bool = False,
+        num_quantiles: int = 32,
+        embedding_dim: int = 64,
     ):
         super().__init__()
-        self.description = f"UNet_inFrames{in_frames}_outFrames{n_classes}_out_activation{output_activation}"
+        self.description = f"IQN_UNet_inFrames{in_frames}_outFrames{n_classes}"
         self.n_channels = in_frames
         self.n_classes = n_classes
         self.bilinear = bilinear
         self.dropout_p = dropout_p
-
-        if self.dropout_p > 0:
-            self.mc_unet = True
-        else:
-            self.mc_unet = False
 
         factor = 2 if bilinear else 1
 
@@ -115,36 +124,33 @@ class UNet(nn.Module):
         self.up4 = Up(2 * filters, filters, bilinear, bias=bias)
         self.outc = OutConv(filters, n_classes)
 
-        if output_activation:
-            output_activation = output_activation.lower()
-            if output_activation in ["sigmoid", "sigmoide", "sig"]:
-                self.out_activation = nn.Sigmoid()
-            if output_activation in ["relu"]:
-                self.out_activation = nn.Hardtanh(
-                    min_val=0, max_val=1.0
-                )  # works as relu clip between [0,1]
-            if output_activation in ["tanh"]:
-                self.out_activation = nn.Tanh()
-            if output_activation in ["softmax"]:
-                self.out_activation = nn.Softmax(dim=1)
-        else:
-            self.out_activation = nn.Identity()
+        self.quantile_embedding = QuantileEmbedding(num_quantiles, embedding_dim)
 
-    def forward(self, x):
+    def forward(self, x, tau):
+        tau_embedding = self.quantile_embedding(tau)
+
         x1 = self.inc(x)
-        # convolution (64 filters 3x3 , padd=1 )=> [BN] => ReLU) and convolution (64 filters 3x3, pad=1 )=> [BN] => ReLU)
-        x2 = F.dropout(self.down1(x1), p=self.dropout_p, training=self.mc_unet)
-        # maxpool (2x2) => convolution (128 filters 3x3 , padd=1 )=> [BN] => ReLU) and convolution (128 filters 3x3, pad=1 )=> [BN] => ReLU)
-        x3 = F.dropout(self.down2(x2), p=self.dropout_p, training=self.mc_unet)
-        # maxpool (2x2) => convolution (256 filters 3x3 , padd=1 )=> [BN] => ReLU) and convolution (256 filters 3x3, pad=1 )=> [BN] => ReLU)
-        x4 = F.dropout(self.down3(x3), p=self.dropout_p, training=self.mc_unet)
-        # maxpool (2x2) => convolution (512 filters 3x3 , padd=1 )=> [BN] => ReLU) and convolution (512 filters 3x3, pad=1 )=> [BN] => ReLU)
-        x5 = F.dropout(self.down4(x4), p=self.dropout_p, training=self.mc_unet)
-        # maxpool (2x2) => convolution (512 o 1024 filters 3x3 , padd=1 )=> [BN] => ReLU) and convolution (512 o 1024 filters 3x3, pad=1 )=> [BN] => ReLU)
-        x = F.dropout(self.up1(x5, x4), p=self.dropout_p, training=self.mc_unet)
-        x = F.dropout(self.up2(x, x3), p=self.dropout_p, training=self.mc_unet)
-        x = F.dropout(self.up3(x, x2), p=self.dropout_p, training=self.mc_unet)
-        x = F.dropout(self.up4(x, x1), p=self.dropout_p, training=self.mc_unet)
+        x2 = self.down1(x1)
+        x3 = self.down2(x2)
+        x4 = self.down3(x3)
+        x5 = self.down4(x4)
+
+        # Integrate tau embedding
+        x5 = x5 * tau_embedding.unsqueeze(-1).unsqueeze(-1)
+
+        x = self.up1(x5, x4)
+        x = self.up2(x, x3)
+        x = self.up3(x, x2)
+        x = self.up4(x, x1)
         out = self.outc(x)
-        out = self.out_activation(out)
         return out
+
+    def quantile_huber_loss(self, predicted, target, tau, kappa=1.0):
+        diff = target - predicted
+        loss = torch.where(
+            torch.abs(diff) <= kappa,
+            0.5 * diff.pow(2),
+            kappa * (torch.abs(diff) - 0.5 * kappa),
+        )
+        weight = torch.abs(tau - (diff < 0).float())
+        return (weight * loss).mean()
