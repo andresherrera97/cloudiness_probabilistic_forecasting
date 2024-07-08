@@ -7,6 +7,7 @@ import fire
 import logging
 from models import (
     MeanStdUNet,
+    MedianScaleUNet,
     BinClassifierUNet,
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
@@ -54,6 +55,11 @@ def main(
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = MeanStdUNet(in_frames=input_frames, filters=num_filters)
+    elif model_name in ["median", "median_scale"]:
+        logger.info("Selected model: MedianScaleUNet")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
+        probabilistic_unet = MedianScaleUNet(in_frames=input_frames, filters=num_filters)
     elif model_name in ["bin_classifier", "bin"]:
         logger.info("Selected model: BinClassifierUNet")
         logger.info(f"    - Bins: {num_bins}")

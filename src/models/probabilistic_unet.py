@@ -318,6 +318,9 @@ class BinClassifierUNet(ProbabilisticUNet):
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             crps_in_epoch = sum(crps_bin_list) / len(crps_bin_list)
             precision_in_epoch = sum(precision_list) / len(precision_list)
+            
+            if self.scheduler is not None:
+                self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
 
@@ -613,6 +616,9 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             crps_in_epoch = sum(crps_quantile_list) / len(crps_quantile_list)
+
+            if self.scheduler is not None:
+                self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
 
@@ -912,6 +918,9 @@ class MeanStdUNet(ProbabilisticUNet):
                 mse_loss_mean_pred
             )
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
+            
+            if self.scheduler is not None:
+                self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
 
@@ -1063,18 +1072,43 @@ class MedianScaleUNet(ProbabilisticUNet):
         path: str,
         batch_size: int,
         time_horizon: int,
+        cosangs_csv_path: Optional[str] = None,
         binarization_method=None,
     ):
-        train_dataset = MovingMnistDataset(
-            path=os.path.join(path, "train/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
-        val_dataset = MovingMnistDataset(
-            path=os.path.join(path, "validation/"),
-            input_frames=self.in_frames,
-            num_bins=None,
-        )
+        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
+            train_dataset = MovingMnistDataset(
+                path=os.path.join(path, "train/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+            val_dataset = MovingMnistDataset(
+                path=os.path.join(path, "validation/"),
+                input_frames=self.in_frames,
+                num_bins=None,
+            )
+
+        elif dataset.lower() in ["goes16", "satellite"]:
+            train_dataset = SatelliteDataset(
+                path=os.path.join(path, "train/"),
+                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+            val_dataset = SatelliteDataset(
+                path=os.path.join(path, "validation/"),
+                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
+                in_channel=self.in_frames,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+
+        else:
+            raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True
@@ -1192,6 +1226,9 @@ class MedianScaleUNet(ProbabilisticUNet):
                 mae_loss_mean_pred
             )
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
+
+            if self.scheduler is not None:
+                self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
 
@@ -1501,6 +1538,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             crps_in_epoch = sum(crps_quantile_list) / len(crps_quantile_list)
+
+            if self.scheduler is not None:
+                self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
 
