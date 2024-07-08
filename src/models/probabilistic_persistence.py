@@ -5,10 +5,11 @@ import os
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
+from typing import Optional
 
 # Local application/library specific imports
 from metrics import crps_quantile
-from data_handlers import MovingMnistDataset
+from data_handlers import MovingMnistDataset, SatelliteDataset, normalize_pixels
 
 
 class PersistenceEnsemble:
@@ -23,17 +24,48 @@ class PersistenceEnsemble:
         self.val_loader = None
         self.device = device
 
-    def create_dataloaders(self, path: str, batch_size: int):
-        train_dataset = MovingMnistDataset(
-            path=os.path.join(path, "train/"),
-            input_frames=self.n_quantiles,
-            use_previous_sequence=True,
-        )
-        val_dataset = MovingMnistDataset(
-            path=os.path.join(path, "validation/"),
-            input_frames=self.n_quantiles,
-            use_previous_sequence=True,
-        )
+    def create_dataloaders(
+        self,
+        dataset: str,
+        path: str,
+        batch_size: int,
+        time_horizon: int,
+        cosangs_csv_path: Optional[str] = None,
+    ):
+        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
+            train_dataset = MovingMnistDataset(
+                path=os.path.join(path, "train/"),
+                input_frames=self.n_quantiles,
+                use_previous_sequence=True,
+            )
+            val_dataset = MovingMnistDataset(
+                path=os.path.join(path, "validation/"),
+                input_frames=self.n_quantiles,
+                use_previous_sequence=True,
+            )
+
+        elif dataset.lower() in ["goes16", "satellite"]:
+            train_dataset = SatelliteDataset(
+                path=os.path.join(path, "train/"),
+                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
+                in_channel=self.n_quantiles,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+            val_dataset = SatelliteDataset(
+                path=os.path.join(path, "validation/"),
+                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
+                in_channel=self.n_quantiles,
+                out_channel=time_horizon,
+                transform=normalize_pixels(mean0=False),
+                output_last=True,
+                day_pct=1,
+            )
+
+        else:
+            raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
             train_dataset, batch_size=batch_size, shuffle=True

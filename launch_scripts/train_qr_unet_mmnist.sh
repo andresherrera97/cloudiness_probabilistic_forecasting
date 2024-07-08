@@ -17,7 +17,7 @@ python src/moving_mnist.py \
     --model_name=qr \
     --epochs=100 \
     --batch_size=32 \
-    --quantiles=[0.05,0.1,0.25,0.4,0.5,0.60.75,0.9,0.95] \
+    --quantiles=[0.05,0.1,0.25,0.4,0.5,0.6,0.75,0.9,0.95] \
     --num_filters=16 \
     --save_experiment=True \
     --optimizer=adam \
