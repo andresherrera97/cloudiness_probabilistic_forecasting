@@ -11,6 +11,7 @@ from models import (
     BinClassifierUNet,
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
+    UNetPipeline,
 )
 import numpy as np
 from typing import Optional, List
@@ -49,17 +50,17 @@ def main(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    if model_name in ["mean_std", "meanstd"]:
+    if model_name.lower() in ["mean_std", "meanstd"]:
         logger.info("Selected model: MeanStdUNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = MeanStdUNet(in_frames=input_frames, filters=num_filters)
-    elif model_name in ["median", "median_scale"]:
+    elif model_name.lower() in ["median", "median_scale"]:
         logger.info("Selected model: MedianScaleUNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         probabilistic_unet = MedianScaleUNet(in_frames=input_frames, filters=num_filters)
-    elif model_name in ["bin_classifier", "bin"]:
+    elif model_name.lower() in ["bin_classifier", "bin"]:
         logger.info("Selected model: BinClassifierUNet")
         logger.info(f"    - Bins: {num_bins}")
         logger.info(f"    - input_frames: {input_frames}")
@@ -67,7 +68,7 @@ def main(
         probabilistic_unet = BinClassifierUNet(
             n_bins=num_bins, in_frames=input_frames, filters=num_filters, device=device
         )
-    elif model_name in ["quantile_regressor", "qr"]:
+    elif model_name.lower() in ["quantile_regressor", "qr"]:
         logger.info("Selected model: QuantileRegressorUNet")
         logger.info(f"    - Quantiles: {quantiles}")
         logger.info(f"    - input_frames: {input_frames}")
@@ -75,7 +76,7 @@ def main(
         probabilistic_unet = QuantileRegressorUNet(
             quantiles=quantiles, in_frames=input_frames, filters=num_filters
         )
-    elif model_name in ["monte_carlo_dropout", "mcd"]:
+    elif model_name.lower() in ["monte_carlo_dropout", "mcd"]:
         logger.info("Selected model: MonteCarloDropoutUNet")
         logger.info(f"    - Dropout prob: {dropout_p}")
         logger.info(f"    - input_frames: {input_frames}")
@@ -87,6 +88,11 @@ def main(
             filters=num_filters,
             n_quantiles=num_ensemble_preds,
         )
+    elif model_name.lower() in ["deterministic", "det", "unet"]:
+        logger.info("Selected model: Deterministic UNet")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
+        probabilistic_unet = UNetPipeline(in_frames=input_frames, filters=num_filters)
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")
 

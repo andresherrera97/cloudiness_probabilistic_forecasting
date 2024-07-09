@@ -1,5 +1,5 @@
 from .persistence import Persistence
-from .unet import UNet, UNet2
+from .unet import UNet
 from .model_initialization import weights_init
 from .probabilistic_unet import (
     MeanStdUNet,
@@ -9,3 +9,4 @@ from .probabilistic_unet import (
     MonteCarloDropoutUNet,
 )
 from .probabilistic_persistence import PersistenceEnsemble
+from .deterministic_unet import UNetPipeline
