@@ -1,5 +1,6 @@
 from netCDF4 import Dataset
 import numpy as np
+import os
 
 
 # Calculate latitude and longitude from GOES ABI fixed grid projection data
@@ -57,171 +58,222 @@ def calculate_degrees(file_id):
 
 
 if __name__ == "__main__":
-    nc_2024_011_12 = Dataset(
-        "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20241110601171_e20241110603544_c20241110604037.nc"
-        # "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20220120310204_e20220120319512_c20220120319587.nc"
-    )
-    nc_2024_011_13 = Dataset(
-        "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20240112006171_e20240112008544_c20240112009047.nc"
-        # "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20220120330204_e20220120339512_c20220120339575.nc"
-    )
-    nc_2020_197_13 = Dataset(
-        "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20201971301225_e20201971303598_c20201971304130.nc"
-        # "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20240461620209_e20240461629517_c20240461629576.nc"
-    )
+    folder_path = "datasets/full_disk_nc_files"
+    filenames = os.listdir(folder_path)
+    filenames = [filename for filename in filenames if filename[0] != "."]
 
-    nc_prueba = Dataset(
-        "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20231511601173_e20231511603546_c20231511604055.nc"
-    )
+    nc_files = {}
+    for filename in filenames:
+        date_time = filename.split("_s")[1].split("_")[0]
+        nc_files[date_time] = Dataset(f"{folder_path}/{filename}")
 
-    print(nc_prueba["x_offset"])
+    print("=== Dataset name ===")
+    for key in nc_files:
+        print(f"{key}: {nc_files[key].dataset_name}")
+        
+    print("=== Scan Mode ===")
+    for key in nc_files:
+        print(f"{key}: {nc_files[key].dataset_name.split('-')[3][:2]}")
 
-    sat_h_nc_2024_011_12 = nc_2024_011_12.variables[
-        "goes_imager_projection"
-    ].perspective_point_height
-    sat_h_nc_2024_011_13 = nc_2024_011_13.variables[
-        "goes_imager_projection"
-    ].perspective_point_height
-    sat_h_nc_2020_197_13 = nc_2020_197_13.variables[
-        "goes_imager_projection"
-    ].perspective_point_height
-    print("=== Perspective Point Height ===")
-    print(f"sat_h_nc_2024_011_12: {sat_h_nc_2024_011_12}")
-    print(f"sat_h_nc_2024_011_13: {sat_h_nc_2024_011_13}")
-    print(f"sat_h_nc_2020_197_13: {sat_h_nc_2020_197_13}")
+    print("=== X and Y Image Bounds ===")
+    for key in nc_files:
+        print(nc_files[key].variables["x_image_bounds"][:])
+        print(nc_files[key].variables["y_image_bounds"][:])
+    
+    print("=== Semi Major Axis ===")
+    for key in nc_files:
+        print(nc_files[key].variables["goes_imager_projection"].semi_major_axis)
+        
+    print("=== Semi Minor Axis ===")
+    for key in nc_files:
+        print(nc_files[key].variables["goes_imager_projection"].semi_minor_axis)
+    
+    print("=== Point Height ===")
+    for key in nc_files:
+        print(nc_files[key].variables["goes_imager_projection"].perspective_point_height)
+    
+    print("=== longitude_of_projection_origin ===")
+    for key in nc_files:
+        scan_operation = key
+        print(f'{key}, {nc_files[key].dataset_name.split("-")[3][:2]}, {nc_files[key].variables["goes_imager_projection"].longitude_of_projection_origin}')
+        
+    print("=== x ===")
+    for n, key in enumerate(nc_files):
+        if n == 0:
+            aux = nc_files[key].variables["x"][:]
+        print((nc_files[key].variables["x"][:] == nc_files[key].variables["x"][:]).all())
+        
+    print("=== y ===")
+    for key in nc_files:
+        if n == 0:
+            aux = nc_files[key].variables["y"][:]
+        print((nc_files[key].variables["y"][:] == nc_files[key].variables["y"][:]).all())
 
-    print("=== Longitude of Projection Origin ===")
-    sat_lon_nc_2024_011_12 = nc_2024_011_12.variables[
-        "goes_imager_projection"
-    ].longitude_of_projection_origin
-    sat_lon_nc_2024_011_13 = nc_2024_011_13.variables[
-        "goes_imager_projection"
-    ].longitude_of_projection_origin
-    sat_lon_nc_2020_197_13 = nc_2020_197_13.variables[
-        "goes_imager_projection"
-    ].longitude_of_projection_origin
-    print(f"sat_lon_nc_2024_011_12: {sat_lon_nc_2024_011_12}")
-    print(f"sat_lon_nc_2024_011_13: {sat_lon_nc_2024_011_13}")
-    print(f"sat_lon_nc_2020_197_13: {sat_lon_nc_2020_197_13}")
+    # nc_2024_011_12 = Dataset(
+    #     "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20241110601171_e20241110603544_c20241110604037.nc"
+    #     # "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20220120310204_e20220120319512_c20220120319587.nc"
+    # )
+    # nc_2024_011_13 = Dataset(
+    #     "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20240112006171_e20240112008544_c20240112009047.nc"
+    #     # "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20220120330204_e20220120339512_c20220120339575.nc"
+    # )
+    # nc_2020_197_13 = Dataset(
+    #     "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20201971301225_e20201971303598_c20201971304130.nc"
+    #     # "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20240461620209_e20240461629517_c20240461629576.nc"
+    # )
 
-    print("=== Sweep Angle Axis ===")
-    sat_sweep_nc_2024_011_12 = nc_2024_011_12.variables[
-        "goes_imager_projection"
-    ].sweep_angle_axis
-    sat_sweep_nc_2024_011_13 = nc_2024_011_13.variables[
-        "goes_imager_projection"
-    ].sweep_angle_axis
-    sat_sweep_nc_2020_197_13 = nc_2020_197_13.variables[
-        "goes_imager_projection"
-    ].sweep_angle_axis
-    print(f"sat_sweep_nc_2024_011_12: {sat_sweep_nc_2024_011_12}")
-    print(f"sat_sweep_nc_2024_011_13: {sat_sweep_nc_2024_011_13}")
-    print(f"sat_sweep_nc_2020_197_13: {sat_sweep_nc_2020_197_13}")
+    # nc_prueba = Dataset(
+    #     "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20231511601173_e20231511603546_c20231511604055.nc"
+    # )
 
-    print("=== Satellite Longitude ===")
-    print(f"shape: {nc_2024_011_13.variables['y'][:].shape}")
-    print(nc_2024_011_12.variables["y"][:])
-    print(nc_2024_011_13.variables["y"][:])
-    print(nc_2020_197_13.variables["y"][:])
+    # print(nc_prueba["x_offset"])
 
-    print("=== Satellite Latitude ===")
-    print(f"shape: {nc_2024_011_13.variables['x'][:].shape}")
-    print(nc_2024_011_12.variables["x"][:])
-    print(nc_2024_011_13.variables["x"][:])
-    print(nc_2020_197_13.variables["x"][:])
+    # sat_h_nc_2024_011_12 = nc_2024_011_12.variables[
+    #     "goes_imager_projection"
+    # ].perspective_point_height
+    # sat_h_nc_2024_011_13 = nc_2024_011_13.variables[
+    #     "goes_imager_projection"
+    # ].perspective_point_height
+    # sat_h_nc_2020_197_13 = nc_2020_197_13.variables[
+    #     "goes_imager_projection"
+    # ].perspective_point_height
+    # print("=== Perspective Point Height ===")
+    # print(f"sat_h_nc_2024_011_12: {sat_h_nc_2024_011_12}")
+    # print(f"sat_h_nc_2024_011_13: {sat_h_nc_2024_011_13}")
+    # print(f"sat_h_nc_2020_197_13: {sat_h_nc_2020_197_13}")
 
-    print("=== X Image Bounds ===")
-    print(nc_2024_011_12.variables["x_image_bounds"][:])
-    print(nc_2024_011_13.variables["x_image_bounds"][:])
-    print(nc_2020_197_13.variables["x_image_bounds"][:])
+    # print("=== Longitude of Projection Origin ===")
+    # sat_lon_nc_2024_011_12 = nc_2024_011_12.variables[
+    #     "goes_imager_projection"
+    # ].longitude_of_projection_origin
+    # sat_lon_nc_2024_011_13 = nc_2024_011_13.variables[
+    #     "goes_imager_projection"
+    # ].longitude_of_projection_origin
+    # sat_lon_nc_2020_197_13 = nc_2020_197_13.variables[
+    #     "goes_imager_projection"
+    # ].longitude_of_projection_origin
+    # print(f"sat_lon_nc_2024_011_12: {sat_lon_nc_2024_011_12}")
+    # print(f"sat_lon_nc_2024_011_13: {sat_lon_nc_2024_011_13}")
+    # print(f"sat_lon_nc_2020_197_13: {sat_lon_nc_2020_197_13}")
 
-    print("=== Y Image Bounds ===")
-    print(nc_2024_011_12.variables["y_image_bounds"][:])
-    print(nc_2024_011_13.variables["y_image_bounds"][:])
-    print(nc_2020_197_13.variables["y_image_bounds"][:])
+    # print("=== Sweep Angle Axis ===")
+    # sat_sweep_nc_2024_011_12 = nc_2024_011_12.variables[
+    #     "goes_imager_projection"
+    # ].sweep_angle_axis
+    # sat_sweep_nc_2024_011_13 = nc_2024_011_13.variables[
+    #     "goes_imager_projection"
+    # ].sweep_angle_axis
+    # sat_sweep_nc_2020_197_13 = nc_2020_197_13.variables[
+    #     "goes_imager_projection"
+    # ].sweep_angle_axis
+    # print(f"sat_sweep_nc_2024_011_12: {sat_sweep_nc_2024_011_12}")
+    # print(f"sat_sweep_nc_2024_011_13: {sat_sweep_nc_2024_011_13}")
+    # print(f"sat_sweep_nc_2020_197_13: {sat_sweep_nc_2020_197_13}")
 
-    print("=== Min-Max-Mean-StdDev Reflectance Factor ===")
-    print(
-        f"{nc_2024_011_12.variables['min_reflectance_factor'][:]}, "
-        f"{nc_2024_011_12.variables['max_reflectance_factor'][:]}, "
-        f"{nc_2024_011_12.variables['mean_reflectance_factor'][:]}, "
-        f"{nc_2024_011_12.variables['std_dev_reflectance_factor'][:]}"
-    )
-    print(
-        f"{nc_2024_011_13.variables['min_reflectance_factor'][:]}, "
-        f"{nc_2024_011_13.variables['max_reflectance_factor'][:]}, "
-        f"{nc_2024_011_13.variables['mean_reflectance_factor'][:]}, "
-        f"{nc_2024_011_13.variables['std_dev_reflectance_factor'][:]}"
-    )
-    print(
-        f"{nc_2020_197_13.variables['min_reflectance_factor'][:]}, "
-        f"{nc_2020_197_13.variables['max_reflectance_factor'][:]}, "
-        f"{nc_2020_197_13.variables['mean_reflectance_factor'][:]}, "
-        f"{nc_2020_197_13.variables['std_dev_reflectance_factor'][:]}"
-    )
-    print(
-        f"{nc_prueba.variables['min_reflectance_factor'][:]}, "
-        f"{nc_prueba.variables['max_reflectance_factor'][:]}, "
-        f"{nc_prueba.variables['mean_reflectance_factor'][:]}, "
-        f"{nc_prueba.variables['std_dev_reflectance_factor'][:]}"
-    )
+    # print("=== Satellite Longitude ===")
+    # print(f"shape: {nc_2024_011_13.variables['y'][:].shape}")
+    # print(nc_2024_011_12.variables["y"][:])
+    # print(nc_2024_011_13.variables["y"][:])
+    # print(nc_2020_197_13.variables["y"][:])
 
-    print("=== Type CMI ===")
-    print(
-        type(nc_2020_197_13.variables["CMI"]),
-        type(nc_2020_197_13.variables["CMI"][:]),
-        nc_2020_197_13.variables["CMI"][:].dtype,
-    )
-    print(
-        type(nc_2024_011_12.variables["CMI"]),
-        type(nc_2024_011_12.variables["CMI"][:]),
-        nc_2024_011_12.variables["CMI"][:].dtype,
-    )
-    print(
-        type(nc_2024_011_13.variables["CMI"]),
-        type(nc_2024_011_13.variables["CMI"][:]),
-        nc_2024_011_13.variables["CMI"][:].dtype,
-    )
+    # print("=== Satellite Latitude ===")
+    # print(f"shape: {nc_2024_011_13.variables['x'][:].shape}")
+    # print(nc_2024_011_12.variables["x"][:])
+    # print(nc_2024_011_13.variables["x"][:])
+    # print(nc_2020_197_13.variables["x"][:])
 
-    print("=== Min-Max CMI ===")
-    print(
-        np.min(nc_2024_011_12.variables["CMI"][:]),
-        np.max(nc_2024_011_12.variables["CMI"][:]),
-    )
-    print(
-        np.min(nc_2024_011_13.variables["CMI"][:]),
-        np.max(nc_2024_011_13.variables["CMI"][:]),
-    )
-    print(
-        np.min(nc_2020_197_13.variables["CMI"][:]),
-        np.max(nc_2020_197_13.variables["CMI"][:]),
-    )
-    print(
-        np.min(nc_prueba.variables["CMI"][:]),
-        np.max(nc_prueba.variables["CMI"][:]),
-    )
-    print(
-        np.min(nc_prueba.variables["CMI"][:][1847:1975, 6317:6445]),
-        np.max(nc_prueba.variables["CMI"][:][1847:1975, 6317:6445]),
-    )
+    # print("=== X Image Bounds ===")
+    # print(nc_2024_011_12.variables["x_image_bounds"][:])
+    # print(nc_2024_011_13.variables["x_image_bounds"][:])
+    # print(nc_2020_197_13.variables["x_image_bounds"][:])
 
+    # print("=== Y Image Bounds ===")
+    # print(nc_2024_011_12.variables["y_image_bounds"][:])
     # print(nc_2024_011_13.variables["y_image_bounds"][:])
     # print(nc_2020_197_13.variables["y_image_bounds"][:])
 
-    # calculate lat lons
-    # Print arrays of calculated latitude and longitude
-    # Call function to calculate latitude and longitude from GOES ABI fixed grid projection data
-    # print("=== Latitude and Longitude Calculation ===")
-    # abi_lat, abi_lon = calculate_degrees(nc_2024_011_12)
-    # abi_lat_2, abi_lon_2 = calculate_degrees(nc_2024_011_13)
-    # abi_lat_3, abi_lon_3 = calculate_degrees(nc_2020_197_13)
+    # print("=== Min-Max-Mean-StdDev Reflectance Factor ===")
+    # print(
+    #     f"{nc_2024_011_12.variables['min_reflectance_factor'][:]}, "
+    #     f"{nc_2024_011_12.variables['max_reflectance_factor'][:]}, "
+    #     f"{nc_2024_011_12.variables['mean_reflectance_factor'][:]}, "
+    #     f"{nc_2024_011_12.variables['std_dev_reflectance_factor'][:]}"
+    # )
+    # print(
+    #     f"{nc_2024_011_13.variables['min_reflectance_factor'][:]}, "
+    #     f"{nc_2024_011_13.variables['max_reflectance_factor'][:]}, "
+    #     f"{nc_2024_011_13.variables['mean_reflectance_factor'][:]}, "
+    #     f"{nc_2024_011_13.variables['std_dev_reflectance_factor'][:]}"
+    # )
+    # print(
+    #     f"{nc_2020_197_13.variables['min_reflectance_factor'][:]}, "
+    #     f"{nc_2020_197_13.variables['max_reflectance_factor'][:]}, "
+    #     f"{nc_2020_197_13.variables['mean_reflectance_factor'][:]}, "
+    #     f"{nc_2020_197_13.variables['std_dev_reflectance_factor'][:]}"
+    # )
+    # print(
+    #     f"{nc_prueba.variables['min_reflectance_factor'][:]}, "
+    #     f"{nc_prueba.variables['max_reflectance_factor'][:]}, "
+    #     f"{nc_prueba.variables['mean_reflectance_factor'][:]}, "
+    #     f"{nc_prueba.variables['std_dev_reflectance_factor'][:]}"
+    # )
 
-    # print("    - Latitude:")
-    # print(abi_lat.shape)
-    # print((abi_lat_2 == abi_lat).all())
-    # print((abi_lat_2 == abi_lat_3).all())
+    # print("=== Type CMI ===")
+    # print(
+    #     type(nc_2020_197_13.variables["CMI"]),
+    #     type(nc_2020_197_13.variables["CMI"][:]),
+    #     nc_2020_197_13.variables["CMI"][:].dtype,
+    # )
+    # print(
+    #     type(nc_2024_011_12.variables["CMI"]),
+    #     type(nc_2024_011_12.variables["CMI"][:]),
+    #     nc_2024_011_12.variables["CMI"][:].dtype,
+    # )
+    # print(
+    #     type(nc_2024_011_13.variables["CMI"]),
+    #     type(nc_2024_011_13.variables["CMI"][:]),
+    #     nc_2024_011_13.variables["CMI"][:].dtype,
+    # )
 
-    # print("    - Longitude:")
-    # print(abi_lon.shape)
-    # print((abi_lon_2 == abi_lon).all())
-    # print((abi_lon_2 == abi_lon_3).all())
+    # print("=== Min-Max CMI ===")
+    # print(
+    #     np.min(nc_2024_011_12.variables["CMI"][:]),
+    #     np.max(nc_2024_011_12.variables["CMI"][:]),
+    # )
+    # print(
+    #     np.min(nc_2024_011_13.variables["CMI"][:]),
+    #     np.max(nc_2024_011_13.variables["CMI"][:]),
+    # )
+    # print(
+    #     np.min(nc_2020_197_13.variables["CMI"][:]),
+    #     np.max(nc_2020_197_13.variables["CMI"][:]),
+    # )
+    # print(
+    #     np.min(nc_prueba.variables["CMI"][:]),
+    #     np.max(nc_prueba.variables["CMI"][:]),
+    # )
+    # print(
+    #     np.min(nc_prueba.variables["CMI"][:][1847:1975, 6317:6445]),
+    #     np.max(nc_prueba.variables["CMI"][:][1847:1975, 6317:6445]),
+    # )
+
+    # # print(nc_2024_011_13.variables["y_image_bounds"][:])
+    # # print(nc_2020_197_13.variables["y_image_bounds"][:])
+
+    # # calculate lat lons
+    # # Print arrays of calculated latitude and longitude
+    # # Call function to calculate latitude and longitude from GOES ABI fixed grid projection data
+    # # print("=== Latitude and Longitude Calculation ===")
+    # # abi_lat, abi_lon = calculate_degrees(nc_2024_011_12)
+    # # abi_lat_2, abi_lon_2 = calculate_degrees(nc_2024_011_13)
+    # # abi_lat_3, abi_lon_3 = calculate_degrees(nc_2020_197_13)
+
+    # # print("    - Latitude:")
+    # # print(abi_lat.shape)
+    # # print((abi_lat_2 == abi_lat).all())
+    # # print((abi_lat_2 == abi_lat_3).all())
+
+    # # print("    - Longitude:")
+    # # print(abi_lon.shape)
+    # # print((abi_lon_2 == abi_lon).all())
+    # # print((abi_lon_2 == abi_lon_3).all())
