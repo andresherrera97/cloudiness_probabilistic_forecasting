@@ -8,21 +8,18 @@ import numpy as np
 from typing import Optional
 
 # Local application/library specific imports
-from metrics import crps_quantile
+from metrics import CRPSLoss
 from data_handlers import MovingMnistDataset, SatelliteDataset, normalize_pixels
 
 
 class PersistenceEnsemble:
-    def __init__(
-        self,
-        n_quantiles: int,
-        device: str = "cpu"
-    ):
+    def __init__(self, n_quantiles: int, device: str = "cpu"):
         self.n_quantiles = n_quantiles
         self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
         self.train_loader = None
         self.val_loader = None
         self.device = device
+        self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
 
     def create_dataloaders(
         self,
@@ -75,22 +72,35 @@ class PersistenceEnsemble:
     def predict(self, X):
         return torch.sort(X, dim=1)[0]
 
-    def crps_quantile(self, predictions, y_target, device):
-        return crps_quantile(predictions, y_target, self.quantiles, device)
+    def crps_quantile(self, predictions, y_target):
+        return self.crps_loss.crps_loss(
+            pred=predictions,
+            y=y_target,
+        )
 
     def random_example(self):
         for _, (in_frames, out_frames) in enumerate(self.train_loader):
             predictions = self.predict(in_frames)
-            crps = self.crps_quantile(predictions, out_frames, self.device)
+            crps = self.crps_loss.crps_loss(
+                pred=predictions,
+                y=out_frames,
+            )
             break
         return in_frames, out_frames, predictions, crps
 
     def predict_on_dataset(self, dataset="validation"):
-        data_loader = self.val_loader if dataset in ["validation", "val"] else self.train_loader
+        data_loader = (
+            self.val_loader if dataset in ["validation", "val"] else self.train_loader
+        )
         crps_per_batch = []
         for batch_idx, (in_frames, out_frames) in enumerate(data_loader):
             predictions = self.predict(in_frames)
-            crps_per_batch.append(self.crps_quantile(predictions, out_frames, self.device))
+            crps_per_batch.append(
+                self.crps_loss.crps_loss(
+                    pred=predictions,
+                    y=out_frames,
+                )
+            )
 
         dataset_crps = np.mean(crps_per_batch)
         return dataset_crps

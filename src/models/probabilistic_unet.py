@@ -861,7 +861,7 @@ class MeanStdUNet(ProbabilisticUNet):
         run=None,
         verbose: bool = True,
         model_name: str = "mean_std_unet",
-        train_metric: Optional[str] = None,
+        train_metric: str = "mean_std",
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
     ) -> Tuple[List[float], List[float]]:
@@ -873,8 +873,9 @@ class MeanStdUNet(ProbabilisticUNet):
         # perists through epochs, stores the mean of each epoch
         train_loss_per_epoch = []
         val_loss_per_epoch = []
-        val_mse_per_epoch = []
+        mse_per_epoch = []
         crps_per_epoch = []
+        mean_std_per_epoch = []
 
         best_val_loss = 1e5
 
@@ -925,7 +926,7 @@ class MeanStdUNet(ProbabilisticUNet):
             )
 
             self.model.eval()
-            val_loss_per_batch = []  # stores values for this validation run
+            mean_std_loss_per_batch = []  # stores values for this validation run
             mse_loss_mean_pred = []
             crps_gaussian_list = []
 
@@ -939,9 +940,7 @@ class MeanStdUNet(ProbabilisticUNet):
 
                     frames_pred = self.model(in_frames.float())
 
-                    val_metric = self.calculate_loss(frames_pred, out_frames)
-
-                    val_loss_per_batch.append(val_metric.detach().item())
+                    mean_std_loss_per_batch.append(self.calculate_loss(frames_pred, out_frames).detach().item())
 
                     # calculate auxiliary metrics
                     mse_loss_mean_pred.append(
@@ -958,11 +957,18 @@ class MeanStdUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
-            val_mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(
+            mean_std_loss_in_epoch = sum(mean_std_loss_per_batch) / len(mean_std_loss_per_batch)
+            mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(
                 mse_loss_mean_pred
             )
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
+
+            if val_metric is None or val_metric.lower() in ["mean_std", "meanstd"]:
+                val_loss_in_epoch = mean_std_loss_in_epoch
+            elif val_metric.lower() == "mse":
+                val_loss_in_epoch = mse_mean_pred_in_epoch
+            elif val_metric.lower() == "crps":
+                val_loss_in_epoch = crps_in_epoch
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
@@ -971,7 +977,8 @@ class MeanStdUNet(ProbabilisticUNet):
 
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
-                run.log({"val_mse_mean_pred": val_mse_mean_pred_in_epoch}, step=epoch)
+                run.log({"mean_std_loss": mean_std_loss_in_epoch}, step=epoch)
+                run.log({"mse_mean_pred": mse_mean_pred_in_epoch}, step=epoch)
                 run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log(
@@ -986,7 +993,8 @@ class MeanStdUNet(ProbabilisticUNet):
                     f"Epoch({epoch + 1}/{n_epochs}) | "
                     f"Train_loss({(train_loss_in_epoch):06.4f}) | "
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
-                    f"MSE({val_mse_mean_pred_in_epoch:.4f}) | "
+                    f"mean_std_loss: {mean_std_loss_in_epoch:.4f}) | "
+                    f"MSE({mse_mean_pred_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f} | "
                     f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
@@ -996,20 +1004,14 @@ class MeanStdUNet(ProbabilisticUNet):
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
-            val_mse_per_epoch.append(val_mse_mean_pred_in_epoch)
+            mse_per_epoch.append(mse_mean_pred_in_epoch)
+            mean_std_per_epoch.append(mean_std_loss_in_epoch)
 
-            if val_metric == "crps":
-                checkpoint_metric_in_epoch = crps_in_epoch
-            elif val_metric == "mse":
-                checkpoint_metric_in_epoch = val_mse_mean_pred_in_epoch
-            else:
-                checkpoint_metric_in_epoch = val_loss_in_epoch
-
-            if checkpoint_metric_in_epoch < best_val_loss:
+            if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best val loss: {checkpoint_metric_in_epoch:.4f}"
+                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
-                best_val_loss = checkpoint_metric_in_epoch
+                best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -1020,7 +1022,8 @@ class MeanStdUNet(ProbabilisticUNet):
                     "train_loss_per_epoch": train_loss_per_epoch,
                     "val_loss_per_epoch": val_loss_per_epoch,
                     "crps_per_epoch": crps_per_epoch,
-                    "val_mse_per_epoch": val_mse_per_epoch,
+                    "mse_per_epoch": mse_per_epoch,
+                    "mean_std_per_epoch": mean_std_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                     "val_metric": val_metric,
                     "train_metric": train_metric,
@@ -1171,7 +1174,7 @@ class MedianScaleUNet(ProbabilisticUNet):
         run=None,
         verbose: bool = True,
         model_name: str = "median_scale_unet",
-        train_metric: Optional[str] = None,
+        train_metric: str = "median_scale",
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
     ) -> Tuple[List[float], List[float]]:
@@ -1183,8 +1186,9 @@ class MedianScaleUNet(ProbabilisticUNet):
         # perists through epochs, stores the mean of each epoch
         train_loss_per_epoch = []
         val_loss_per_epoch = []
-        val_mae_per_epoch = []
+        mae_per_epoch = []
         crps_per_epoch = []
+        median_scale_per_epoch = []
 
         best_val_loss = 1e5
 
@@ -1235,7 +1239,7 @@ class MedianScaleUNet(ProbabilisticUNet):
             )
 
             self.model.eval()
-            val_loss_per_batch = []  # stores values for this validation run
+            median_scale_loss_per_batch = []  # stores values for this validation run
             mae_loss_mean_pred = []
             crps_gaussian_list = []
 
@@ -1249,9 +1253,7 @@ class MedianScaleUNet(ProbabilisticUNet):
 
                     frames_pred = self.model(in_frames.float())
 
-                    val_metric = self.calculate_loss(frames_pred, out_frames)
-
-                    val_loss_per_batch.append(val_metric.detach().item())
+                    median_scale_loss_per_batch.append(self.calculate_loss(frames_pred, out_frames).detach().item())
 
                     # calculate auxiliary metrics
                     mae_loss_mean_pred.append(
@@ -1268,11 +1270,18 @@ class MedianScaleUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
-            val_mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(
+            median_scale_loss_in_epoch = sum(median_scale_loss_per_batch) / len(median_scale_loss_per_batch)
+            mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(
                 mae_loss_mean_pred
             )
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
+            
+            if val_metric is None or val_metric.lower() in ["median_scale"]:
+                val_loss_in_epoch = median_scale_loss_in_epoch
+            elif val_metric.lower() == "mae":
+                val_loss_in_epoch = mae_mean_pred_in_epoch
+            elif val_metric.lower() == "crps":
+                val_loss_in_epoch = crps_in_epoch
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
@@ -1281,7 +1290,8 @@ class MedianScaleUNet(ProbabilisticUNet):
 
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
-                run.log({"val_mae_mean_pred": val_mae_mean_pred_in_epoch}, step=epoch)
+                run.log({"median_sclae_loss": median_scale_loss_in_epoch}, step=epoch)
+                run.log({"mae_mean_pred": mae_mean_pred_in_epoch}, step=epoch)
                 run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log(
@@ -1296,7 +1306,8 @@ class MedianScaleUNet(ProbabilisticUNet):
                     f"Epoch({epoch + 1}/{n_epochs}) | "
                     f"Train_loss({(train_loss_in_epoch):06.4f}) | "
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
-                    f"MAE({val_mae_mean_pred_in_epoch:.4f}) | "
+                    f"MedianScale({median_scale_loss_in_epoch:.4f}) | "
+                    f"MAE({mae_mean_pred_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f} | "
                     f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
@@ -1306,20 +1317,14 @@ class MedianScaleUNet(ProbabilisticUNet):
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
-            val_mae_per_epoch.append(val_mae_mean_pred_in_epoch)
+            mae_per_epoch.append(mae_mean_pred_in_epoch)
+            median_scale_per_epoch.append(median_scale_loss_in_epoch)
 
-            if val_metric is None or val_metric == "crps":
-                checkpoint_metric_in_epoch = crps_in_epoch
-            elif val_metric == "mae":
-                checkpoint_metric_in_epoch = val_mae_mean_pred_in_epoch
-            else:
-                checkpoint_metric_in_epoch = val_loss_in_epoch
-
-            if checkpoint_metric_in_epoch < best_val_loss:
+            if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best val loss: {checkpoint_metric_in_epoch:.4f}"
+                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
-                best_val_loss = checkpoint_metric_in_epoch
+                best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -1330,7 +1335,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                     "train_loss_per_epoch": train_loss_per_epoch,
                     "val_loss_per_epoch": val_loss_per_epoch,
                     "crps_per_epoch": crps_per_epoch,
-                    "val_mae_per_epoch": val_mae_per_epoch,
+                    "val_mae_per_epoch": mae_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                     "val_metric": val_metric,
                     "train_metric": train_metric,
@@ -1664,7 +1669,6 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         return train_loss_per_epoch, val_loss_per_epoch
 
     def predict(self, X, iterations: int):
-        # as images get bigger the computational cost can be too high, find better way to do this
         predictions = self.model(X.float())
 
         for _ in range(iterations - 1):
