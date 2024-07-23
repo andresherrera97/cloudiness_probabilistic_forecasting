@@ -24,4 +24,5 @@ python src/train_satellite.py \
     --optimizer=adam \
     --checkpoint_folder=adam \
     --scheduler=plateau \
-    --checkpoint_metric=crps
+    --train_metric=crps \
+    --val_metric=crps

@@ -230,6 +230,17 @@ if __name__ == "__main__":
 
     bin_probabilities = quantile_2_bin(quantiles, quantiles_values_array, num_bins=5)
 
+    # second quantile example
+    quantiles = [0.25, 0.5, 0.75]
+
+    quantiles_values_array = np.ones((1, 3, 5, 5))
+    quantiles_values_array[:, 0, :, :] = 0.1
+    quantiles_values_array[:, 1, :, :] = 0.33
+    quantiles_values_array[:, 2, :, :] = 0.72
+
+    bin_probabilities = quantile_2_bin(quantiles, quantiles_values_array, num_bins=5)
+    print(f"Example 2: bin_probabilities: {bin_probabilities}")
+
     # gaussina to quantiles
     # Example usage:
     mean = 0.5

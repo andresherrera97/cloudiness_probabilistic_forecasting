@@ -22,6 +22,7 @@ python src/train_satellite.py \
     --num_filters=16 \
     --save_experiment=True \
     --optimizer=adam \
-    --checkpoint_metric=crps \
+    --train_metric=crps \
+    --val_metric=crps \
     --checkpoint_folder=five_bins_16_filters_uru \
     --scheduler=plateau

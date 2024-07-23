@@ -40,10 +40,12 @@ def main(
     num_filters: int = 16,
     learning_rate: float = 1e-3,
     quantiles: Optional[List[float]] = None,
+    predict_diff: bool = False,
     dropout_p: Optional[float] = None,
     num_ensemble_preds: Optional[int] = None,
     checkpoint_folder: str = "",
-    checkpoint_metric: str = "crps",
+    train_metric: Optional[str] = None,
+    val_metric: Optional[str] = None,
     save_experiment: bool = False,
 ):
 
@@ -65,6 +67,8 @@ def main(
         logger.info(f"    - Bins: {num_bins}")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
+        logger.info(f"    - Train metric: {train_metric}")
+        logger.info(f"    - Val metric: {val_metric}")
         probabilistic_unet = BinClassifierUNet(
             n_bins=num_bins, in_frames=input_frames, filters=num_filters, device=device
         )
@@ -73,8 +77,11 @@ def main(
         logger.info(f"    - Quantiles: {quantiles}")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
+        logger.info(f"    - Predict diff: {predict_diff}")
+        logger.info(f"    - Train metric: {train_metric}")
+        logger.info(f"    - Val metric: {val_metric}")
         probabilistic_unet = QuantileRegressorUNet(
-            quantiles=quantiles, in_frames=input_frames, filters=num_filters
+            quantiles=quantiles, in_frames=input_frames, filters=num_filters, predict_diff=predict_diff, device=device
         )
     elif model_name.lower() in ["monte_carlo_dropout", "mcd"]:
         logger.info("Selected model: MonteCarloDropoutUNet")
@@ -87,6 +94,7 @@ def main(
             in_frames=input_frames,
             filters=num_filters,
             n_quantiles=num_ensemble_preds,
+            device=device,
         )
     elif model_name.lower() in ["deterministic", "det", "unet"]:
         logger.info("Selected model: Deterministic UNet")
@@ -137,6 +145,9 @@ def main(
                 "quantiles": quantiles,
                 "dropout_p": dropout_p,
                 "num_ensemble_preds": num_ensemble_preds,
+                "predict_diff": predict_diff,
+                "train_metric": train_metric,
+                "val_metric": val_metric,
             },
         )
 
@@ -154,7 +165,8 @@ def main(
         run=run,
         verbose=True,
         model_name=probabilistic_unet.name,
-        checkpoint_metric=checkpoint_metric,
+        train_metric=train_metric,
+        val_metric=val_metric,
         checkpoint_path=os.path.join(
             "checkpoints/mmnist/", checkpoint_folder, model_name
         ),
