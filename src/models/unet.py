@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from typing import Optional
 
 
 class DoubleConv(nn.Module):
@@ -85,7 +86,7 @@ class UNet(nn.Module):
         n_classes: int = 1,
         bilinear: bool = True,
         dropout_p: float = 0,
-        output_activation: str = "sigmoid",
+        output_activation: Optional[str] = "sigmoid",
         filters: int = 64,
         bias: bool = False,
     ):
@@ -115,20 +116,23 @@ class UNet(nn.Module):
         self.up4 = Up(2 * filters, filters, bilinear, bias=bias)
         self.outc = OutConv(filters, n_classes)
 
-        if output_activation:
-            output_activation = output_activation.lower()
-            if output_activation in ["sigmoid", "sigmoide", "sig"]:
-                self.out_activation = nn.Sigmoid()
-            if output_activation in ["relu"]:
-                self.out_activation = nn.Hardtanh(
-                    min_val=0, max_val=1.0
-                )  # works as relu clip between [0,1]
-            if output_activation in ["tanh"]:
-                self.out_activation = nn.Tanh()
-            if output_activation in ["softmax"]:
-                self.out_activation = nn.Softmax(dim=1)
-        else:
+        output_activation = output_activation.lower()
+        if output_activation is None or output_activation in ["none", ""]:
             self.out_activation = nn.Identity()
+        elif output_activation in ["sigmoid", "sigmoide", "sig"]:
+            self.out_activation = nn.Sigmoid()
+        elif output_activation in ["relu"]:
+            self.out_activation = nn.Hardtanh(
+                min_val=0, max_val=1.0
+            )  # works as relu clip between [0,1]
+        elif output_activation in ["tanh"]:
+            self.out_activation = nn.Tanh()
+        elif output_activation in ["softmax"]:
+            self.out_activation = nn.Softmax(dim=1)
+        elif output_activation in ["softplus"]:
+            self.out_activation = nn.Softplus()
+        else:
+            raise ValueError(f"Activation function {output_activation} not recognized")
 
     def forward(self, x):
         x1 = self.inc(x)

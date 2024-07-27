@@ -124,15 +124,26 @@ class ProbabilisticUNet(ABC):
 
 
 class BinClassifierUNet(ProbabilisticUNet):
-    def __init__(self, n_bins=10, in_frames=3, filters=16, device="cpu"):
+    def __init__(
+        self,
+        n_bins=10,
+        in_frames=3,
+        filters=16,
+        device="cpu",
+        output_activation="sigmoid",
+    ):
         self.n_bins = n_bins
         self.in_frames = in_frames
         self.filters = filters
+        self.output_activation = output_activation
         self.model = UNet(
-            in_frames=self.in_frames, n_classes=self.n_bins, filters=self.filters
+            in_frames=self.in_frames,
+            n_classes=self.n_bins,
+            filters=self.filters,
+            output_activation=self.output_activation,
         )
         self.loss_fn = nn.CrossEntropyLoss().to(device=device)
-        self.crps_loss = CRPSLoss(num_bins=self.n_bins+1, device=device)
+        self.crps_loss = CRPSLoss(num_bins=self.n_bins + 1, device=device)
         self.train_loader = None
         self.val_loader = None
         self.optimizer = None
@@ -184,7 +195,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                 binarization_method=binarization_method,
             )
 
-        elif dataset.lower() in ["goes16", "satellite"]:
+        elif dataset.lower() in ["goes16", "satellite", "sat"]:
             train_dataset = SatelliteDataset(
                 path=os.path.join(path, "train/"),
                 cosangs_csv_path=f"{cosangs_csv_path}train.csv",
@@ -311,7 +322,9 @@ class BinClassifierUNet(ProbabilisticUNet):
                     frames_pred = self.model(in_frames.float())
 
                     cross_entropy_loss = self.calculate_loss(frames_pred, out_frames)
-                    cross_entropy_loss_per_batch.append(cross_entropy_loss.detach().item())
+                    cross_entropy_loss_per_batch.append(
+                        cross_entropy_loss.detach().item()
+                    )
 
                     crps_bin_list.append(
                         self.crps_loss.crps_loss(frames_pred, out_frames)
@@ -323,7 +336,9 @@ class BinClassifierUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            cross_entropy_in_epoch = sum(cross_entropy_loss_per_batch) / len(cross_entropy_loss_per_batch)
+            cross_entropy_in_epoch = sum(cross_entropy_loss_per_batch) / len(
+                cross_entropy_loss_per_batch
+            )
             crps_in_epoch = sum(crps_bin_list) / len(crps_bin_list)
             precision_in_epoch = sum(precision_list) / len(precision_list)
 
@@ -373,8 +388,7 @@ class BinClassifierUNet(ProbabilisticUNet):
 
             if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best {val_metric}: "
-                    f"{val_loss_in_epoch:.4f}"
+                    f"Saving best model. Best val loss: " f"{val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
@@ -446,10 +460,12 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         quantiles: Optional[List[float]] = None,
         predict_diff: bool = False,
         device: str = "cpu",
+        output_activation="sigmoid",
     ):
         self.in_frames = in_frames
         self.filters = filters
         self.predict_diff = predict_diff
+        self.output_activation = output_activation
         if quantiles is None:
             self.quantiles = [0.1, 0.5, 0.9]
         else:
@@ -459,6 +475,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             in_frames=self.in_frames,
             n_classes=self.n_bins,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
         self.loss_fn = QuantileLoss(quantiles=self.quantiles)
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
@@ -582,7 +599,11 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 if self.predict_diff:
                     frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                if train_metric is None or train_metric in ["quantile", "pinball", "quant"]:
+                if train_metric is None or train_metric in [
+                    "quantile",
+                    "pinball",
+                    "quant",
+                ]:
                     loss = self.calculate_loss(frames_pred, out_frames)
                 elif train_metric == "crps":
                     loss = self.crps_loss.crps_loss(
@@ -649,15 +670,21 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            quantile_loss_in_epoch = sum(quantile_loss_per_batch) / len(quantile_loss_per_batch)
+            quantile_loss_in_epoch = sum(quantile_loss_per_batch) / len(
+                quantile_loss_per_batch
+            )
             crps_in_epoch = sum(crps_loss_per_batch) / len(crps_loss_per_batch)
 
-            if val_metric is None or val_metric.lower() in ["quantile", "pinball", "quant"]:
+            if val_metric is None or val_metric.lower() in [
+                "quantile",
+                "pinball",
+                "quant",
+            ]:
                 val_loss_in_epoch = quantile_loss_in_epoch
             elif val_metric.lower() == "crps":
                 val_loss_in_epoch = crps_in_epoch
             else:
-                raise ValueError(f"Validation loss {val_metric} not recognized.")            
+                raise ValueError(f"Validation loss {val_metric} not recognized.")
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
@@ -693,7 +720,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
             if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best {val_metric}: {val_loss_in_epoch:.4f}"
+                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {
@@ -767,13 +794,16 @@ class MeanStdUNet(ProbabilisticUNet):
         self,
         in_frames: int = 3,
         filters: int = 16,
+        output_activation="sigmoid",
     ):
         self.in_frames = in_frames
         self.filters = filters
+        self.output_activation = output_activation
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=2,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
         self.best_model_dict = None
 
@@ -940,7 +970,9 @@ class MeanStdUNet(ProbabilisticUNet):
 
                     frames_pred = self.model(in_frames.float())
 
-                    mean_std_loss_per_batch.append(self.calculate_loss(frames_pred, out_frames).detach().item())
+                    mean_std_loss_per_batch.append(
+                        self.calculate_loss(frames_pred, out_frames).detach().item()
+                    )
 
                     # calculate auxiliary metrics
                     mse_loss_mean_pred.append(
@@ -957,10 +989,10 @@ class MeanStdUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            mean_std_loss_in_epoch = sum(mean_std_loss_per_batch) / len(mean_std_loss_per_batch)
-            mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(
-                mse_loss_mean_pred
+            mean_std_loss_in_epoch = sum(mean_std_loss_per_batch) / len(
+                mean_std_loss_per_batch
             )
+            mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(mse_loss_mean_pred)
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
 
             if val_metric is None or val_metric.lower() in ["mean_std", "meanstd"]:
@@ -1080,13 +1112,16 @@ class MedianScaleUNet(ProbabilisticUNet):
         self,
         in_frames: int = 3,
         filters: int = 16,
+        output_activation="sigmoid",
     ):
         self.in_frames = in_frames
         self.filters = filters
+        self.output_activation = output_activation
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=2,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
         self.best_model_dict = None
 
@@ -1253,7 +1288,9 @@ class MedianScaleUNet(ProbabilisticUNet):
 
                     frames_pred = self.model(in_frames.float())
 
-                    median_scale_loss_per_batch.append(self.calculate_loss(frames_pred, out_frames).detach().item())
+                    median_scale_loss_per_batch.append(
+                        self.calculate_loss(frames_pred, out_frames).detach().item()
+                    )
 
                     # calculate auxiliary metrics
                     mae_loss_mean_pred.append(
@@ -1270,12 +1307,12 @@ class MedianScaleUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            median_scale_loss_in_epoch = sum(median_scale_loss_per_batch) / len(median_scale_loss_per_batch)
-            mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(
-                mae_loss_mean_pred
+            median_scale_loss_in_epoch = sum(median_scale_loss_per_batch) / len(
+                median_scale_loss_per_batch
             )
+            mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(mae_loss_mean_pred)
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
-            
+
             if val_metric is None or val_metric.lower() in ["median_scale"]:
                 val_loss_in_epoch = median_scale_loss_in_epoch
             elif val_metric.lower() == "mae":
@@ -1395,6 +1432,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         n_quantiles: int = 5,
         dropout_p: float = 0.5,
         device: str = "cpu",
+        output_activation="sigmoid",
     ):
         if dropout_p is None:
             raise ValueError("Dropout probability must be specified.")
@@ -1402,11 +1440,13 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.in_frames = in_frames
         self.filters = filters
         self.dropout_p = dropout_p
+        self.output_activation = output_activation
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=1,
             dropout_p=self.dropout_p,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
         self.n_quantiles = n_quantiles
         self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
@@ -1578,9 +1618,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     )
 
                     # validation loss is calculated as the mean of the quantiles predictions
-                    mae_loss = self.calculate_loss(
-                        frames_pred[:, :1, :, :], out_frames
-                    )
+                    mae_loss = self.calculate_loss(frames_pred[:, :1, :, :], out_frames)
 
                     mae_loss_per_batch.append(mae_loss.detach().item())
 
@@ -1636,7 +1674,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
             if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
-                    f"Saving best model. Best {val_metric}: {val_loss_in_epoch:.4f}"
+                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
                 self.best_model_dict = {

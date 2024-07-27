@@ -27,13 +27,16 @@ class UNetPipeline():
         self,
         in_frames: int = 3,
         filters: int = 16,
+        output_activation: str = "sigmoid",
     ):
         self.in_frames = in_frames
         self.filters = filters
+        self.output_activation = output_activation
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=1,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
         self.best_model_dict = None
 
