@@ -46,7 +46,7 @@ def main(
     predict_diff: bool = False,
     dropout_p: Optional[float] = None,
     num_ensemble_preds: Optional[int] = None,
-    checkpoint_folder: str = "",
+    checkpoint_folder: Optional[str] = "",
     train_metric: Optional[str] = None,
     val_metric: Optional[str] = None,
     save_experiment: bool = False,
@@ -202,6 +202,15 @@ def main(
     else:
         run = None
 
+    if checkpoint_folder is None:
+        checkpoint_path = None
+        logger.info("Checkpoint folder is None: Not saving checkpoints.")
+    else:
+        checkpoint_path = os.path.join(
+            f"checkpoints/{dataset}/", checkpoint_folder, model_name
+        )
+        logger.info(f"Checkpoint path: {checkpoint_path}")
+
     logger.info("Starting training...")
     train_loss, val_loss = probabilistic_unet.fit(
         n_epochs=epochs,
@@ -214,9 +223,7 @@ def main(
         model_name=probabilistic_unet.name,
         train_metric=train_metric,
         val_metric=val_metric,
-        checkpoint_path=os.path.join(
-            f"checkpoints/{dataset}/", checkpoint_folder, model_name
-        ),
+        checkpoint_path=checkpoint_path,
     )
     logger.info("Training done.")
     logger.info(f"    - Train loss: {train_loss[-1]}")
