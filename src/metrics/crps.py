@@ -340,7 +340,6 @@ class CRPSLoss:
         ) > purek.view(N, 1, H, W)
 
         p4 = torch.sum(parts * mask, dim=1).unsqueeze(1) * (
-            # (y - bin_borders[-1] < 0).float().sum(dim=1)
             (y - bin_borders[:, -1:, :, :] < 0)
             .float()
             .sum(dim=1)
