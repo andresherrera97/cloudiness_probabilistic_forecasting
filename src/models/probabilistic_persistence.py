@@ -26,7 +26,7 @@ class PersistenceEnsemble:
         dataset: str,
         path: str,
         batch_size: int,
-        time_horizon: int,
+        time_horizon: Optional[int],
         cosangs_csv_path: Optional[str] = None,
     ):
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
@@ -69,14 +69,48 @@ class PersistenceEnsemble:
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    def predict(self, X):
-        return torch.sort(X, dim=1)[0]
+    def predict(self, X, allow_equal_quantile_values=True):
+        sorted_X = torch.sort(X, dim=1)[0]
+        if not allow_equal_quantile_values:
+            sorted_X = self.modify_consecutive_equals(sorted_X)
+        return sorted_X
 
     def crps_quantile(self, predictions, y_target):
         return self.crps_loss.crps_loss(
             pred=predictions,
             y=y_target,
         )
+
+    def modify_consecutive_equals(self, tensor, base_value=1e-5):
+        B, N, H, W = tensor.shape
+
+        # Create a tensor of increasing values for each slice in N
+        n_values = torch.arange(1, N + 1, dtype=tensor.dtype, device=tensor.device)
+        n_values = n_values.view(1, N, 1, 1)
+
+        # Compare each slice with the next one
+        differences = tensor[:, 1:] - tensor[:, :-1]
+
+        # Find where the difference is zero (i.e., consecutive slices are equal)
+        mask = differences == 0
+
+        # Create a tensor to add, with the same shape as the input tensor
+        to_add = torch.zeros_like(tensor)
+
+        # Set the values to add where the mask is True
+        # The added value is proportional to the slice index
+        to_add[:, 1:][mask] = base_value * n_values[:, 1:].expand_as(mask)[mask]
+
+        # Add the values
+        modified_tensor = tensor + to_add
+        modified_tensor = torch.sort(modified_tensor, dim=1)[0]
+
+        zero_mask = modified_tensor[:, 0, :, :] == 0
+        modified_tensor[:, 0, :, :] = (
+            modified_tensor[:, 0, :, :] + modified_tensor[:, 1, :, :] / 2 * zero_mask
+        )
+
+        return modified_tensor
 
     def random_example(self):
         for _, (in_frames, out_frames) in enumerate(self.train_loader):

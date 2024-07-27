@@ -1,10 +1,14 @@
 import torch
-import torch.nn as nn
 import numpy as np
 from scipy import stats
 import properscoring as ps
 from math import isclose
 from typing import List, Optional
+import logging
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 
 def crps_gaussian(
@@ -99,13 +103,17 @@ class CRPSLoss:
         lower_bound: float = 0.0,
         upper_bound: float = 1.0,
     ):
+        self._logger = logging.getLogger(self.__class__.__name__)
         if num_bins is not None and quantiles is not None:
+            self._logger.error("Only one of num_bins or quantiles should be provided.")
             raise ValueError("Only one of num_bins or quantiles should be provided.")
         if num_bins is None and quantiles is None:
+            self._logger.error("One of num_bins or quantiles should be provided.")
             raise ValueError("One of num_bins or quantiles should be provided.")
         self.num_bins = num_bins
         if self.num_bins is not None:
             self.bin_borders = torch.linspace(lower_bound, upper_bound, self.num_bins).to(device)
+            self._logger.info(f"Bin borders: {self.bin_borders}")
         else:
             self.bin_borders = None
         if quantiles is not None:
@@ -116,6 +124,8 @@ class CRPSLoss:
                 self.quantiles[i] - self.quantiles[i - 1]
                 for i in range(1, len(self.quantiles))
             ]
+            self._logger.info(f"Quantiles: {self.quantiles}")
+            self._logger.info(f"PDF QR: {self.pdf_qr}")
         else:
             self.quantiles = None
             self.pdf_qr = None
@@ -219,6 +229,7 @@ class CRPSLoss:
         y: torch.Tensor,
         bin_borders: torch.Tensor,
         device: str,
+        eps: float = 1e-12,
     ):
         """
         Compute CRPS loss for fixed bin borders and predicted PDF values.
@@ -244,8 +255,6 @@ class CRPSLoss:
                 ],
                 dim=1,
             )
-
-        # Ensure inputs are on the same device
 
         # Compute CDF from PDF
         cdf_values = torch.cat(
@@ -273,7 +282,6 @@ class CRPSLoss:
             )
             * (bin_borders[:, :-1, :, :] - bin_borders[:, 1:, :, :])
         )
-
         # first part of the loss
         p1 = bin_borders[:, -1:, :, :] - y
         # second part of the loss
@@ -282,8 +290,8 @@ class CRPSLoss:
         # Reshape tensors to run searchsorted in parallel
         bin_borders_reshaped = bin_borders.permute(
             0, 2, 3, 1
-        ).contiguous()  # Shape: [3, 32, 32, 7]
-        y_reshaped = y.permute(0, 2, 3, 1).contiguous()  # Shape: [3, 32, 32, 1]
+        ).contiguous()  # Shape: [N, H, W, 7]
+        y_reshaped = y.permute(0, 2, 3, 1).contiguous()  # Shape: [N, H, W, 1]
 
         # Run searchsorted
         purek = torch.searchsorted(bin_borders_reshaped, y_reshaped) - 1
@@ -317,9 +325,10 @@ class CRPSLoss:
             torch.arange(H).view(1, 1, H, 1).expand(N, 1, H, W),
             torch.arange(W).view(1, 1, 1, W).expand(N, 1, H, W),
         ]
-
+        # add epsilon to avoid division by zero
+        bin_borders_diff = (bin_borders_k_next - bin_borders_k) + eps
         cdf_at_y = cdf_values_arange + (y - bin_borders_k) / (
-            bin_borders_k_next - bin_borders_k
+            bin_borders_diff
         ) * (cdf_next_values_arange - cdf_values_arange)
 
         p3 = ((cdf_at_y + cdf_next_values_arange) / 2 * (bin_borders_k_next - y)) * (
