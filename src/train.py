@@ -25,6 +25,8 @@ torch.manual_seed(0)
 random.seed(0)
 np.random.seed(0)
 
+os.environ["WANDB__SERVICE_WAIT"] = "300"
+
 
 def main(
     model_name: str,

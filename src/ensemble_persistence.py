@@ -67,6 +67,10 @@ def main(
     val_crps = peen.predict_on_dataset(dataset="validation")
     logging.info(f"Validation CRPS: {val_crps}")
 
+    # MMNIST
+    # INFO:root:Train CRPS: 0.04892459054737005
+    # INFO:root:Validation CRPS: 0.0485657579833995
+
 
 if __name__ == "__main__":
     fire.Fire(main)
