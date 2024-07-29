@@ -201,7 +201,7 @@ def main(
             },
         )
 
-        wandb.watch(probabilistic_unet.model, log_freq=100)
+        wandb.watch(probabilistic_unet.model, log_freq=500)
     else:
         run = None
 
