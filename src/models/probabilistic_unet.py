@@ -1640,6 +1640,8 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 val_loss_in_epoch = mae_loss_in_epoch
             elif val_metric == "crps":
                 val_loss_in_epoch = crps_in_epoch
+            else:
+                raise ValueError(f"Validation metric {val_metric} not recognized.")
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
