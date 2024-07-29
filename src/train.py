@@ -197,6 +197,7 @@ def main(
                 "train_metric": train_metric,
                 "val_metric": val_metric,
                 "output_activation": output_activation,
+                "num_filters": num_filters,
             },
         )
 
