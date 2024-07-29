@@ -68,6 +68,7 @@ def main(
     logging.info(f"Validation CRPS: {val_crps}")
 
     # MMNIST
+    # num_quantiles = 9
     # INFO:root:Train CRPS: 0.04892459054737005
     # INFO:root:Validation CRPS: 0.0485657579833995
 
