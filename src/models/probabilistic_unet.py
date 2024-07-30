@@ -257,7 +257,6 @@ class BinClassifierUNet(ProbabilisticUNet):
         for epoch in range(n_epochs):
             start_epoch = time.time()
             train_loss_in_epoch_list = []  # stores values inside the current epoch
-            val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
             for batch_idx, (in_frames, (out_frames, bin_output)) in enumerate(
@@ -587,7 +586,6 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         for epoch in range(n_epochs):
             start_epoch = time.time()
             train_loss_in_epoch_list = []  # stores values inside the current epoch
-            val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
             for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
@@ -916,7 +914,6 @@ class MeanStdUNet(ProbabilisticUNet):
         for epoch in range(n_epochs):
             start_epoch = time.time()
             train_loss_in_epoch_list = []  # stores values inside the current epoch
-            val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
             for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
@@ -1234,7 +1231,6 @@ class MedianScaleUNet(ProbabilisticUNet):
         for epoch in range(n_epochs):
             start_epoch = time.time()
             train_loss_in_epoch_list = []  # stores values inside the current epoch
-            val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
             for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
@@ -1559,7 +1555,6 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         for epoch in range(n_epochs):
             start_epoch = time.time()
             train_loss_in_epoch_list = []  # stores values inside the current epoch
-            val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
             for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
