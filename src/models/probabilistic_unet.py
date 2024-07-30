@@ -1002,6 +1002,8 @@ class MeanStdUNet(ProbabilisticUNet):
                 val_loss_in_epoch = mse_mean_pred_in_epoch
             elif val_metric.lower() == "crps":
                 val_loss_in_epoch = crps_in_epoch
+            else:
+                raise ValueError(f"Validation loss {val_metric} not recognized.")
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
@@ -1319,6 +1321,8 @@ class MedianScaleUNet(ProbabilisticUNet):
                 val_loss_in_epoch = mae_mean_pred_in_epoch
             elif val_metric.lower() == "crps":
                 val_loss_in_epoch = crps_in_epoch
+            else:
+                raise ValueError(f"Validation loss {val_metric} not recognized.")
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
