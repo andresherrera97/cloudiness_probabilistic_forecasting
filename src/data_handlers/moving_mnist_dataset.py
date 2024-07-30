@@ -52,21 +52,23 @@ class MovingMnistDataset(Dataset):
         out_frames = np.load(sequence[-1], allow_pickle=True)[np.newaxis]
         out_frames = out_frames / 255
 
-        if self.num_bins is not None and self.num_bins > 0:
+        if (
+            self.binarization_method is not None
+            and self.num_bins is not None
+            and self.num_bins > 0
+        ):
             if self.binarization_method == "one_hot_encoding":
-                out_frames = classify_array_in_bins(out_frames[0], self.num_bins)
+                bin_output = classify_array_in_bins(out_frames[0], self.num_bins)
             elif self.binarization_method == "integer_classes":
-                out_frames = classify_array_in_integer_classes(
+                bin_output = classify_array_in_integer_classes(
                     out_frames[0], self.num_bins
                 )
             elif self.binarization_method == "both":
-                out_frames_one_hot = classify_array_in_bins(
-                    out_frames[0], self.num_bins
+                bin_output = (
+                    classify_array_in_bins(out_frames[0], self.num_bins),
+                    classify_array_in_integer_classes(out_frames[0], self.num_bins),
                 )
-                out_frames_integer = classify_array_in_integer_classes(
-                    out_frames[0], self.num_bins
-                )
-                out_frames = (out_frames_one_hot, out_frames_integer)
+            out_frames = (out_frames, bin_output)
 
         return in_frames, out_frames
 

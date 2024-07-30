@@ -179,7 +179,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         batch_size: int,
         time_horizon: int,
         cosangs_csv_path: Optional[str] = None,
-        binarization_method: str = "integer_classes",
+        binarization_method: Optional[str] = "integer_classes",
     ):
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
             train_dataset = MovingMnistDataset(
@@ -260,20 +260,23 @@ class BinClassifierUNet(ProbabilisticUNet):
             val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
-            for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
+            for batch_idx, (in_frames, (out_frames, bin_output)) in enumerate(
+                self.train_loader
+            ):
 
                 start_batch = time.time()
 
                 # data to cuda if possible
                 in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device)
 
                 # forward
                 frames_pred = self.model(in_frames.float())
 
                 if train_metric is None or train_metric in ["cross_entropy", "ce"]:
-                    loss = self.calculate_loss(frames_pred, out_frames)
+                    bin_output = bin_output.to(device=device)
+                    loss = self.calculate_loss(frames_pred, bin_output)
                 elif train_metric == "crps":
+                    out_frames = out_frames.to(device=device)
                     loss = self.crps_loss.crps_loss(frames_pred, out_frames)
                 else:
                     raise ValueError(f"Training loss {train_metric} not recognized.")
@@ -312,16 +315,17 @@ class BinClassifierUNet(ProbabilisticUNet):
             precision_list = []
 
             with torch.no_grad():
-                for val_batch_idx, (in_frames, out_frames) in enumerate(
+                for val_batch_idx, (in_frames, (out_frames, bin_output)) in enumerate(
                     self.val_loader
                 ):
 
                     in_frames = in_frames.to(device=device).float()
                     out_frames = out_frames.to(device=device)
+                    bin_output = bin_output.to(device=device)
 
                     frames_pred = self.model(in_frames.float())
 
-                    cross_entropy_loss = self.calculate_loss(frames_pred, out_frames)
+                    cross_entropy_loss = self.calculate_loss(frames_pred, bin_output)
                     cross_entropy_loss_per_batch.append(
                         cross_entropy_loss.detach().item()
                     )
@@ -330,7 +334,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                         self.crps_loss.crps_loss(frames_pred, out_frames)
                     )
                     precision_list.append(
-                        self.multiclass_precision_metric(frames_pred, out_frames)
+                        self.multiclass_precision_metric(frames_pred, bin_output)
                     )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:

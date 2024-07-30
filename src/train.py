@@ -52,6 +52,7 @@ def main(
     train_metric: Optional[str] = None,
     val_metric: Optional[str] = None,
     save_experiment: bool = False,
+    binarization_method: Optional[str] = None,
 ):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -78,6 +79,7 @@ def main(
             output_activation=output_activation,
         )
     elif model_name.lower() in ["bin_classifier", "bin"]:
+        binarization_method = "integer_classes"
         logger.info("Selected model: BinClassifierUNet")
         logger.info(f"    - Bins: {num_bins}")
         logger.info(f"    - input_frames: {input_frames}")
@@ -85,6 +87,7 @@ def main(
         logger.info(f"    - Train metric: {train_metric}")
         logger.info(f"    - Val metric: {val_metric}")
         logger.info(f"    - Output activation: {output_activation}")
+        logger.info(f"    - Binarization method: {binarization_method}")
         probabilistic_unet = BinClassifierUNet(
             n_bins=num_bins,
             in_frames=input_frames,
@@ -168,7 +171,7 @@ def main(
         batch_size=batch_size,
         cosangs_csv_path=cosangs_csv_path,
         time_horizon=time_horizon,
-        binarization_method="integer_classes",  # needed for BinClassifierUNet
+        binarization_method=binarization_method,  # needed for BinClassifierUNet
     )
 
     logger.info("Initialization done.")
