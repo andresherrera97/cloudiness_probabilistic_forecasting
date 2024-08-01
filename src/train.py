@@ -96,8 +96,11 @@ def main(
             output_activation=output_activation,
         )
     elif model_name.lower() in ["quantile_regressor", "qr"]:
+        if num_bins is not None and quantiles is None:
+            quantiles = np.linspace(0, 1, num_bins+1)[1:-1]
         logger.info("Selected model: QuantileRegressorUNet")
         logger.info(f"    - Quantiles: {quantiles}")
+        logger.info(f"    - Num Bins: {len(quantiles)+1}")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Predict diff: {predict_diff}")
