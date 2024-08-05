@@ -13,8 +13,8 @@ logger = logging.getLogger("Persistence Ensemble")
 
 def main(
     dataset: str,
-    time_horizon: Optional[int],
-    num_quantiles: int = 10,
+    time_horizon: Optional[int] = None,
+    num_quantiles: int = 9,
     batch_size: int = 1,
     create_plots: bool = False,
 ):
@@ -67,13 +67,10 @@ def main(
     val_crps = peen.predict_on_dataset(dataset="validation")
     logging.info(f"Validation CRPS: {val_crps}")
 
-    # num_quantiles = 5
-    # INFO:root:Train CRPS: 0.018449636176228523
-    # INFO:root:Validation CRPS: 0.018217280507087708
-
-    # num_quantiles = 10
-    # INFO:root:Train CRPS: 0.12638534605503082
-    # INFO:root:Validation CRPS: 0.12413211911916733
+    # MMNIST
+    # num_quantiles = 9
+    # INFO:root:Train CRPS: 0.04892459054737005
+    # INFO:root:Validation CRPS: 0.0485657579833995
 
 
 if __name__ == "__main__":

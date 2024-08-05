@@ -21,7 +21,8 @@ python src/moving_mnist.py \
     --num_filters=32 \
     --save_experiment=True \
     --optimizer=adam \
-    --checkpoint_metric=crps \
+    --train_metric=crps \
+    --val_metric=crps \
     --checkpoint_folder=five_bins_32_filters \
     --scheduler=plateau
 
