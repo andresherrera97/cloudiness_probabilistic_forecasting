@@ -479,6 +479,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             n_classes=self.n_bins,
             filters=self.filters,
             output_activation=self.output_activation,
+            predict_diff=self.predict_diff,
         )
         self.loss_fn = QuantileLoss(quantiles=self.quantiles)
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
@@ -598,8 +599,6 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
                 # forward
                 frames_pred = self.model(in_frames.float())
-                if self.predict_diff:
-                    frames_pred = torch.cumsum(frames_pred, dim=1)
 
                 if train_metric is None or train_metric in [
                     "quantile",
@@ -656,8 +655,6 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     out_frames = out_frames.to(device=device)
 
                     frames_pred = self.model(in_frames.float())
-                    if self.predict_diff:
-                        frames_pred = torch.cumsum(frames_pred, dim=1)
 
                     quantile_loss = self.calculate_loss(frames_pred, out_frames)
                     quantile_loss_per_batch.append(quantile_loss.detach().item())

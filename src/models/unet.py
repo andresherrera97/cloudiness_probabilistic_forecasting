@@ -87,6 +87,7 @@ class UNet(nn.Module):
         bilinear: bool = True,
         dropout_p: float = 0,
         output_activation: Optional[str] = "sigmoid",
+        predict_diff: bool = False,
         filters: int = 64,
         bias: bool = False,
     ):
@@ -96,6 +97,7 @@ class UNet(nn.Module):
         self.n_classes = n_classes
         self.bilinear = bilinear
         self.dropout_p = dropout_p
+        self.predict_diff = predict_diff
 
         if self.dropout_p > 0:
             self.mc_unet = True
@@ -151,4 +153,7 @@ class UNet(nn.Module):
         x = F.dropout(self.up4(x, x1), p=self.dropout_p, training=self.mc_unet)
         out = self.outc(x)
         out = self.out_activation(out)
+        if self.predict_diff:
+            out = torch.cumsum(out, dim=1)
+            out = nn.Sigmoid()(out)
         return out
