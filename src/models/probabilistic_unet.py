@@ -411,15 +411,17 @@ class BinClassifierUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                     "val_metric": val_metric,
                 }
-                if checkpoint_path is not None:
-                    checkpoint_name = (
-                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-                    )
-                    torch.save(
-                        self.best_model_dict,
-                        os.path.join(checkpoint_path, checkpoint_name),
-                    )
+
+        if checkpoint_path is not None:
+            self._logger.info(f"Saving best model to {checkpoint_path}")
+            checkpoint_name = (
+                f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+            )
+            torch.save(
+                self.best_model_dict,
+                os.path.join(checkpoint_path, checkpoint_name),
+            )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -742,15 +744,17 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                     "val_metric": val_metric,
                 }
-                if checkpoint_path is not None:
-                    checkpoint_name = (
-                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-                    )
-                    torch.save(
-                        self.best_model_dict,
-                        os.path.join(checkpoint_path, checkpoint_name),
-                    )
+
+        if checkpoint_path is not None:
+            self._logger.info(f"Saving best model to {checkpoint_path}")
+            checkpoint_name = (
+                f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+            )
+            torch.save(
+                self.best_model_dict,
+                os.path.join(checkpoint_path, checkpoint_name),
+            )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1063,15 +1067,16 @@ class MeanStdUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                     "train_metric": train_metric,
                 }
-                if checkpoint_path is not None:
-                    checkpoint_name = (
-                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-                    )
-                    torch.save(
-                        self.best_model_dict,
-                        os.path.join(checkpoint_path, checkpoint_name),
-                    )
+        if checkpoint_path is not None:
+            self._logger.info(f"Saving best model to {checkpoint_path}")
+            checkpoint_name = (
+                f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+            )
+            torch.save(
+                self.best_model_dict,
+                os.path.join(checkpoint_path, checkpoint_name),
+            )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1381,15 +1386,16 @@ class MedianScaleUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                     "train_metric": train_metric,
                 }
-                if checkpoint_path is not None:
-                    checkpoint_name = (
-                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-                    )
-                    torch.save(
-                        self.best_model_dict,
-                        os.path.join(checkpoint_path, checkpoint_name),
-                    )
+        if checkpoint_path is not None:
+            self._logger.info(f"Saving best model to {checkpoint_path}")
+            checkpoint_name = (
+                f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+            )
+            torch.save(
+                self.best_model_dict,
+                os.path.join(checkpoint_path, checkpoint_name),
+            )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1699,15 +1705,16 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                     "train_metric": train_metric,
                 }
-                if checkpoint_path is not None:
-                    checkpoint_name = (
-                        f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                        f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-                    )
-                    torch.save(
-                        self.best_model_dict,
-                        os.path.join(checkpoint_path, checkpoint_name),
-                    )
+        if checkpoint_path is not None:
+            self._logger.info(f"Saving best model to {checkpoint_path}")
+            checkpoint_name = (
+                f"{model_name}_{str(epoch + 1).zfill(3)}_"
+                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+            )
+            torch.save(
+                self.best_model_dict,
+                os.path.join(checkpoint_path, checkpoint_name),
+            )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
