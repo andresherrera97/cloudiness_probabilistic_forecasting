@@ -1651,7 +1651,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     )
 
                     quantile_predictions = self.quantile_predictions(
-                        extra_frames_pred, torch.tensor(self.quantiles, device=device)
+                        extra_frames_pred, torch.tensor(self.quantiles, device=device, dtype=torch.float32)
                     )
                     crps_quantile_list.append(
                         self.crps_loss.crps_loss(
