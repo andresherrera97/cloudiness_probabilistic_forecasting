@@ -322,7 +322,7 @@ class IQUNetPipeline:
                 out_frames = out_frames.to(device=device).float()
 
                 # forward
-                taus = torch.rand(1)
+                taus = torch.rand(1).to(device=device)
                 frames_pred = self.model(in_frames.float(), taus)
 
                 loss = QuantileLoss(quantiles=taus)(frames_pred, out_frames)
@@ -368,7 +368,7 @@ class IQUNetPipeline:
                     in_frames = in_frames.to(device=device).float()
                     out_frames = out_frames.to(device=device)
 
-                    taus = torch.rand(1)
+                    taus = torch.rand(1).to(device=device)
                     frames_pred = self.model(in_frames.float(), taus)
 
                     quantile_loss = QuantileLoss(quantiles=taus)(frames_pred, out_frames)
