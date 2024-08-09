@@ -21,8 +21,9 @@ logging.basicConfig(level=logging.INFO)
 
 
 class QuantileEmbedding(nn.Module):
-    def __init__(self, cosine_embedding_dimension, feature_dimension):
+    def __init__(self, cosine_embedding_dimension, feature_dimension, device):
         super().__init__()
+        self.device = device
         self.cosine_embedding_dimension = cosine_embedding_dimension
         self.feature_dimension = feature_dimension
         self.embedding = nn.Linear(cosine_embedding_dimension, feature_dimension)
@@ -30,7 +31,7 @@ class QuantileEmbedding(nn.Module):
     def forward(self, tau):
         x = tau.unsqueeze(-1)  # Add feature dimension
         x = torch.cos(
-            torch.pi * torch.arange(self.cosine_embedding_dimension)[None] * x
+            torch.pi * torch.arange(self.cosine_embedding_dimension, device=self.device)[None] * x
         )
         x = self.embedding(x)
         x = F.relu(x)
@@ -120,6 +121,7 @@ class IQUNet(nn.Module):
         filters: int = 64,
         bias: bool = False,
         cosine_embedding_dimension: int = 64,
+        device: str = "cpu",
         # embedding_dim: int = 32,
     ):
         super().__init__()
@@ -147,8 +149,8 @@ class IQUNet(nn.Module):
         # multiplied by 4*4 because of image size downscaling
         embedding_dim = filters * 8 * 4 * 4
         self.quantile_embedding = QuantileEmbedding(
-            cosine_embedding_dimension, embedding_dim
-        )
+            cosine_embedding_dimension, embedding_dim, device
+        ).to(device)
 
     def forward(self, x, tau):
         tau_embedding = self.quantile_embedding(tau)
@@ -203,6 +205,7 @@ class IQUNetPipeline:
             n_classes=n_classes,
             filters=filters,
             cosine_embedding_dimension=cosine_embedding_dimension,
+            device=device,
         ).to(device)
 
         self.quantiles = [0.5]
