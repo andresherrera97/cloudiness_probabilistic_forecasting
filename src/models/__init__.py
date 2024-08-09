@@ -10,3 +10,4 @@ from .probabilistic_unet import (
 )
 from .probabilistic_persistence import PersistenceEnsemble
 from .deterministic_unet import UNetPipeline
+from .iq_unet import IQUNetPipeline

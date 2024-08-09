@@ -12,6 +12,7 @@ from models import (
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
     UNetPipeline,
+    IQUNetPipeline,
 )
 import numpy as np
 from typing import Optional, List
@@ -53,6 +54,7 @@ def main(
     val_metric: Optional[str] = None,
     save_experiment: bool = False,
     binarization_method: Optional[str] = None,
+    cos_dim: int = 64,
 ):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -139,6 +141,17 @@ def main(
             in_frames=input_frames,
             filters=num_filters,
             output_activation=output_activation,
+        )
+    elif model_name.lower() in ["iqn", "iqn_unet"]:
+        logger.info("Selected model: IQN_UNet")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
+        logger.info(f"    - Cosine embedding dimension: {cos_dim}")
+        probabilistic_unet = IQUNetPipeline(
+            in_frames=input_frames,
+            n_classes=1,
+            filters=num_filters,
+            cosine_embedding_dimension=cos_dim,
         )
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")
