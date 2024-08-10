@@ -99,7 +99,7 @@ def main(
         )
     elif model_name.lower() in ["quantile_regressor", "qr"]:
         if num_bins is not None and quantiles is None:
-            quantiles = np.linspace(0, 1, num_bins+1)[1:-1]
+            quantiles = np.linspace(0, 1, num_bins + 1)[1:-1]
         logger.info("Selected model: QuantileRegressorUNet")
         logger.info(f"    - Quantiles: {quantiles}")
         logger.info(f"    - Num Bins: {len(quantiles)+1}")
@@ -144,12 +144,16 @@ def main(
         )
     elif model_name.lower() in ["iqn", "iqn_unet"]:
         num_taus = num_bins - 1
+        train_metric = "pinball"
+        val_metric = "pinball"
         logger.info("Selected model: IQN_UNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Cosine embedding dimension: {cos_dim}")
         logger.info(f"    - Num Taus: {num_taus}")
         logger.info(f"    - Predict diff: {predict_diff}")
+        logger.info(f"    - Train metric: {train_metric}")
+        logger.info(f"    - Val metric: {val_metric}")
         probabilistic_unet = IQUNetPipeline(
             in_frames=input_frames,
             filters=num_filters,

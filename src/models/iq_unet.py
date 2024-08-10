@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from metrics import QuantileLoss
+from metrics import QuantileLoss, CRPSLoss
 
 from .model_initialization import weights_init, optimizer_init, scheduler_init
 import logging
@@ -21,13 +21,22 @@ logging.basicConfig(level=logging.INFO)
 
 
 class QuantileEmbedding(nn.Module):
-    def __init__(self, cosine_embedding_dimension, feature_dimension, device, sort_taus: bool = True):
+    def __init__(
+        self,
+        cosine_embedding_dimension,
+        feature_dimension,
+        device,
+        sort_taus: bool = True,
+    ):
         super().__init__()
         self.device = device
         self.cosine_embedding_dimension = cosine_embedding_dimension
         self.feature_dimension = feature_dimension
         self.embedding = nn.Linear(cosine_embedding_dimension, feature_dimension)
-        self.pis = (torch.pi * torch.arange(self.cosine_embedding_dimension, device=self.device)[None])
+        self.pis = (
+            torch.pi
+            * torch.arange(self.cosine_embedding_dimension, device=self.device)[None]
+        )
         self.sort_taus = sort_taus
 
     def forward(self, taus):
@@ -136,7 +145,7 @@ class IQUNet(nn.Module):
         device: str = "cpu",
     ):
         super().__init__()
-        self.description = f"IQN_UNet_IN{in_frames}_OUT{n_classes}_Q{num_taus}_CEMB{cosine_embedding_dimension}"
+        self.description = f"IQN_UNet_IN{in_frames}_OUT{n_classes}_Q{num_taus}_CED{cosine_embedding_dimension}_NT{num_taus}"
         self.n_channels = in_frames
         self.n_classes = n_classes
         self.bilinear = bilinear
@@ -179,7 +188,14 @@ class IQUNet(nn.Module):
         # Integrate tau embedding
         x5_flat = torch.flatten(x5, start_dim=1).unsqueeze(1)
         x5_flat = x5_flat * taus_embedding
-        x5 = x5_flat.reshape((x5.shape[0], x5.shape[1] * taus_embedding.shape[1], x5.shape[2], x5.shape[3]))
+        x5 = x5_flat.reshape(
+            (
+                x5.shape[0],
+                x5.shape[1] * taus_embedding.shape[1],
+                x5.shape[2],
+                x5.shape[3],
+            )
+        )
         x5 = self.dim_reduction_conv(x5)
 
         # Decoder
@@ -221,7 +237,10 @@ class IQUNetPipeline:
         self.num_taus = num_taus
         self.min_value = min_value
         self.max_value = max_value
-        self.val_quantiles = torch.linspace(min_value, max_value, self.num_taus + 2)[1:-1].to(device=device)
+        self.val_quantiles = torch.linspace(min_value, max_value, self.num_taus + 2)[
+            1:-1
+        ].to(device=device)
+        self.crps_loss = CRPSLoss(quantiles=self.val_quantiles, device=device)
 
         self.model = IQUNet(
             in_frames=in_frames,
@@ -329,6 +348,7 @@ class IQUNetPipeline:
         train_loss_per_epoch = []
         val_loss_per_epoch = []
         quantile_loss_per_epoch = []
+        crps_loss_per_epoch = []
 
         best_val_loss = 1e5
 
@@ -383,6 +403,7 @@ class IQUNetPipeline:
 
             self.model.eval()
             quantile_loss_per_batch = []  # stores values for this validation run
+            crps_loss_per_batch = []
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -396,9 +417,20 @@ class IQUNetPipeline:
                     if self.predict_diff:
                         frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                    quantile_loss = self.calculate_loss(frames_pred, out_frames, self.val_quantiles)
-
+                    quantile_loss = self.calculate_loss(
+                        frames_pred, out_frames, self.val_quantiles
+                    )
                     quantile_loss_per_batch.append(quantile_loss.detach().item())
+
+                    if self.predict_diff:
+                        crps_loss = self.crps_loss.crps_loss(
+                            pred=frames_pred,
+                            y=out_frames,
+                        )
+
+                        crps_loss_per_batch.append(crps_loss.detach().item())
+                    else:
+                        crps_loss_per_batch.append(-1)
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -406,16 +438,18 @@ class IQUNetPipeline:
             quantile_loss_in_epoch = sum(quantile_loss_per_batch) / len(
                 quantile_loss_per_batch
             )
+            crps_loss_in_epoch = sum(crps_loss_per_batch) / len(crps_loss_per_batch)
 
             val_loss_in_epoch = quantile_loss_in_epoch
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
-                
+
             if run is not None:
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"quantile_loss": quantile_loss_in_epoch}, step=epoch)
+                run.log({"crps_loss": crps_loss_in_epoch}, step=epoch)
                 run.log(
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
                     step=epoch,
@@ -425,6 +459,7 @@ class IQUNetPipeline:
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             quantile_loss_per_epoch.append(quantile_loss_in_epoch)
+            crps_loss_per_epoch.append(crps_loss_in_epoch)
 
             if verbose:
                 self._logger.info(
@@ -432,6 +467,7 @@ class IQUNetPipeline:
                     f"Train_loss({(train_loss_in_epoch):06.4f}) | "
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
                     f"Quantile_loss({quantile_loss_in_epoch:.4f}) | "
+                    f"CRPS_loss({crps_loss_in_epoch:.4f}) | "
                     f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
 
@@ -452,6 +488,7 @@ class IQUNetPipeline:
                     "train_loss_per_epoch": train_loss_per_epoch,
                     "val_loss_per_epoch": val_loss_per_epoch,
                     "quantile_loss_per_epoch": quantile_loss_per_epoch,
+                    "crps_loss_per_epoch": crps_loss_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                     "train_metric": train_metric,
                     "val_metric": val_metric,
