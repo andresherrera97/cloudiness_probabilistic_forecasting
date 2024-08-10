@@ -21,16 +21,19 @@ logging.basicConfig(level=logging.INFO)
 
 
 class QuantileEmbedding(nn.Module):
-    def __init__(self, cosine_embedding_dimension, feature_dimension, device):
+    def __init__(self, cosine_embedding_dimension, feature_dimension, device, sort_taus: bool = True):
         super().__init__()
         self.device = device
         self.cosine_embedding_dimension = cosine_embedding_dimension
         self.feature_dimension = feature_dimension
         self.embedding = nn.Linear(cosine_embedding_dimension, feature_dimension)
         self.pis = (torch.pi * torch.arange(self.cosine_embedding_dimension, device=self.device)[None])
+        self.sort_taus = sort_taus
 
-    def forward(self, tau):
-        x = tau.unsqueeze(-1)  # Add feature dimension
+    def forward(self, taus):
+        if self.sort_taus:
+            taus, _ = torch.sort(taus)
+        x = taus.unsqueeze(-1)  # Add feature dimension
         x = torch.cos(self.pis * x)
         x = self.embedding(x)
         x = F.relu(x)
@@ -111,6 +114,15 @@ class OutConv(nn.Module):
         return self.conv(x)
 
 
+class ReductionConv(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super(ReductionConv, self).__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+
+    def forward(self, x):
+        return self.conv(x)
+
+
 class IQUNet(nn.Module):
     def __init__(
         self,
@@ -120,15 +132,16 @@ class IQUNet(nn.Module):
         filters: int = 64,
         bias: bool = False,
         cosine_embedding_dimension: int = 64,
+        num_taus: int = 10,
         device: str = "cpu",
-        # embedding_dim: int = 32,
     ):
         super().__init__()
-        self.description = f"IQN_UNet_IN{in_frames}_OUT{n_classes}"
+        self.description = f"IQN_UNet_IN{in_frames}_OUT{n_classes}_Q{num_taus}_CEMB{cosine_embedding_dimension}"
         self.n_channels = in_frames
         self.n_classes = n_classes
         self.bilinear = bilinear
         self.cosine_embedding_dimension = cosine_embedding_dimension
+        self.num_taus = num_taus
 
         factor = 2 if bilinear else 1
 
@@ -148,24 +161,28 @@ class IQUNet(nn.Module):
         # multiplied by 4*4 because of image size downscaling
         embedding_dim = filters * 8 * 4 * 4
         self.quantile_embedding = QuantileEmbedding(
-            cosine_embedding_dimension, embedding_dim, device
+            cosine_embedding_dimension, embedding_dim, device, sort_taus=True
         ).to(device)
 
-    def forward(self, x, tau):
-        tau_embedding = self.quantile_embedding(tau)
+        self.dim_reduction_conv = ReductionConv(filters * 8 * num_taus, filters * 8)
 
+    def forward(self, x, taus):
+        taus_embedding = self.quantile_embedding(taus).unsqueeze(0)
+
+        # Encoder
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         x5 = self.down4(x4)
+
         # Integrate tau embedding
-        
-        x5_flat = torch.flatten(x5, start_dim=1)
-        x5_flat = x5_flat * tau_embedding
+        x5_flat = torch.flatten(x5, start_dim=1).unsqueeze(1)
+        x5_flat = x5_flat * taus_embedding
+        x5 = x5_flat.reshape((x5.shape[0], x5.shape[1] * taus_embedding.shape[1], x5.shape[2], x5.shape[3]))
+        x5 = self.dim_reduction_conv(x5)
 
-        x5 = x5_flat.reshape(x5.shape)
-
+        # Decoder
         x = self.up1(x5, x4)
         x = self.up2(x, x3)
         x = self.up3(x, x2)
@@ -188,27 +205,32 @@ class IQUNetPipeline:
     def __init__(
         self,
         in_frames: int = 3,
-        n_classes: int = 1,
         filters: int = 16,
         cosine_embedding_dimension: int = 64,
+        num_taus: int = 9,
+        predict_diff: bool = False,
         device: str = "cpu",
+        min_value: float = 0,
+        max_value: float = 1,
     ):
         self.in_frames = in_frames
-        self.n_classes = n_classes
         self.filters = filters
         self.cosine_embedding_dimension = cosine_embedding_dimension
         self.device = device
+        self.predict_diff = predict_diff
+        self.num_taus = num_taus
+        self.min_value = min_value
+        self.max_value = max_value
+        self.val_quantiles = torch.linspace(min_value, max_value, self.num_taus + 2)[1:-1].to(device=device)
 
         self.model = IQUNet(
             in_frames=in_frames,
-            n_classes=n_classes,
+            n_classes=num_taus,
             filters=filters,
             cosine_embedding_dimension=cosine_embedding_dimension,
+            num_taus=num_taus,
             device=device,
         ).to(device)
-
-        self.quantiles = [0.5]
-        self.loss_fn = QuantileLoss(quantiles=self.quantiles)
 
         self.train_loader = None
         self.val_loader = None
@@ -324,12 +346,12 @@ class IQUNetPipeline:
                 out_frames = out_frames.to(device=device).float()
 
                 # forward
-                taus = torch.rand(1).to(device=device)
+                taus = torch.rand(self.num_taus).to(device=device)
                 frames_pred = self.model(in_frames.float(), taus)
+                if self.predict_diff:
+                    frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                loss = QuantileLoss(quantiles=taus)(frames_pred, out_frames)
-
-                # loss = self.calculate_loss(frames_pred, out_frames)
+                loss = self.calculate_loss(frames_pred, out_frames, taus)
 
                 # backward
                 self.optimizer.zero_grad()
@@ -370,10 +392,11 @@ class IQUNetPipeline:
                     in_frames = in_frames.to(device=device).float()
                     out_frames = out_frames.to(device=device)
 
-                    taus = torch.rand(1).to(device=device)
-                    frames_pred = self.model(in_frames.float(), taus)
+                    frames_pred = self.model(in_frames.float(), self.val_quantiles)
+                    if self.predict_diff:
+                        frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                    quantile_loss = QuantileLoss(quantiles=taus)(frames_pred, out_frames)
+                    quantile_loss = self.calculate_loss(frames_pred, out_frames, self.val_quantiles)
 
                     quantile_loss_per_batch.append(quantile_loss.detach().item())
 
@@ -412,18 +435,16 @@ class IQUNetPipeline:
                     f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
 
-            # epoch end
-            end_epoch = time.time()
-            
             if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
                     f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
+                best_epoch = epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
-                    "quantiles": self.quantiles,
+                    "quantiles": self.val_quantiles,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -434,12 +455,17 @@ class IQUNetPipeline:
                     "train_loss_epoch_mean": train_loss_in_epoch,
                     "train_metric": train_metric,
                     "val_metric": val_metric,
+                    "num_taus": self.num_taus,
+                    "cosine_embedding_dimension": self.cosine_embedding_dimension,
                 }
 
         if checkpoint_path is not None:
-            self._logger.info(f"Saving best model to {checkpoint_path}")
             checkpoint_name = (
-                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                f"{model_name}_E{best_epoch}_BVM{str(best_val_loss).replace('0.', '')[:4]}_"
+                f"D{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}.pt"
+            )
+            self._logger.info(
+                f"Saving best model to {checkpoint_path}/{checkpoint_name}"
             )
             torch.save(
                 self.best_model_dict,
@@ -448,10 +474,11 @@ class IQUNetPipeline:
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def calculate_loss(self, predictions, y_target):
+    def calculate_loss(self, predictions, y_target, taus):
+        loss_fn = QuantileLoss(quantiles=taus)
         y_target = y_target.repeat(1, predictions.shape[1], 1, 1)
-        return self.loss_fn(predictions, y_target)
+        return loss_fn(predictions, y_target)
 
     @property
     def name(self):
-        return f"IQUNet_IN{self.in_frames}_F{self.filters}"
+        return f"IQUNet_IN{self.in_frames}_F{self.filters}_NT{self.num_taus}_CED{self.cosine_embedding_dimension}_PD{int(self.predict_diff)}"

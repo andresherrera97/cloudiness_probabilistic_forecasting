@@ -54,7 +54,7 @@ def main(
     val_metric: Optional[str] = None,
     save_experiment: bool = False,
     binarization_method: Optional[str] = None,
-    cos_dim: int = 64,
+    cos_dim: Optional[int] = None,
 ):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -143,15 +143,20 @@ def main(
             output_activation=output_activation,
         )
     elif model_name.lower() in ["iqn", "iqn_unet"]:
+        num_taus = num_bins - 1
         logger.info("Selected model: IQN_UNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Cosine embedding dimension: {cos_dim}")
+        logger.info(f"    - Num Taus: {num_taus}")
+        logger.info(f"    - Predict diff: {predict_diff}")
         probabilistic_unet = IQUNetPipeline(
             in_frames=input_frames,
-            n_classes=1,
             filters=num_filters,
             cosine_embedding_dimension=cos_dim,
+            num_taus=num_taus,
+            predict_diff=predict_diff,
+            device=device,
         )
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")
@@ -217,6 +222,7 @@ def main(
                 "val_metric": val_metric,
                 "output_activation": output_activation,
                 "num_filters": num_filters,
+                "cos_dim": cos_dim,
             },
         )
 
