@@ -27,12 +27,11 @@ class QuantileEmbedding(nn.Module):
         self.cosine_embedding_dimension = cosine_embedding_dimension
         self.feature_dimension = feature_dimension
         self.embedding = nn.Linear(cosine_embedding_dimension, feature_dimension)
+        self.pis = (torch.pi * torch.arange(self.cosine_embedding_dimension, device=self.device)[None])
 
     def forward(self, tau):
         x = tau.unsqueeze(-1)  # Add feature dimension
-        x = torch.cos(
-            torch.pi * torch.arange(self.cosine_embedding_dimension, device=self.device)[None] * x
-        )
+        x = torch.cos(self.pis * x)
         x = self.embedding(x)
         x = F.relu(x)
         return x
