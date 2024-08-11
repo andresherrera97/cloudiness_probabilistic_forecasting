@@ -1643,30 +1643,32 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                         )
                     )
 
-                    extra_frames_pred = self.predict(
-                        in_frames.float(), iterations=self.n_quantiles * 2
-                    )
-                    extra_frames_pred = torch.cat(
-                        (extra_frames_pred, frames_pred), dim=1
-                    )
+                    # extra_frames_pred = self.predict(
+                    #     in_frames.float(), iterations=self.n_quantiles * 2
+                    # )
+                    # extra_frames_pred = torch.cat(
+                    #     (extra_frames_pred, frames_pred), dim=1
+                    # )
 
-                    quantile_predictions = self.quantile_predictions(
-                        extra_frames_pred, torch.tensor(self.quantiles, device=device, dtype=torch.float32)
-                    )
-                    crps_quantile_list.append(
-                        self.crps_loss.crps_loss(
-                            pred=quantile_predictions,
-                            y=out_frames,
-                        )
-                    )
+                    # quantile_predictions = self.quantile_predictions(
+                    #     extra_frames_pred, torch.tensor(self.quantiles, device=device, dtype=torch.float32)
+                    # )
+                    # crps_quantile_list.append(
+                    #     self.crps_loss.crps_loss(
+                    #         pred=quantile_predictions,
+                    #         y=out_frames,
+                    #     )
+                    # )
+                    crps_quantile_list.append(-1)
 
-                    bin_predictions = self.bin_predictions(extra_frames_pred, bins=100)
-                    crps_bin_list.append(
-                        self.crps_loss_bin.crps_loss(
-                            pred=bin_predictions,
-                            y=out_frames,
-                        )
-                    )
+                    # bin_predictions = self.bin_predictions(extra_frames_pred, bins=100)
+                    # crps_bin_list.append(
+                    #     self.crps_loss_bin.crps_loss(
+                    #         pred=bin_predictions,
+                    #         y=out_frames,
+                    #     )
+                    # )
+                    crps_bin_list.append(-1)
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
