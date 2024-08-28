@@ -415,8 +415,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         if checkpoint_path is not None:
             self._logger.info(f"Saving best model to {checkpoint_path}")
             checkpoint_name = (
-                f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
             )
             torch.save(
                 self.best_model_dict,
@@ -748,8 +747,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         if checkpoint_path is not None:
             self._logger.info(f"Saving best model to {checkpoint_path}")
             checkpoint_name = (
-                f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
             )
             torch.save(
                 self.best_model_dict,
@@ -1070,8 +1068,7 @@ class MeanStdUNet(ProbabilisticUNet):
         if checkpoint_path is not None:
             self._logger.info(f"Saving best model to {checkpoint_path}")
             checkpoint_name = (
-                f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
             )
             torch.save(
                 self.best_model_dict,
@@ -1389,8 +1386,7 @@ class MedianScaleUNet(ProbabilisticUNet):
         if checkpoint_path is not None:
             self._logger.info(f"Saving best model to {checkpoint_path}")
             checkpoint_name = (
-                f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
             )
             torch.save(
                 self.best_model_dict,
@@ -1461,6 +1457,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.n_quantiles = n_quantiles
         self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
+        self.crps_loss_bin = CRPSLoss(num_bins=101, device=device)
         self.loss_fn = nn.L1Loss()
         self.train_loader = None
         self.val_loader = None
@@ -1559,6 +1556,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         train_loss_per_epoch = []
         val_loss_per_epoch = []
         crps_per_epoch = []
+        mae_per_epoch = []
 
         best_val_loss = 1e5
 
@@ -1612,7 +1610,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             self.model.eval()
 
             mae_loss_per_batch = []  # stores values for this validation run
+            crps_ranked_list = []
             crps_quantile_list = []
+            crps_bin_list = []
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -1627,23 +1627,56 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     )
 
                     # validation loss is calculated as the mean of the quantiles predictions
-                    mae_loss = self.calculate_loss(frames_pred[:, :1, :, :], out_frames)
-
+                    # mae_loss = self.calculate_loss(frames_pred[:, :1, :, :], out_frames)
+                    mae_loss = self.calculate_loss(frames_pred, out_frames)
                     mae_loss_per_batch.append(mae_loss.detach().item())
 
                     # calculate auxiliary metrics
-                    crps_quantile_list.append(
+                    # ranked predictions takes the predictions and sorts them from lowest to highest to
+                    # calcualte an aproximation to the values of the quantiles. While quantile predictions
+                    # takes the predictions and from the distribution it calculates the value of the quantiles.
+                    ranked_predictions = self.rank_predictions(frames_pred)
+                    crps_ranked_list.append(
                         self.crps_loss.crps_loss(
-                            pred=frames_pred,
+                            pred=ranked_predictions,
                             y=out_frames,
                         )
                     )
+
+                    # extra_frames_pred = self.predict(
+                    #     in_frames.float(), iterations=self.n_quantiles * 2
+                    # )
+                    # extra_frames_pred = torch.cat(
+                    #     (extra_frames_pred, frames_pred), dim=1
+                    # )
+
+                    # quantile_predictions = self.quantile_predictions(
+                    #     extra_frames_pred, torch.tensor(self.quantiles, device=device, dtype=torch.float32)
+                    # )
+                    # crps_quantile_list.append(
+                    #     self.crps_loss.crps_loss(
+                    #         pred=quantile_predictions,
+                    #         y=out_frames,
+                    #     )
+                    # )
+                    crps_quantile_list.append(-1)
+
+                    # bin_predictions = self.bin_predictions(extra_frames_pred, bins=100)
+                    # crps_bin_list.append(
+                    #     self.crps_loss_bin.crps_loss(
+                    #         pred=bin_predictions,
+                    #         y=out_frames,
+                    #     )
+                    # )
+                    crps_bin_list.append(-1)
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
             mae_loss_in_epoch = sum(mae_loss_per_batch) / len(mae_loss_per_batch)
-            crps_in_epoch = sum(crps_quantile_list) / len(crps_quantile_list)
+            crps_in_epoch = sum(crps_ranked_list) / len(crps_ranked_list)
+            crps_quantile_in_epoch = sum(crps_quantile_list) / len(crps_quantile_list)
+            crps_bin_in_epoch = sum(crps_bin_list) / len(crps_bin_list)
 
             if val_metric is None or val_metric == "mae":
                 val_loss_in_epoch = mae_loss_in_epoch
@@ -1661,6 +1694,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"crps_quantile": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
+                run.log({"crps_torch_quant": crps_quantile_in_epoch}, step=epoch)
+                run.log({"crps_bin": crps_bin_in_epoch}, step=epoch)
+                run.log({"mae": mae_loss_in_epoch}, step=epoch)
                 run.log(
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
                     step=epoch,
@@ -1673,7 +1709,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     f"Epoch({epoch + 1}/{n_epochs}) | "
                     f"Train_loss({(train_loss_in_epoch):06.4f}) | "
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
+                    f"MAE({mae_loss_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f}) | "
+                    f"CRPS_Torch({crps_quantile_in_epoch:.4f}) | "
+                    f"CRPS_Bin({crps_bin_in_epoch:.4f}) | "
                     f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
                 )
 
@@ -1682,12 +1721,15 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
+            mae_per_epoch.append(mae_loss_in_epoch)
+            # add torch quantile crps
 
             if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
                     f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
+                best_epoch = epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -1706,10 +1748,12 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
         if checkpoint_path is not None:
-            self._logger.info(f"Saving best model to {checkpoint_path}")
             checkpoint_name = (
-                f"{model_name}_{str(epoch + 1).zfill(3)}_"
-                f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
+                f"{model_name}_E{best_epoch}_VM{val_metric}_BVM{str(best_val_loss).replace('0.', '')[:4]}_"
+                f"D{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}.pt"
+            )
+            self._logger.info(
+                f"Saving best model to {checkpoint_path}/{checkpoint_name}"
             )
             torch.save(
                 self.best_model_dict,
@@ -1718,15 +1762,75 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def predict(self, X, iterations: int):
+    def predict(self, X: torch.Tensor, iterations: int) -> torch.Tensor:
+        """
+        Returns an ensemble of predictions for the given input tensor X.
+        The number of predictions is determined by the iterations parameter.
+
+        Returns:
+        --------
+        torch.Tensor: A tensor of shape (B, iterations, H, W)
+        """
         predictions = self.model(X.float())
 
         for _ in range(iterations - 1):
             predictions = torch.cat((predictions, self.model(X.float())), dim=1)
 
+        return predictions
+
+    def rank_predictions(self, predictions: torch.Tensor) -> torch.Tensor:
+        """
+        Ranks the predictions along the batch dimension.
+
+        Returns:
+        --------
+        torch.Tensor: A tensor of shape (B, iterations, H, W)
+        """
         return torch.sort(predictions, dim=1)[0]
 
+    def quantile_predictions(
+        self, predictions: torch.Tensor, quantiles: List[float]
+    ) -> torch.Tensor:
+        """
+        Bins the predictions along the batch dimension.
+
+        Returns:
+        --------
+        torch.Tensor: A tensor of shape (B, len(quantiles), H, W)
+        """
+        return torch.quantile(predictions, quantiles, dim=1).transpose(1, 0)
+
+    def bin_predictions(self, predictions: torch.Tensor, bins: int) -> torch.Tensor:
+        """
+        Bins the predictions along the batch dimension.
+
+        Returns:
+        --------
+        torch.Tensor: A tensor of shape (B, bins, H, W)
+        """
+        B, _, H, W = predictions.shape
+        prob_prediction = torch.zeros((B, bins, H, W), device=predictions.device)
+
+        # Iterate over each spatial location
+        for b in range(B):
+            for h in range(H):
+                for w in range(W):
+                    # Get all predictions for this spatial location
+                    # location_preds = predictions[..., h, w].view(-1)
+                    
+                    # Calculate histogram
+                    hist = torch.histc(predictions[b, :, h, w], bins=bins, min=0, max=1)
+                    
+                    # Normalize to get probabilities
+                    probs = hist / hist.sum()
+                    
+                    # Assign probabilities to the output tensor
+                    prob_prediction[b, :, h, w] = probs
+
+        return prob_prediction
+
     def calculate_loss(self, predictions, y_target):
+        y_target = y_target.repeat(1, predictions.shape[1], 1, 1)
         return self.loss_fn(predictions, y_target)
 
     def cdf(self, predicted_params, extra_params, points_to_evaluate):
@@ -1760,4 +1864,4 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
     @property
     def name(self):
-        return f"MCDUNet_{self.in_frames}frames_{self.filters}filters_{self.dropout_p}dropoutp_{self.n_quantiles}quantiles"
+        return f"MCD_IN{self.in_frames}_F{self.filters}_DP{str(self.dropout_p).replace('0.', '')}_NQ{self.n_quantiles}"

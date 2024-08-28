@@ -12,6 +12,7 @@ from models import (
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
     UNetPipeline,
+    IQUNetPipeline,
 )
 import numpy as np
 from typing import Optional, List
@@ -53,6 +54,7 @@ def main(
     val_metric: Optional[str] = None,
     save_experiment: bool = False,
     binarization_method: Optional[str] = None,
+    cos_dim: Optional[int] = None,
 ):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -97,7 +99,7 @@ def main(
         )
     elif model_name.lower() in ["quantile_regressor", "qr"]:
         if num_bins is not None and quantiles is None:
-            quantiles = np.linspace(0, 1, num_bins+1)[1:-1]
+            quantiles = np.linspace(0, 1, num_bins + 1)[1:-1]
         logger.info("Selected model: QuantileRegressorUNet")
         logger.info(f"    - Quantiles: {quantiles}")
         logger.info(f"    - Num Bins: {len(quantiles)+1}")
@@ -139,6 +141,26 @@ def main(
             in_frames=input_frames,
             filters=num_filters,
             output_activation=output_activation,
+        )
+    elif model_name.lower() in ["iqn", "iqn_unet"]:
+        num_taus = num_bins - 1
+        train_metric = "pinball"
+        val_metric = "pinball"
+        logger.info("Selected model: IQN_UNet")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
+        logger.info(f"    - Cosine embedding dimension: {cos_dim}")
+        logger.info(f"    - Num Taus: {num_taus}")
+        logger.info(f"    - Predict diff: {predict_diff}")
+        logger.info(f"    - Train metric: {train_metric}")
+        logger.info(f"    - Val metric: {val_metric}")
+        probabilistic_unet = IQUNetPipeline(
+            in_frames=input_frames,
+            filters=num_filters,
+            cosine_embedding_dimension=cos_dim,
+            num_taus=num_taus,
+            predict_diff=predict_diff,
+            device=device,
         )
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")
@@ -204,6 +226,7 @@ def main(
                 "val_metric": val_metric,
                 "output_activation": output_activation,
                 "num_filters": num_filters,
+                "cos_dim": cos_dim,
             },
         )
 
