@@ -41,6 +41,28 @@ class ProbabilisticUNet(ABC):
     calculating loss, and cumulative distribution function (CDF).
     """
 
+    def __init__(
+        self,
+        in_frames: int = 3,
+        filters: int = 16,
+        output_activation="sigmoid",
+        device="cpu",
+    ):
+        self.in_frames = in_frames
+        self.filters = filters
+        self.output_activation = output_activation
+        self.device = device
+        self._logger = logging.getLogger(self.__class__.__name__)
+        self.model = None
+        self.train_loader = None
+        self.val_loader = None
+        self.optimizer = None
+        self.scheduler = None
+        self.best_model_dict = None
+        self.loss_fn = None
+        self.n_bins = None
+
+    @abstractmethod
     def fit(
         self,
         n_epochs: int,
@@ -58,101 +80,8 @@ class ProbabilisticUNet(ABC):
         """Train the model on the given input data and labels for a specified number of epochs."""
         pass
 
-    def compute_extra_params(self, X, y):
-        """Compute and return any extra parameters needed during training."""
-        return None
-
-    def predict(self, X, iterations: int):
-        """Generate predictions for the input data."""
-        pass
-
-    @abstractmethod
-    def initialize_weights(self):
-        """Abstract method to initialize the weights of the model."""
-        pass
-
-    @abstractmethod
-    def initialize_optimizer(self, method: str, lr: float):
-        """Abstract method to initialize the optimizer for training the model."""
-        pass
-
-    @abstractmethod
-    def initialize_scheduler(
-        self,
-        method: str,
-        step_size: int,
-        gamma: float,
-        patience: int,
-        min_lr: float,
-    ):
-        """Abstract method to initialize the learning rate scheduler for training the model."""
-        pass
-
-    @abstractmethod
-    def create_dataloaders(
-        self,
-        dataset: str,
-        path: str,
-        batch_size: int,
-        time_horizon: int,
-        cosangs_csv_path: Optional[str],
-        binarization_method: Optional[str],
-    ):
-        """Abstract method to create dataloaders for training and validation data."""
-        pass
-
-    @abstractmethod
-    def calculate_loss(self, predictions, y_target):
-        """Abstract method to calculate the loss between predicted and target values."""
-        pass
-
-    @abstractmethod
-    def cdf(self, predicted_params, extra_params, points_to_evaluate):
-        """Abstract method to compute the cumulative distribution function."""
-        pass
-
-    @abstractmethod
-    def load_checkpoint(self, checkpoint_path: str, device: str):
-        """Abstract method to load a trained checkpoint of the model."""
-        pass
-
-    @property
-    @abstractmethod
-    def name(self):
-        """Abstract property to get a unique identifier or name for the model."""
-        pass
-
-
-class BinClassifierUNet(ProbabilisticUNet):
-    def __init__(
-        self,
-        n_bins=10,
-        in_frames=3,
-        filters=16,
-        device="cpu",
-        output_activation="sigmoid",
-    ):
-        self.n_bins = n_bins
-        self.in_frames = in_frames
-        self.filters = filters
-        self.output_activation = output_activation
-        self.model = UNet(
-            in_frames=self.in_frames,
-            n_classes=self.n_bins,
-            filters=self.filters,
-            output_activation=self.output_activation,
-        )
-        self.loss_fn = nn.CrossEntropyLoss().to(device=device)
-        self.crps_loss = CRPSLoss(num_bins=self.n_bins + 1, device=device)
-        self.train_loader = None
-        self.val_loader = None
-        self.optimizer = None
-        self.scheduler = None
-        self.multiclass_precision_metric = MulticlassPrecision(
-            num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
-        ).to(device=device)
-        self.best_model_dict = None
-        self._logger = logging.getLogger(self.__class__.__name__)
+    def predict(self, X, iterations: Optional[int] = None):
+        return self.model(X.float())
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -179,7 +108,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         batch_size: int,
         time_horizon: int,
         cosangs_csv_path: Optional[str] = None,
-        binarization_method: Optional[str] = "integer_classes",
+        binarization_method: Optional[str] = None,
     ):
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
             train_dataset = MovingMnistDataset(
@@ -226,6 +155,49 @@ class BinClassifierUNet(ProbabilisticUNet):
             train_dataset, batch_size=batch_size, shuffle=True
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+
+    def calculate_loss(self, predictions, y_target):
+        return self.loss_fn(predictions, y_target)
+
+    @abstractmethod
+    def cdf(self, predicted_params, extra_params, points_to_evaluate):
+        """Abstract method to compute the cumulative distribution function."""
+        pass
+
+    @abstractmethod
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        """Abstract method to load a trained checkpoint of the model."""
+        pass
+
+    @property
+    @abstractmethod
+    def name(self):
+        """Abstract property to get a unique identifier or name for the model."""
+        pass
+
+
+class BinClassifierUNet(ProbabilisticUNet):
+    def __init__(
+        self,
+        n_bins=10,
+        in_frames=3,
+        filters=16,
+        device="cpu",
+        output_activation="sigmoid",
+    ):
+        super().__init__(in_frames, filters, output_activation, device)
+        self.n_bins = n_bins
+        self.model = UNet(
+            in_frames=self.in_frames,
+            n_classes=self.n_bins,
+            filters=self.filters,
+            output_activation=self.output_activation,
+        )
+        self.loss_fn = nn.CrossEntropyLoss().to(device=self.device)
+        self.crps_loss = CRPSLoss(num_bins=self.n_bins + 1, device=self.device)
+        self.multiclass_precision_metric = MulticlassPrecision(
+            num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
+        ).to(device=self.device)
 
     def fit(
         self,
@@ -424,12 +396,6 @@ class BinClassifierUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def predict(self, X, iterations: Optional[int] = None):
-        return self.model(X.float())
-
-    def calculate_loss(self, predictions, y_target):
-        return self.loss_fn(predictions, y_target)
-
     def cdf(self, predicted_params, extra_params, points_to_evaluate):
         pass
 
@@ -461,15 +427,13 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self,
         in_frames: int = 3,
         filters: int = 16,
-        quantiles: Optional[List[float]] = None,
-        predict_diff: bool = False,
         device: str = "cpu",
         output_activation="sigmoid",
+        quantiles: Optional[List[float]] = None,
+        predict_diff: bool = False,
     ):
-        self.in_frames = in_frames
-        self.filters = filters
+        super().__init__(in_frames, filters, output_activation, device)
         self.predict_diff = predict_diff
-        self.output_activation = output_activation
         if quantiles is None:
             self.quantiles = [0.1, 0.5, 0.9]
         else:
@@ -482,80 +446,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             output_activation=self.output_activation,
         )
         self.loss_fn = QuantileLoss(quantiles=self.quantiles)
-        self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
-        self.train_loader = None
-        self.val_loader = None
-        self.optimizer = None
-        self.scheduler = None
-        self.best_model_dict = None
-        self._logger = logging.getLogger(self.__class__.__name__)
-
-    def initialize_weights(self):
-        self.model.apply(weights_init)
-
-    def initialize_optimizer(self, method: str, lr: float):
-        self.optimizer = optimizer_init(self.model, method, lr)
-
-    def initialize_scheduler(
-        self,
-        method: str,
-        step_size: int,
-        gamma: float,
-        patience: int,
-        min_lr: float,
-    ):
-        self.scheduler = scheduler_init(
-            self.optimizer, method, step_size, gamma, patience, min_lr
-        )
-
-    def create_dataloaders(
-        self,
-        dataset: str,
-        path: str,
-        batch_size: int,
-        time_horizon: int,
-        cosangs_csv_path: Optional[str] = None,
-        binarization_method=None,
-    ):
-        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
-            train_dataset = MovingMnistDataset(
-                path=os.path.join(path, "train/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-            val_dataset = MovingMnistDataset(
-                path=os.path.join(path, "validation/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-
-        elif dataset.lower() in ["goes16", "satellite"]:
-            train_dataset = SatelliteDataset(
-                path=os.path.join(path, "train/"),
-                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-            val_dataset = SatelliteDataset(
-                path=os.path.join(path, "validation/"),
-                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-
-        else:
-            raise ValueError(f"Dataset {dataset} not recognized.")
-
-        self.train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True
-        )
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+        self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=self.device)
 
     def fit(
         self,
@@ -798,92 +689,18 @@ class MeanStdUNet(ProbabilisticUNet):
         self,
         in_frames: int = 3,
         filters: int = 16,
-        output_activation="sigmoid",
+        output_activation: str = "sigmoid",
+        device: str = "cpu",
     ):
-        self.in_frames = in_frames
-        self.filters = filters
-        self.output_activation = output_activation
+        super().__init__(in_frames, filters, output_activation, device)
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=2,
             filters=self.filters,
             output_activation=self.output_activation,
         )
-        self.best_model_dict = None
 
         self.loss_fn = mean_std_loss
-        self.train_loader = None
-        self.val_loader = None
-        self.optimizer = None
-        self.scheduler = None
-        self._logger = logging.getLogger(self.__class__.__name__)
-
-    def initialize_weights(self):
-        self.model.apply(weights_init)
-
-    def initialize_optimizer(self, method: str, lr: float):
-        self.optimizer = optimizer_init(self.model, method, lr)
-
-    def initialize_scheduler(
-        self,
-        method: str,
-        step_size: int,
-        gamma: float,
-        patience: int,
-        min_lr: float,
-    ):
-        self.scheduler = scheduler_init(
-            self.optimizer, method, step_size, gamma, patience, min_lr
-        )
-
-    def create_dataloaders(
-        self,
-        dataset: str,
-        path: str,
-        batch_size: int,
-        time_horizon: int,
-        cosangs_csv_path: Optional[str] = None,
-        binarization_method=None,
-    ):
-        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
-            train_dataset = MovingMnistDataset(
-                path=os.path.join(path, "train/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-            val_dataset = MovingMnistDataset(
-                path=os.path.join(path, "validation/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-
-        elif dataset.lower() in ["goes16", "satellite"]:
-            train_dataset = SatelliteDataset(
-                path=os.path.join(path, "train/"),
-                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-            val_dataset = SatelliteDataset(
-                path=os.path.join(path, "validation/"),
-                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-
-        else:
-            raise ValueError(f"Dataset {dataset} not recognized.")
-
-        self.train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True
-        )
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
     def fit(
         self,
@@ -1077,12 +894,6 @@ class MeanStdUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def predict(self, X, iterations: int):
-        return self.model(X.float())
-
-    def calculate_loss(self, predictions, y_target):
-        return self.loss_fn(predictions, y_target)
-
     def cdf(self, predicted_params, extra_params, points_to_evaluate):
         mu, sigma2 = predicted_params[:, 0, :, :], nn.functional.softplus(
             predicted_params[:, 1, :, :]
@@ -1117,92 +928,18 @@ class MedianScaleUNet(ProbabilisticUNet):
         self,
         in_frames: int = 3,
         filters: int = 16,
-        output_activation="sigmoid",
+        output_activation: str = "sigmoid",
+        device: str = "cpu",
     ):
-        self.in_frames = in_frames
-        self.filters = filters
-        self.output_activation = output_activation
+        super().__init__(in_frames, filters, output_activation, device)
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=2,
             filters=self.filters,
             output_activation=self.output_activation,
         )
-        self.best_model_dict = None
 
         self.loss_fn = median_scale_loss
-        self.train_loader = None
-        self.val_loader = None
-        self.optimizer = None
-        self.scheduler = None
-        self._logger = logging.getLogger(self.__class__.__name__)
-
-    def initialize_weights(self):
-        self.model.apply(weights_init)
-
-    def initialize_optimizer(self, method: str, lr: float):
-        self.optimizer = optimizer_init(self.model, method, lr)
-
-    def initialize_scheduler(
-        self,
-        method: str,
-        step_size: int,
-        gamma: float,
-        patience: int,
-        min_lr: float,
-    ):
-        self.scheduler = scheduler_init(
-            self.optimizer, method, step_size, gamma, patience, min_lr
-        )
-
-    def create_dataloaders(
-        self,
-        dataset: str,
-        path: str,
-        batch_size: int,
-        time_horizon: int,
-        cosangs_csv_path: Optional[str] = None,
-        binarization_method=None,
-    ):
-        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
-            train_dataset = MovingMnistDataset(
-                path=os.path.join(path, "train/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-            val_dataset = MovingMnistDataset(
-                path=os.path.join(path, "validation/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-
-        elif dataset.lower() in ["goes16", "satellite"]:
-            train_dataset = SatelliteDataset(
-                path=os.path.join(path, "train/"),
-                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-            val_dataset = SatelliteDataset(
-                path=os.path.join(path, "validation/"),
-                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-
-        else:
-            raise ValueError(f"Dataset {dataset} not recognized.")
-
-        self.train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True
-        )
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
     def fit(
         self,
@@ -1395,12 +1132,6 @@ class MedianScaleUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def predict(self, X, iterations: int):
-        return self.model(X.float())
-
-    def calculate_loss(self, predictions, y_target):
-        return self.loss_fn(predictions, y_target)
-
     def cdf(self, predicted_params, extra_params, points_to_evaluate):
         mu, sigma2 = predicted_params[:, 0, :, :], nn.functional.softplus(
             predicted_params[:, 1, :, :]
@@ -1435,18 +1166,16 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self,
         in_frames: int = 3,
         filters: int = 16,
+        output_activation="sigmoid",
+        device: str = "cpu",
         n_quantiles: int = 5,
         dropout_p: float = 0.5,
-        device: str = "cpu",
-        output_activation="sigmoid",
     ):
+        super().__init__(in_frames, filters, output_activation, device)
         if dropout_p is None:
             raise ValueError("Dropout probability must be specified.")
 
-        self.in_frames = in_frames
-        self.filters = filters
         self.dropout_p = dropout_p
-        self.output_activation = output_activation
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=1,
@@ -1456,82 +1185,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         )
         self.n_quantiles = n_quantiles
         self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
-        self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
-        self.crps_loss_bin = CRPSLoss(num_bins=101, device=device)
+        self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=self.device)
+        self.crps_loss_bin = CRPSLoss(num_bins=101, device=self.device)
         self.loss_fn = nn.L1Loss()
-        self.train_loader = None
-        self.val_loader = None
-        self.optimizer = None
-        self.scheduler = None
-        self.best_model_dict = None
-        self._logger = logging.getLogger(self.__class__.__name__)
-
-    def initialize_weights(self):
-        self.model.apply(weights_init)
-
-    def initialize_optimizer(self, method: str, lr: float):
-        self.optimizer = optimizer_init(self.model, method, lr)
-
-    def initialize_scheduler(
-        self,
-        method: str,
-        step_size: int,
-        gamma: float,
-        patience: int,
-        min_lr: float,
-    ):
-        self.scheduler = scheduler_init(
-            self.optimizer, method, step_size, gamma, patience, min_lr
-        )
-
-    def create_dataloaders(
-        self,
-        dataset: str,
-        path: str,
-        batch_size: int,
-        time_horizon: int,
-        cosangs_csv_path: Optional[str] = None,
-        binarization_method=None,
-    ):
-        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
-            train_dataset = MovingMnistDataset(
-                path=os.path.join(path, "train/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-            val_dataset = MovingMnistDataset(
-                path=os.path.join(path, "validation/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-
-        elif dataset.lower() in ["goes16", "satellite"]:
-            train_dataset = SatelliteDataset(
-                path=os.path.join(path, "train/"),
-                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-            val_dataset = SatelliteDataset(
-                path=os.path.join(path, "validation/"),
-                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-
-        else:
-            raise ValueError(f"Dataset {dataset} not recognized.")
-
-        self.train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True
-        )
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
     def fit(
         self,
@@ -1817,13 +1473,13 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 for w in range(W):
                     # Get all predictions for this spatial location
                     # location_preds = predictions[..., h, w].view(-1)
-                    
+
                     # Calculate histogram
                     hist = torch.histc(predictions[b, :, h, w], bins=bins, min=0, max=1)
-                    
+
                     # Normalize to get probabilities
                     probs = hist / hist.sum()
-                    
+
                     # Assign probabilities to the output tensor
                     prob_prediction[b, :, h, w] = probs
 

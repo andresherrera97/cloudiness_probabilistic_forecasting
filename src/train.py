@@ -69,6 +69,7 @@ def main(
             in_frames=input_frames,
             filters=num_filters,
             output_activation=output_activation,
+            device=device,
         )
     elif model_name.lower() in ["median", "median_scale"]:
         logger.info("Selected model: MedianScaleUNet")
@@ -79,6 +80,7 @@ def main(
             in_frames=input_frames,
             filters=num_filters,
             output_activation=output_activation,
+            device=device,
         )
     elif model_name.lower() in ["bin_classifier", "bin"]:
         binarization_method = "integer_classes"
