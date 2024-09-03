@@ -15,7 +15,6 @@ def crps_gaussian(
     target: torch.Tensor,
     mu: torch.Tensor,
     sig: torch.Tensor,
-    sample_weight=None,
     eps: float = 1e-12,
 ) -> float:
     mu = mu.cpu().numpy()
@@ -27,7 +26,17 @@ def crps_gaussian(
     pdf = stats.norm.pdf(sx)
     cdf = stats.norm.cdf(sx)
     per_obs_crps = sig * (sx * (2 * cdf - 1) + 2 * pdf - 1.0 / np.sqrt(np.pi))
-    return np.average(per_obs_crps, weights=sample_weight)
+    return np.mean(per_obs_crps)
+
+
+def crps_laplace(
+    target: torch.Tensor,
+    preds: torch.Tensor,
+) -> float:
+    mus, bs = preds[:, 0:1], preds[:, 1:]
+    crps = bs * (torch.abs(target - mus)/bs + torch.exp(-torch.abs(target - mus)/bs) - 3/4)
+    crps = torch.mean(crps)
+    return crps
 
 
 def crps_loss_fixed_bins(predicted_pdf, y, bin_borders):

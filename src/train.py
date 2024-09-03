@@ -60,7 +60,7 @@ def main(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
-    if model_name.lower() in ["mean_std", "meanstd"]:
+    if model_name.lower() in ["mean", "mean_std", "meanstd"]:
         logger.info("Selected model: MeanStdUNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
