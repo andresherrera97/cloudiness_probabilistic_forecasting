@@ -7,6 +7,7 @@ from typing import List, Optional, Tuple
 from abc import ABC, abstractmethod
 from pathlib import Path
 import numpy as np
+from scipy import stats
 
 # Related third-party imports
 import torch
@@ -20,6 +21,7 @@ from metrics import (
     mean_std_loss,
     median_scale_loss,
     crps_gaussian,
+    crps_laplace,
     CRPSLoss,
 )
 from data_handlers import MovingMnistDataset, SatelliteDataset, normalize_pixels
@@ -79,6 +81,25 @@ class ProbabilisticUNet(ABC):
     ):
         """Train the model on the given input data and labels for a specified number of epochs."""
         pass
+
+    @abstractmethod
+    def get_F_at_points(self, points, pred_params):
+        pass
+
+    def get_numerical_CRPS(
+        self, y: torch.Tensor, pred: torch.Tensor, lower: float, upper: float, count: int
+    ):
+        dys = torch.linspace(lower, upper, count).to(self.device)
+        dys = dys.view(1, count, 1, 1)
+        dys = dys.expand(1, count, pred.shape[2], pred.shape[3])
+
+        Fy = self.get_F_at_points(dys, pred)  # (B, count, H, W)
+        heavyside = 1 * (y <= dys)  # (1, count, H, W)
+        integrant = (Fy - heavyside) ** 2  # (B, count, H, W)
+        crps = (dys[0, 1] - dys[0, 0]) * (
+            integrant[:, 0] / 2 + integrant[:, 1:].sum(dim=1) + integrant[:, -1] / 2
+        )
+        return torch.mean(crps)
 
     def predict(self, X, iterations: Optional[int] = None):
         return self.model(X.float())
@@ -158,11 +179,6 @@ class ProbabilisticUNet(ABC):
 
     def calculate_loss(self, predictions, y_target):
         return self.loss_fn(predictions, y_target)
-
-    @abstractmethod
-    def cdf(self, predicted_params, extra_params, points_to_evaluate):
-        """Abstract method to compute the cumulative distribution function."""
-        pass
 
     @abstractmethod
     def load_checkpoint(self, checkpoint_path: str, device: str):
@@ -395,9 +411,6 @@ class BinClassifierUNet(ProbabilisticUNet):
             )
 
         return train_loss_per_epoch, val_loss_per_epoch
-
-    def cdf(self, predicted_params, extra_params, points_to_evaluate):
-        pass
 
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
@@ -657,9 +670,6 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         y_target = y_target.repeat(1, predictions.shape[1], 1, 1)
         return self.loss_fn(predictions, y_target)
 
-    def cdf(self, predicted_params, extra_params, points_to_evaluate):
-        pass
-
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -779,6 +789,7 @@ class MeanStdUNet(ProbabilisticUNet):
             mean_std_loss_per_batch = []  # stores values for this validation run
             mse_loss_mean_pred = []
             crps_gaussian_list = []
+            # numeric_crps = []
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -806,6 +817,12 @@ class MeanStdUNet(ProbabilisticUNet):
                         )
                     )
 
+                    # numeric_crps.append(
+                    #     self.get_numerical_CRPS(
+                    #         y=out_frames, pred=frames_pred, lower=0., upper=1., count=100
+                    #     )
+                    # )
+
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
@@ -814,6 +831,9 @@ class MeanStdUNet(ProbabilisticUNet):
             )
             mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(mse_loss_mean_pred)
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
+            # numeric_crps_in_epoch = sum(numeric_crps) / len(numeric_crps)
+            # print(f"crps_in_epoch: {crps_in_epoch}")
+            # print(f"numeric_crps_in_epoch: {numeric_crps_in_epoch}")
 
             if val_metric is None or val_metric.lower() in ["mean_std", "meanstd"]:
                 val_loss_in_epoch = mean_std_loss_in_epoch
@@ -894,13 +914,6 @@ class MeanStdUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def cdf(self, predicted_params, extra_params, points_to_evaluate):
-        mu, sigma2 = predicted_params[:, 0, :, :], nn.functional.softplus(
-            predicted_params[:, 1, :, :]
-        )
-        dist = torch.distributions.Normal(mu, torch.sqrt(sigma2))
-        return dist.cdf(points_to_evaluate)
-
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -917,6 +930,14 @@ class MeanStdUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+
+    def get_F_at_points(self, points: torch.Tensor, pred_params: torch.Tensor):
+        mus, sig = pred_params[:, 0:1, :, :], pred_params[:, 1:, :, :]
+        sx = (points - mus) / sig
+        cdf = stats.norm.cdf(sx)
+        cdf = torch.tensor(cdf).to(device=self.device)
+
+        return cdf
 
     @property
     def name(self):
@@ -1017,7 +1038,8 @@ class MedianScaleUNet(ProbabilisticUNet):
             self.model.eval()
             median_scale_loss_per_batch = []  # stores values for this validation run
             mae_loss_mean_pred = []
-            crps_gaussian_list = []
+            crps_laplace_list = []
+            # numeric_crps = []
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -1037,13 +1059,18 @@ class MedianScaleUNet(ProbabilisticUNet):
                     mae_loss_mean_pred.append(
                         nn.L1Loss()(frames_pred[:, 0, :, :], out_frames[:, 0, :, :])
                     )
-                    crps_gaussian_list.append(
-                        crps_gaussian(
-                            out_frames[:, 0, :, :],
-                            frames_pred[:, 0, :, :],
-                            frames_pred[:, 1, :, :],
+                    crps_laplace_list.append(
+                        crps_laplace(
+                            out_frames,
+                            frames_pred,
                         )
                     )
+
+                    # numeric_crps.append(
+                    #     self.get_numerical_CRPS(
+                    #         y=out_frames, pred=frames_pred, lower=0., upper=1., count=100
+                    #     )
+                    # )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -1052,7 +1079,8 @@ class MedianScaleUNet(ProbabilisticUNet):
                 median_scale_loss_per_batch
             )
             mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(mae_loss_mean_pred)
-            crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
+            crps_in_epoch = sum(crps_laplace_list) / len(crps_laplace_list)
+            # numeric_crps_in_epoch = sum(numeric_crps) / len(numeric_crps)
 
             if val_metric is None or val_metric.lower() in ["median_scale"]:
                 val_loss_in_epoch = median_scale_loss_in_epoch
@@ -1132,13 +1160,6 @@ class MedianScaleUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def cdf(self, predicted_params, extra_params, points_to_evaluate):
-        mu, sigma2 = predicted_params[:, 0, :, :], nn.functional.softplus(
-            predicted_params[:, 1, :, :]
-        )
-        dist = torch.distributions.Normal(mu, torch.sqrt(sigma2))
-        return dist.cdf(points_to_evaluate)
-
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -1155,6 +1176,12 @@ class MedianScaleUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+
+    def get_F_at_points(self, points: torch.Tensor, pred_params: torch.Tensor):
+        mus, bs = pred_params[:, 0:1, :, :], pred_params[:, 1:, :, :]
+        return 0.5 + 0.5 * (2 * (mus < points) - 1) * (
+            1 - torch.exp(-torch.abs(mus - points) / bs)
+        )
 
     @property
     def name(self):
@@ -1488,14 +1515,6 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
     def calculate_loss(self, predictions, y_target):
         y_target = y_target.repeat(1, predictions.shape[1], 1, 1)
         return self.loss_fn(predictions, y_target)
-
-    def cdf(self, predicted_params, extra_params, points_to_evaluate):
-        # TODO: fix to match quantile regressor method
-        mu, sigma2 = predicted_params[:, 0, :, :], nn.functional.softplus(
-            predicted_params[:, 1, :, :]
-        )
-        dist = torch.distributions.Normal(mu, torch.sqrt(sigma2))
-        return dist.cdf(points_to_evaluate)
 
     def load_checkpoint(self, checkpoint_path: str, device: str):
         """Abstract method to load a trained checkpoint of the model."""
