@@ -9,7 +9,7 @@ from tqdm import tqdm
 import boto3
 from botocore import UNSIGNED
 from botocore.config import Config
-
+import pandas as pd
 # Generate goes-16 lat-lon conversion files with script provided in data_handlers/goes_16_metadata_generator.py
 # NOAA goes-16 Amazon S3 Bucket: https://noaa-goes16.s3.amazonaws.com/index.html
 import satellite.constants as sat_cts
@@ -39,12 +39,14 @@ elif sat_cts.REGION == "F":
 
 
 def main(
-    date: str = "2024-05-19",
+    start_date: str = "2024-06-01",
+    end_date: str = "2024-06-03",
     lat: float = -34,
     lon: float = -55,
     size: int = 512,
-    out: str = "datasets/goes16/",
-    save_only_first_img: bool = False,
+    output_folder: str = "datasets/goes16/",
+    skip_night: bool = True,
+    save_only_first: bool = False,
     verbose: bool = True,
 ):
     """Download/load images and perform a background substraction.
@@ -103,22 +105,27 @@ def main(
         sat_functions.print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON)
 
     # Transform string date to year + ordinal day and hour
-    date = datetime.datetime.fromisoformat(date)
+    date_range = pd.date_range(start=start_date, end=end_date).tolist()
 
-    out_path = os.path.join(
-        out, f"{date.year}_{str(date.timetuple().tm_yday).zfill(3)}"
-    )
-    os.makedirs(out_path, exist_ok=True)
+    for date in date_range:
+        out_path = os.path.join(
+            output_folder, f"{date.year}_{str(date.timetuple().tm_yday).zfill(3)}"
+        )
+        os.makedirs(out_path, exist_ok=True)
 
     # Download ref date
     time_download_start = time.time()
 
-    all_files_in_day = sat_functions.get_day_filenames(
-        bucket, date.timetuple().tm_yday, date.year
-    )
+    all_files_in_s3 = []
+    for date in date_range:
+        all_files_in_day = sat_functions.get_day_filenames(
+            bucket, date.timetuple().tm_yday, date.year
+        )
+        all_files_in_s3 += all_files_in_day
 
-    for filename in tqdm(all_files_in_day):
 
+    logger.info(f"Number of files saved for those days: {len(all_files_in_s3)}")
+    for filename in tqdm(all_files_in_s3):
         t_coverage = filename.split("/")[-1].split("_")[3][1:]
 
         # exmaple time_coverage_start -> start of scan time
@@ -138,14 +145,18 @@ def main(
         )
 
         filename_date = datetime.datetime.strptime(str_date, "%d/%m/%Y %H:%M")
-        cosangs, _ = sat_functions.get_cosangs(filename_date, crop_lats, crop_lons)
-        is_full_day = sat_functions.is_a_full_day_crop(cosangs)
+        if skip_night:
+            cosangs, _ = sat_functions.get_cosangs(filename_date, crop_lats, crop_lons)
+            download_img = sat_functions.is_a_full_day_crop(cosangs)
+        else:
+            download_img = True
 
-        if is_full_day:
+        if download_img:
             CMI_DQF_crop = sat_functions.read_crop(
                 filename, x, y, size, verbose
             )  # shape: (2, size, size)
             inpaint_mask = np.uint8(CMI_DQF_crop[1] != 0)
+            logger.info(f"Percentage of pixels to inpaint: {np.mean(inpaint_mask) * 100:.2f}%")
             CMI_DQF_crop[0] = cv2.inpaint(
                 CMI_DQF_crop[0], inpaint_mask, 3, cv2.INPAINT_NS
             )
@@ -161,11 +172,14 @@ def main(
                 f"- {np.nanmax(planetary_reflectance)}"
             )
             # Save image as npy array
+            out_path = os.path.join(
+                output_folder, f"{yl}_{day_of_year}"
+            )
             crop_filename = f"{yl}_{day_of_year}_UTC_{hh}{mm}{ss}"
 
             np.save(out_path + f"/{crop_filename}.npy", planetary_reflectance)
 
-            if save_only_first_img:
+            if save_only_first:
                 break
 
     time_download_end = time.time()

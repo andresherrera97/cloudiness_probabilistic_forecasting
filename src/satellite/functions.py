@@ -4,11 +4,30 @@ import numpy as np
 import rasterio
 import time
 from natsort import natsorted
-
 import satellite.constants as sat_cts
+import logging
 
 
-def read_crop(f, x, y, size, verbose=False):
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("Satellite Functions")
+
+
+def read_crop(f: str, x: int, y: int, size: int, verbose: bool = True):
+    '''
+    Download a crop from the NetCDF file in the S3 bucket and return the CMI and DQF crops.
+    The CMI crop is the Cloud and Moisture Imagery, and the DQF crop is the Data Quality Flag.
+    The CMI crop is the actual image, and the DQF crop is a flag that indicates the quality of the data.
+    Args:
+        f: The filename of the NetCDF file in the S3 bucket.
+        x: The x coordinate of the center of the crop.
+        y: The y coordinate of the center of the crop.
+        size: The size of the crop.
+        verbose: If True, print the time taken to download the crop.
+    Returns:
+        CMI_DQF_crop: A numpy array with shape (2, size, size) where the first
+        element is the CMI crop and the second element is the DQF crop.
+    '''
     timing_start = time.time()
     # Read only a window from the entire file
     # for CONUS the whole image is 6000x10000
@@ -38,7 +57,7 @@ def read_crop(f, x, y, size, verbose=False):
         # 4 Focal plane temperature threshold exceeded
 
     if verbose:
-        print(
+        logging.info(
             f"Downloading crops: HDF5:/vsis3/{sat_cts.BUCKET}/{f}://{sat_cts.PRODUCT} "
             f"in {(time.time() - timing_start):.2f} sec"
         )
@@ -70,7 +89,7 @@ def print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON):
 
 
 def get_day_filenames(bucket, date, year):
-    print("Extracting all available images for day in NOAA S3 ...")
+    logging.info(f"Extracting all available images for {date} in NOAA S3 ...")
     all_files_in_day = []
     for hour in range(0, 24):
         filter_prefix = sat_cts.PREFIX + f"/{year}/{date:03}/{str(hour).zfill(2)}/"
@@ -82,7 +101,7 @@ def get_day_filenames(bucket, date, year):
         all_files_in_day += hour_channel_files
 
     all_files_in_day = natsorted(all_files_in_day)
-    print("Done.")
+    logging.info("Done.")
     return all_files_in_day
 
 
