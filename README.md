@@ -43,7 +43,7 @@ Before running the script to download the images for the dataset, it is necessar
 The script will generate the metadata for the selected region and save it in the output folder. The metadata is saved as two npy files with the name `lat.npy` and `lon.npy` and a json with general metadata from the satellite. The npy files contain the reference coordinates for each pixel in the images. The coordinates are used to crop the images in a specifc geographic location. It is important to note that the satellite imagery product with ABI Level 2+ are fixed to a specific grid, so it is expected that each pixel in CMI products is associated with a specific and constante latitude and longitude in the Earth's surface. This is referenced in the following document [GOES-R SERIES PRODUCT DEFINITION AND USERS’ GUIDE ](https://www.goes-r.gov/products/docs/PUG-L2+-vol5.pdf) in the section 4.2.
 
 After generating the metadata for the desired region, it is possible to download the images from the desired time range.
-To download the images from a desired time range run the script `goes16_dataset_generator.py` with the following arguments:
+To download the images from a desired time range run the script `src/goes16_dataset_generator.py` with the following arguments:
 
 
 | Parameter  | Description         | Type  | Default              |
