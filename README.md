@@ -4,7 +4,7 @@
 
 ...
 
-## Setup
+## Setup [WIP]
 
 Follow these steps to set up the project on your local machine.
 
@@ -28,7 +28,7 @@ pip install -r requirements.txt
 
 ## Dataset Generation
 
-In this repository we provide a script which is capable of downloading specific crops from the satellita images captured by the GOES-16 satellite. The product used is the band 02 (Visible red channel) from the ABI-L2-CMIPF, which provides information about the cloudiness of the region. The script is capable of downloading only the desired crop from the NOAA S3 [bucket](https://noaa-goes16.s3.amazonaws.com/index.html). These Cloud and Moisture Imagery Full Disk products are updated every 10 minutes, and they represent the Reflectance Factor. When the Reflectance Factor images are normalized by the cosine zenital angle, the **Planetary Reflectance** images are obtained. The images used as input and the output of the models are the Planetary Reflectance images.
+In this repository we provide a script which is capable of downloading specific crops from the satellita images captured by the GOES-16 satellite and saved in the NOAA S3 [bucket](https://noaa-goes16.s3.amazonaws.com/index.html). The product used is the band 02 (Visible red channel) from the ABI-L2-CMIPF, which provides information about the cloudiness of the region. These Cloud and Moisture Imagery Full Disk products are updated every 10 minutes, and they represent the Reflectance Factor. The Reflectance Factor images are normalized by the cosine zenital angle to get the **Planetary Reflectance** images.
 
 Before running the script to download the images for the dataset, it is necessary to generate the reference coordinates for each pixel in the images taken by the satellite. To do so run the script `src/satellite/goes16_metadata_generator.py` with the following arguments:
 
@@ -57,8 +57,7 @@ To download the images from a desired time range run the script `src/goes16_data
 | output_folder        | Output directory to save images divided by day.  | str   | "datasets/goes16/"     |
 
 
-The images are saved in the output folder divided in folders for each day. The folders are named with the format `YYYY_DOY` and inside each folder the images are saved as npy file in the format `YYYY_DOY_UTC_HHMMSS.npy`.
-
+The images are saved in the output folder divided in folders for each day. The folders are named with the format `YYYY_DOY` and inside each folder the images are saved as npy file in the format `YYYY_DOY_UTC_HHMMSS.npy`. The CMIP files are downloaded with a 12-bit precion from the NOAA S3 bucket, after processing them the images are saved as npy files with a 16-bit precision as float16 arrays.
 
 
 ## Model Training [WIP]
