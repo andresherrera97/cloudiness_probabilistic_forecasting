@@ -35,7 +35,9 @@ def read_crop(f: str, x: int, y: int, size: int, verbose: bool = True):
     with rasterio.open(f"HDF5:/vsis3/{sat_cts.BUCKET}/{f}://CMI") as ds:
         CMI_crop = ds.read(
             window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
-        )[0, ...].astype(np.float32)
+        )[0, ...]
+        # CMI_crop dtype: int16
+        CMI_crop = CMI_crop.astype(np.float32)
         # Process CMI crop to match original data
         CMI_crop[CMI_crop == -1] = np.nan
 
@@ -48,6 +50,7 @@ def read_crop(f: str, x: int, y: int, size: int, verbose: bool = True):
         DQF_crop = ds.read(
             window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
         )[0, ...]
+        DQF_crop = DQF_crop.astype(np.float32)
         ds.close()
 
         # 0 Good pixels
@@ -62,9 +65,7 @@ def read_crop(f: str, x: int, y: int, size: int, verbose: bool = True):
             f"in {(time.time() - timing_start):.2f} sec"
         )
 
-    CMI_DQF_crop = np.stack(
-        [CMI_crop.astype(np.float32), DQF_crop.astype(np.float32)], axis=0
-    )
+    CMI_DQF_crop = np.stack([CMI_crop, DQF_crop], axis=0)
 
     return CMI_DQF_crop
 
