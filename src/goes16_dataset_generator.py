@@ -222,11 +222,11 @@ def main(
 
                 planetary_reflectance = crop_processing(CMI_DQF_crop, cosangs)
 
-                # Save image as npy array
                 out_path = os.path.join(output_folder, f"{yl}_{day_of_year}")
                 crop_filename = f"{yl}_{day_of_year}_UTC_{hh}{mm}{ss}"
 
                 if save_as_npy:
+                    # Save image as npy array with float16 precision
                     np.save(out_path + f"/{crop_filename}.npy", planetary_reflectance)
                 else:
                     planetary_reflectance = planetary_reflectance.astype(np.float32)
