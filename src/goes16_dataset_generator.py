@@ -10,13 +10,11 @@ from botocore import UNSIGNED
 from botocore.config import Config
 import pandas as pd
 
-# Generate goes-16 lat-lon conversion files with script provided in data_handlers/goes_16_metadata_generator.py
-# NOAA goes-16 Amazon S3 Bucket: https://noaa-goes16.s3.amazonaws.com/index.html
 import satellite.constants as sat_cts
 import satellite.functions as sat_functions
 from utils import timeit
 from PIL import Image
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 
 # Configure logging
@@ -90,8 +88,14 @@ def convert_coordinates_to_pixel(
 
 @timeit
 def get_S3_files_in_range(
-    start_date: str, end_date: str, output_folder: str
+    start_date: str, end_date: Optional[str], output_folder: str
 ) -> Dict[datetime.datetime, List[str]]:
+    if end_date is None:
+        end_date = start_date
+    if datetime.datetime.strptime(end_date, "%Y-%m-%d") < datetime.datetime.strptime(start_date, "%Y-%m-%d"):
+        raise ValueError(
+            f"End date ({end_date}) must be greater than start date ({start_date})"
+        )
     date_range = pd.date_range(start=start_date, end=end_date).tolist()
 
     for date in date_range:
@@ -151,8 +155,8 @@ def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray
 
 @timeit
 def main(
-    start_date: str = "2024-01-01",
-    end_date: str = "2024-01-01",
+    start_date: str = "2024-01-05",
+    end_date: Optional[str] = None,
     lat: float = -31.390502,
     lon: float = -57.954138,  # Salto, Uruguay
     size: int = 1024,
