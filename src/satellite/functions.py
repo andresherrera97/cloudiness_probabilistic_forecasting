@@ -148,7 +148,7 @@ def read_crop_concurrent_2(f: str, x: int, y: int, size: int, verbose: bool = Tr
 
     if verbose:
         logging.info(
-            f"Downloading crops: HDF5:/vsis3/{sat_cts.BUCKET}/{f}://{sat_cts.PRODUCT} "
+            f"Downloaded crop {f}://{sat_cts.PRODUCT} "
             f"in {(time.time() - timing_start):.2f} sec"
         )
 
