@@ -190,6 +190,10 @@ def main(
     crop_lats, crop_lons, x, y = convert_coordinates_to_pixel(
         lat, lon, REF_LAT, REF_LON, size, verbose
     )
+
+    del REF_LAT
+    del REF_LON
+
     files_in_s3_per_date = get_S3_files_in_range(start_date, end_date, output_folder)
 
     for date, all_files_in_s3 in files_in_s3_per_date.items():
