@@ -166,7 +166,6 @@ def main(
     output_folder: str = "datasets/goes16/",
     skip_night: bool = True,
     save_only_first: bool = False,
-    use_concurrent: bool = False,
     save_as_npy: bool = True,
     verbose: bool = True,
 ):
@@ -235,14 +234,9 @@ def main(
             is_day.append(download_img)
             if download_img:
                 # check if there is an improvement in the download time
-                if use_concurrent:
-                    CMI_DQF_crop = sat_functions.read_crop_concurrent_2(
-                        filename, x, y, size, verbose
-                    )  # shape: (2, size, size)
-                else:
-                    CMI_DQF_crop = sat_functions.read_crop(
-                        filename, x, y, size, verbose
-                    )  # shape: (2, size, size)
+                CMI_DQF_crop = sat_functions.read_crop_concurrent(
+                    filename, x, y, size, verbose
+                )  # shape: (2, size, size)
 
                 planetary_reflectance, pixel_pct_to_inpaint = crop_processing(
                     CMI_DQF_crop, cosangs
