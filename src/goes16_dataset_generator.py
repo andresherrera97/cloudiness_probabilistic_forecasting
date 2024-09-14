@@ -92,7 +92,9 @@ def get_S3_files_in_range(
 ) -> Dict[datetime.datetime, List[str]]:
     if end_date is None:
         end_date = start_date
-    if datetime.datetime.strptime(end_date, "%Y-%m-%d") < datetime.datetime.strptime(start_date, "%Y-%m-%d"):
+    if datetime.datetime.strptime(end_date, "%Y-%m-%d") < datetime.datetime.strptime(
+        start_date, "%Y-%m-%d"
+    ):
         raise ValueError(
             f"End date ({end_date}) must be greater than start date ({start_date})"
         )
@@ -138,7 +140,8 @@ def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray
         - NaN values in the planetary reflectance are replaced with 0.
     """
     inpaint_mask = np.uint8(CMI_DQF_crop[1] != 0)
-    logger.info(f"Percentage of pixels to inpaint: {np.mean(inpaint_mask) * 100:.2f}%")
+    pixel_pct_to_inpaint = np.mean(inpaint_mask) * 100
+    logger.info(f"Percentage of pixels to inpaint: {pixel_pct_to_inpaint:.6f}%")
     CMI_DQF_crop[0] = cv2.inpaint(CMI_DQF_crop[0], inpaint_mask, 3, cv2.INPAINT_NS)
     # normalizar
     planetary_reflectance = sat_functions.normalize(CMI_DQF_crop[0], cosangs, 0.15)
@@ -150,7 +153,7 @@ def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray
         f"    - min-max values for PR: {np.min(planetary_reflectance)} "
         f"- {np.max(planetary_reflectance)}"
     )
-    return planetary_reflectance
+    return planetary_reflectance, pixel_pct_to_inpaint
 
 
 @timeit
@@ -200,7 +203,12 @@ def main(
         logger.info(
             f"Processing date: {date}. Num of available files: {len(all_files_in_s3)}"
         )
+        is_day = []
+        inpaint_pct = []
+        filenames_processed = []
+
         for filename in tqdm(all_files_in_s3):
+            filenames_processed.append(filename)
             t_coverage = filename.split("/")[-1].split("_")[3][1:]
 
             yl = t_coverage[0:4]
@@ -224,6 +232,7 @@ def main(
             else:
                 download_img = True
 
+            is_day.append(download_img)
             if download_img:
                 # check if there is an improvement in the download time
                 if use_concurrent:
@@ -235,7 +244,10 @@ def main(
                         filename, x, y, size, verbose
                     )  # shape: (2, size, size)
 
-                planetary_reflectance = crop_processing(CMI_DQF_crop, cosangs)
+                planetary_reflectance, pixel_pct_to_inpaint = crop_processing(
+                    CMI_DQF_crop, cosangs
+                )
+                inpaint_pct.append(pixel_pct_to_inpaint)
 
                 out_path = os.path.join(output_folder, f"{yl}_{day_of_year}")
                 crop_filename = f"{yl}_{day_of_year}_UTC_{hh}{mm}{ss}"
@@ -245,15 +257,32 @@ def main(
                     np.save(out_path + f"/{crop_filename}.npy", planetary_reflectance)
                 else:
                     planetary_reflectance = planetary_reflectance.astype(np.float32)
-                    planetary_reflectance = (planetary_reflectance * 2 ** 16 - 1).astype(
-                        np.uint16
-                    )
+                    planetary_reflectance = (
+                        planetary_reflectance * 2**16 - 1
+                    ).astype(np.uint16)
                     Image.fromarray(planetary_reflectance, mode="I;16").save(
                         out_path + f"/{crop_filename}_L.png", fromat="PNG"
                     )
 
                 if save_only_first:
                     break
+            else:
+                inpaint_pct.append(None)
+
+        df = pd.DataFrame(
+            {
+                "filenames": filenames_processed,
+                "is_day": is_day,
+                "inpaint_pct": inpaint_pct,
+            }
+        )
+        df.to_csv(
+            os.path.join(
+                out_path,
+                f"data_{date.year}_{str(date.timetuple().tm_yday).zfill(3)}.csv",
+            ),
+            index=False,
+        )
 
 
 if __name__ == "__main__":
