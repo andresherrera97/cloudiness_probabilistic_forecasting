@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=mcd_mmnist
 #SBATCH --ntasks=1
-#SABTCH --mem=1024
+#SBATCH --mem=1024
 #SBATCH --time=3-00:00:00
 #SBATCH --partition=normal
 #SBATCH --qos=gpu

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=qr_uru2020
 #SBATCH --ntasks=1
-#SABTCH --mem=1024
+#SBATCH --mem=1024
 #SBATCH --time=72:00:00
 #SBATCH --partition=normal
 #SBATCH --qos=gpu
