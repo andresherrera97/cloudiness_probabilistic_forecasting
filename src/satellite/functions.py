@@ -1,14 +1,35 @@
 import calendar
+import concurrent.futures
 import datetime
 import numpy as np
 import rasterio
 import time
 from natsort import natsorted
-
 import satellite.constants as sat_cts
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-def read_crop(f, x, y, size, verbose=False):
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("Satellite Functions")
+
+
+def read_crop(f: str, x: int, y: int, size: int, verbose: bool = True):
+    '''
+    Download a crop from the NetCDF file in the S3 bucket and return the CMI and DQF crops.
+    The CMI crop is the Cloud and Moisture Imagery, and the DQF crop is the Data Quality Flag.
+    The CMI crop is the actual image, and the DQF crop is a flag that indicates the quality of the data.
+    Args:
+        f: The filename of the NetCDF file in the S3 bucket.
+        x: The x coordinate of the center of the crop.
+        y: The y coordinate of the center of the crop.
+        size: The size of the crop.
+        verbose: If True, print the time taken to download the crop.
+    Returns:
+        CMI_DQF_crop: A numpy array with shape (2, size, size) where the first
+        element is the CMI crop and the second element is the DQF crop.
+    '''
     timing_start = time.time()
     # Read only a window from the entire file
     # for CONUS the whole image is 6000x10000
@@ -16,7 +37,9 @@ def read_crop(f, x, y, size, verbose=False):
     with rasterio.open(f"HDF5:/vsis3/{sat_cts.BUCKET}/{f}://CMI") as ds:
         CMI_crop = ds.read(
             window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
-        )[0, ...].astype(np.float32)
+        )[0, ...]
+        # CMI_crop dtype: int16
+        CMI_crop = CMI_crop.astype(np.float32)
         # Process CMI crop to match original data
         CMI_crop[CMI_crop == -1] = np.nan
 
@@ -29,6 +52,7 @@ def read_crop(f, x, y, size, verbose=False):
         DQF_crop = ds.read(
             window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
         )[0, ...]
+        DQF_crop = DQF_crop.astype(np.float32)
         ds.close()
 
         # 0 Good pixels
@@ -38,16 +62,49 @@ def read_crop(f, x, y, size, verbose=False):
         # 4 Focal plane temperature threshold exceeded
 
     if verbose:
-        print(
+        logging.info(
             f"Downloading crops: HDF5:/vsis3/{sat_cts.BUCKET}/{f}://{sat_cts.PRODUCT} "
             f"in {(time.time() - timing_start):.2f} sec"
         )
 
-    CMI_DQF_crop = np.stack(
-        [CMI_crop.astype(np.float32), DQF_crop.astype(np.float32)], axis=0
-    )
+    CMI_DQF_crop = np.stack([CMI_crop, DQF_crop], axis=0)
 
     return CMI_DQF_crop
+
+
+def read_crop_concurrent(f: str, x: int, y: int, size: int, verbose: bool = True):
+    timing_start = time.time()
+
+    def read_data(product):
+        with rasterio.open(f"HDF5:/vsis3/{sat_cts.BUCKET}/{f}://{product}") as ds:
+            crop = ds.read(
+                window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
+            )[0, ...]
+            crop = crop.astype(np.float32)
+            if product == "CMI":
+                crop[crop == -1] = np.nan
+                crop /= sat_cts.CORRECTION_FACTOR
+            return product, crop
+
+    # Use ThreadPoolExecutor to run the reads concurrently
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_to_product = {
+            executor.submit(read_data, product): product
+            for product in ["CMI", "DQF"]
+        }
+
+        results = {}
+        for future in as_completed(future_to_product):
+            product, crop = future.result()
+            results[product] = crop
+
+    if verbose:
+        logging.info(
+            f"Downloaded crop {f}://{sat_cts.PRODUCT} "
+            f"in {(time.time() - timing_start):.2f} sec"
+        )
+
+    return np.stack([results["CMI"], results["DQF"]], axis=0)
 
 
 def print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON):
@@ -70,7 +127,7 @@ def print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON):
 
 
 def get_day_filenames(bucket, date, year):
-    print("Extracting all available images for day in NOAA S3 ...")
+    logging.info(f"Extracting all available images for {date} in NOAA S3 ...")
     all_files_in_day = []
     for hour in range(0, 24):
         filter_prefix = sat_cts.PREFIX + f"/{year}/{date:03}/{str(hour).zfill(2)}/"
@@ -82,7 +139,7 @@ def get_day_filenames(bucket, date, year):
         all_files_in_day += hour_channel_files
 
     all_files_in_day = natsorted(all_files_in_day)
-    print("Done.")
+    logging.info("Done.")
     return all_files_in_day
 
 

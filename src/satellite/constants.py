@@ -1,6 +1,6 @@
 # https://www.goes-r.gov/downloads/resources/documents/Beginners_Guide_to_GOES-R_Series_Data.pdf
 # slide 32
-# n order to minimize file size, many of the ABI L1b/L2+ products use 16-bit scaled integers for
+# in order to minimize file size, many of the ABI L1b/L2+ products use 16-bit scaled integers for
 # physical data quantities rather than 32-bit floating point values.
 # unpacked_value = packed_value * scale_factor + add_offset
 # The variables ‘scale_factor’ and ‘add_offset’ are included in the metadata for each file.
