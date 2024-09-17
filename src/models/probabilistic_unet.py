@@ -214,6 +214,10 @@ class BinClassifierUNet(ProbabilisticUNet):
         self.multiclass_precision_metric = MulticlassPrecision(
             num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
         ).to(device=self.device)
+        
+    def get_F_at_points(self, points, pred_params):
+        # TODO: implement if want to use NUMERICAL CRPS
+        pass
 
     def fit(
         self,
@@ -460,6 +464,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         )
         self.loss_fn = QuantileLoss(quantiles=self.quantiles)
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=self.device)
+
+    def get_F_at_points(self, points, pred_params):
+        # TODO: implement if want to use NUMERICAL CRPS
+        pass
 
     def fit(
         self,
@@ -832,8 +840,6 @@ class MeanStdUNet(ProbabilisticUNet):
             mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(mse_loss_mean_pred)
             crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
             # numeric_crps_in_epoch = sum(numeric_crps) / len(numeric_crps)
-            # print(f"crps_in_epoch: {crps_in_epoch}")
-            # print(f"numeric_crps_in_epoch: {numeric_crps_in_epoch}")
 
             if val_metric is None or val_metric.lower() in ["mean_std", "meanstd"]:
                 val_loss_in_epoch = mean_std_loss_in_epoch
@@ -1215,6 +1221,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=self.device)
         self.crps_loss_bin = CRPSLoss(num_bins=101, device=self.device)
         self.loss_fn = nn.L1Loss()
+    
+    def get_F_at_points(self, points, pred_params):
+        # TODO: implement if want to use NUMERICAL CRPS
+        pass
 
     def fit(
         self,
