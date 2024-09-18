@@ -181,22 +181,18 @@ def main(
         )
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
-        cosangs_csv_path = None
     elif dataset.lower() in ["goes16", "satellite", "sat"]:
-        dataset_path = "/clusteruy/home03/DeepCloud/deepCloud/data/uru/"
-        cosangs_csv_path = "datasets/uru2020_day_pct_"
+        dataset_path = "datasets/goes16/"
     else:
         raise ValueError(f"Wrong dataset! {dataset} not recognized")
 
     logger.info(f"Dataset path: {dataset_path}")
-    logger.info(f"Cosangs path: {cosangs_csv_path}")
     logger.info(f"Time horizon: {time_horizon}")
 
     probabilistic_unet.create_dataloaders(
         dataset=dataset,
         path=dataset_path,
         batch_size=batch_size,
-        cosangs_csv_path=cosangs_csv_path,
         time_horizon=time_horizon,
         binarization_method=binarization_method,  # needed for BinClassifierUNet
     )

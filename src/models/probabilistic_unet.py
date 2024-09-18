@@ -24,7 +24,7 @@ from metrics import (
     crps_laplace,
     CRPSLoss,
 )
-from data_handlers import MovingMnistDataset, SatelliteDataset, normalize_pixels
+from data_handlers import MovingMnistDataset, GOES16Dataset
 from .unet import UNet
 from .model_initialization import weights_init, optimizer_init, scheduler_init
 import logging
@@ -128,7 +128,6 @@ class ProbabilisticUNet(ABC):
         path: str,
         batch_size: int,
         time_horizon: int,
-        cosangs_csv_path: Optional[str] = None,
         binarization_method: Optional[str] = None,
     ):
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
@@ -146,27 +145,22 @@ class ProbabilisticUNet(ABC):
             )
 
         elif dataset.lower() in ["goes16", "satellite", "sat"]:
-            train_dataset = SatelliteDataset(
+            train_dataset = GOES16Dataset(
                 path=os.path.join(path, "train/"),
-                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
+                num_in_images=self.in_frames,
+                minutes_forward=time_horizon,
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
+                expected_time_diff=10,
             )
-            val_dataset = SatelliteDataset(
+
+            val_dataset = GOES16Dataset(
                 path=os.path.join(path, "validation/"),
-                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
+                num_in_images=self.in_frames,
+                minutes_forward=time_horizon,
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
+                expected_time_diff=10,
             )
 
         else:

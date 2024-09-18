@@ -450,14 +450,14 @@ def image_sequence_generator_folders_cosangs(
 
 
 def sequence_df_generator_folders(
-    path, in_channel, out_channel, min_time_diff, max_time_diff
+    path: str, in_channel: int, output_index: int, min_time_diff: int, max_time_diff: int
 ):
     """Generates DataFrame that contains all possible sequences for images separated by day
 
     Args:
         path (str): path to folder containing images '/train'
         in_channel (int): Quantity of input images in sequence
-        out_channel (int): Quantity of output images in sequence
+        output_index (int): Quantity of output images in sequence
         min_time_diff (int): Images separated by less than this time cannot be a sequence
         max_time_diff (int): Images separated by more than this time cannot be a sequence
 
@@ -465,8 +465,8 @@ def sequence_df_generator_folders(
         [pd.DataFrame]: Rows contain all sequences
     """
     # folder names
-    folders = os.listdir(path)
-
+    folders = sorted(os.listdir(path))
+    folders = [f for f in folders if f.replace("_", "").isdigit()]
     dt_min = timedelta(minutes=min_time_diff)
     dt_max = timedelta(minutes=max_time_diff)
 
@@ -474,45 +474,45 @@ def sequence_df_generator_folders(
 
     for folder in folders:
         folderfiles = sorted(
-            [f for f in listdir(join(path, folder)) if isfile(join(path, folder, f))]
+            [f for f in listdir(join(path, folder)) if isfile(join(path, folder, f)) and f.endswith(".npy")]
         )
         len_day = len(folderfiles)
         for i in range(
-            len_day - (in_channel + out_channel - 1)
-        ):  # me fijo si puedo completar un conjunto de datos
+            len_day - (in_channel + output_index - 1)
+        ):  # check if it can complete a whole sequence
             complete_seq = True
             image_sequence = []
             for j in range(
-                in_channel + out_channel - 1
-            ):  # veo si puede rellenar un dato
+                in_channel + output_index - 1
+            ):  # check if time difference is acceptable
                 if complete_seq:
                     dt_i = datetime(
                         1997,
                         5,
                         28,
-                        hour=int(folderfiles[i + j][12:14]),
-                        minute=int(folderfiles[i + j][14:16]),
-                        second=int(folderfiles[i + j][16:18]),
+                        hour=int(folderfiles[i + j][13:15]),
+                        minute=int(folderfiles[i + j][15:17]),
+                        second=int(folderfiles[i + j][17:19]),
                     )
                     dt_f = datetime(
                         1997,
                         5,
                         28,
-                        hour=int(folderfiles[i + j + 1][12:14]),
-                        minute=int(folderfiles[i + j + 1][14:16]),
-                        second=int(folderfiles[i + j + 1][16:18]),
+                        hour=int(folderfiles[i + j + 1][13:15]),
+                        minute=int(folderfiles[i + j + 1][15:17]),
+                        second=int(folderfiles[i + j + 1][17:19]),
                     )
 
                     time_diff = dt_f - dt_i
 
                     if (
                         dt_min < time_diff < dt_max
-                    ):  # las imagenes estan bien espaciadas en el tiempo
+                    ):  # images are correctly spaced in time
                         if j == 0:
-                            image_sequence.append(folderfiles[i + j])
-                            image_sequence.append(folderfiles[i + j + 1])
+                            image_sequence.append(f"{folder}/{folderfiles[i + j]}")
+                            image_sequence.append(f"{folder}/{folderfiles[i + j + 1]}")
                         if j > 0:
-                            image_sequence.append(folderfiles[i + j + 1])
+                            image_sequence.append(f"{folder}/{folderfiles[i + j + 1]}")
                     else:
                         complete_seq = False
 
