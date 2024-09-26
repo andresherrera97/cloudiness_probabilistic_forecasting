@@ -11,8 +11,9 @@ from models import (
     BinClassifierUNet,
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
-    UNetPipeline,
+    DeterministicUNet,
     IQUNetPipeline,
+    UNetConfig,
 )
 import numpy as np
 from typing import Optional, List
@@ -34,6 +35,7 @@ def main(
     dataset: str = "mmnist",
     num_bins: Optional[int] = None,
     input_frames: int = 3,
+    spatial_context: int = 0,
     output_activation: str = "sigmoid",
     time_horizon: Optional[int] = None,
     epochs: int = 5,
@@ -60,28 +62,26 @@ def main(
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
+    unet_config = UNetConfig(
+        in_frames=input_frames,
+        spatial_context=spatial_context,
+        filters=num_filters,
+        output_activation=output_activation,
+        device=device,
+    )
+
     if model_name.lower() in ["mean", "mean_std", "meanstd"]:
         logger.info("Selected model: MeanStdUNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Output activation: {output_activation}")
-        probabilistic_unet = MeanStdUNet(
-            in_frames=input_frames,
-            filters=num_filters,
-            output_activation=output_activation,
-            device=device,
-        )
+        probabilistic_unet = MeanStdUNet(unet_config)
     elif model_name.lower() in ["median", "median_scale"]:
         logger.info("Selected model: MedianScaleUNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Output activation: {output_activation}")
-        probabilistic_unet = MedianScaleUNet(
-            in_frames=input_frames,
-            filters=num_filters,
-            output_activation=output_activation,
-            device=device,
-        )
+        probabilistic_unet = MedianScaleUNet(unet_config)
     elif model_name.lower() in ["bin_classifier", "bin"]:
         binarization_method = "integer_classes"
         logger.info("Selected model: BinClassifierUNet")
@@ -93,11 +93,8 @@ def main(
         logger.info(f"    - Output activation: {output_activation}")
         logger.info(f"    - Binarization method: {binarization_method}")
         probabilistic_unet = BinClassifierUNet(
+            config=unet_config,
             n_bins=num_bins,
-            in_frames=input_frames,
-            filters=num_filters,
-            device=device,
-            output_activation=output_activation,
         )
     elif model_name.lower() in ["quantile_regressor", "qr"]:
         if num_bins is not None and quantiles is None:
@@ -112,12 +109,9 @@ def main(
         logger.info(f"    - Val metric: {val_metric}")
         logger.info(f"    - Output activation: {output_activation}")
         probabilistic_unet = QuantileRegressorUNet(
+            config=unet_config,
             quantiles=quantiles,
-            in_frames=input_frames,
-            filters=num_filters,
             predict_diff=predict_diff,
-            device=device,
-            output_activation=output_activation,
         )
     elif model_name.lower() in ["monte_carlo_dropout", "mcd"]:
         logger.info("Selected model: MonteCarloDropoutUNet")
@@ -127,23 +121,16 @@ def main(
         logger.info(f"    - Ensemble preds: {num_ensemble_preds}")
         logger.info(f"    - Output activation: {output_activation}")
         probabilistic_unet = MonteCarloDropoutUNet(
+            config=unet_config,
             dropout_p=dropout_p,
-            in_frames=input_frames,
-            filters=num_filters,
             n_quantiles=num_ensemble_preds,
-            device=device,
-            output_activation=output_activation,
         )
     elif model_name.lower() in ["deterministic", "det", "unet"]:
         logger.info("Selected model: Deterministic UNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Output activation: {output_activation}")
-        probabilistic_unet = UNetPipeline(
-            in_frames=input_frames,
-            filters=num_filters,
-            output_activation=output_activation,
-        )
+        probabilistic_unet = DeterministicUNet(config=unet_config)
     elif model_name.lower() in ["iqn", "iqn_unet"]:
         num_taus = num_bins - 1
         train_metric = "pinball"
@@ -157,12 +144,10 @@ def main(
         logger.info(f"    - Train metric: {train_metric}")
         logger.info(f"    - Val metric: {val_metric}")
         probabilistic_unet = IQUNetPipeline(
-            in_frames=input_frames,
-            filters=num_filters,
+            config=unet_config,
             cosine_embedding_dimension=cos_dim,
             num_taus=num_taus,
             predict_diff=predict_diff,
-            device=device,
         )
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")

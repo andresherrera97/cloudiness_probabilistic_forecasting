@@ -5,6 +5,7 @@ import copy
 import datetime
 from typing import List, Optional, Tuple
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 import numpy as np
 from scipy import stats
@@ -34,26 +35,26 @@ import logging
 logging.basicConfig(level=logging.INFO)
 
 
-class ProbabilisticUNet(ABC):
-    """
-    Abstract base class for probabilistic U-Net models.
+@dataclass
+class UNetConfig:
+    in_frames: int = 3
+    spatial_context: int = 0
+    filters: int = 16
+    output_activation: str = "sigmoid"
+    device: str = "cpu"
 
-    Subclasses must implement the abstract methods to provide specific
-    implementations for initializing weights, optimizers, dataloaders,
-    calculating loss, and cumulative distribution function (CDF).
-    """
 
+class UNetPipeline(ABC):
     def __init__(
         self,
-        in_frames: int = 3,
-        filters: int = 16,
-        output_activation="sigmoid",
-        device="cpu",
+        config: UNetConfig,
     ):
-        self.in_frames = in_frames
-        self.filters = filters
-        self.output_activation = output_activation
-        self.device = device
+        super().__init__()
+        self.in_frames = config.in_frames
+        self.spatial_context = config.spatial_context
+        self.filters = config.filters
+        self.output_activation = config.output_activation
+        self.device = config.device
         self._logger = logging.getLogger(self.__class__.__name__)
         self.model = None
         self.train_loader = None
@@ -63,46 +64,8 @@ class ProbabilisticUNet(ABC):
         self.best_model_dict = None
         self.loss_fn = None
         self.n_bins = None
-
-    @abstractmethod
-    def fit(
-        self,
-        n_epochs: int,
-        num_train_samples: int,
-        print_train_every_n_batch: Optional[int],
-        num_val_samples: int,
-        device: str,
-        run,
-        verbose: bool,
-        model_name: str,
-        train_metric: str,
-        val_metric: str,
-        checkpoint_path: Optional[str],
-    ):
-        """Train the model on the given input data and labels for a specified number of epochs."""
-        pass
-
-    @abstractmethod
-    def get_F_at_points(self, points, pred_params):
-        pass
-
-    def get_numerical_CRPS(
-        self, y: torch.Tensor, pred: torch.Tensor, lower: float, upper: float, count: int
-    ):
-        dys = torch.linspace(lower, upper, count).to(self.device)
-        dys = dys.view(1, count, 1, 1)
-        dys = dys.expand(1, count, pred.shape[2], pred.shape[3])
-
-        Fy = self.get_F_at_points(dys, pred)  # (B, count, H, W)
-        heavyside = 1 * (y <= dys)  # (1, count, H, W)
-        integrant = (Fy - heavyside) ** 2  # (B, count, H, W)
-        crps = (dys[0, 1] - dys[0, 0]) * (
-            integrant[:, 0] / 2 + integrant[:, 1:].sum(dim=1) + integrant[:, -1] / 2
-        )
-        return torch.mean(crps)
-
-    def predict(self, X, iterations: Optional[int] = None):
-        return self.model(X.float())
+        self.height = None
+        self.width = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -155,7 +118,7 @@ class ProbabilisticUNet(ABC):
             )
 
             val_dataset = GOES16Dataset(
-                path=os.path.join(path, "validation/"),
+                path=os.path.join(path, "val/"),
                 num_in_images=self.in_frames,
                 minutes_forward=time_horizon,
                 num_bins=self.n_bins,
@@ -171,8 +134,68 @@ class ProbabilisticUNet(ABC):
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
-    def calculate_loss(self, predictions, y_target):
+        # Get one sample from train_loader and val_loader to check they have the same size
+        train_input_sample, train_output_sample = next(iter(self.train_loader))
+        val_input_sample, val_output_sample = next(iter(self.val_loader))
+
+        assert (
+            train_input_sample[0].shape == val_input_sample[0].shape
+        ), "Train and validation input samples have different sizes"
+        assert (
+            train_output_sample[0].shape == val_output_sample[0].shape
+        ), "Train and validation output samples have different sizes"
+
+        self.height = train_input_sample.shape[2]
+        self.width = train_input_sample.shape[3]
+
+        self._logger.info(f"Train loader size: {len(self.train_loader)}")
+        self._logger.info(f"Val loader size: {len(self.val_loader)}")
+        self._logger.info(f"Samples height: {self.height}, Samples width: {self.width}")
+
+    def remove_spatial_context(self, *tensors):
+        """
+        Removes the spatial context from an arbitrary number of input tensors.
+        Optimized for speed, works with both 3D and 4D tensors.
+        """
+        if self.spatial_context == 0:
+            return tensors
+
+        cropped_tensors = []
+        for tensor in tensors:
+            if tensor.dim() == 3:
+                cropped = tensor[
+                    :,
+                    self.spatial_context : -self.spatial_context,
+                    self.spatial_context : -self.spatial_context,
+                ]
+            elif tensor.dim() == 4:
+                cropped = tensor[
+                    :,
+                    :,
+                    self.spatial_context : -self.spatial_context,
+                    self.spatial_context : -self.spatial_context,
+                ]
+            else:
+                raise ValueError(f"Expected 3D or 4D tensor, got {tensor.dim()}D")
+            cropped_tensors.append(cropped)
+
+        return tuple(cropped_tensors)
+
+    def calculate_loss(self, predictions: torch.Tensor, y_target: torch.Tensor):
         return self.loss_fn(predictions, y_target)
+
+    def save_checkpoint(self, model_name: str, best_epoch: int, best_val_loss: float, checkpoint_path: str):
+        checkpoint_name = (
+            f"{model_name}_E{best_epoch}_BVM{str(best_val_loss).replace('.', '_')[:4]}_"
+            f"D{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}.pt"
+        )
+        self._logger.info(
+            f"Saving best model to {checkpoint_path}/{checkpoint_name}"
+        )
+        torch.save(
+            self.best_model_dict,
+            os.path.join(checkpoint_path, checkpoint_name),
+        )
 
     @abstractmethod
     def load_checkpoint(self, checkpoint_path: str, device: str):
@@ -186,16 +209,76 @@ class ProbabilisticUNet(ABC):
         pass
 
 
+class ProbabilisticUNet(UNetPipeline):
+    """
+    Abstract base class for probabilistic U-Net models.
+
+    Subclasses must implement the abstract methods to provide specific
+    implementations for initializing weights, optimizers, dataloaders,
+    calculating loss, and cumulative distribution function (CDF).
+    """
+
+    def __init__(
+        self,
+        config: UNetConfig,
+    ):
+        super().__init__(config)
+        self.n_bins = None
+
+    @abstractmethod
+    def fit(
+        self,
+        n_epochs: int,
+        num_train_samples: int,
+        print_train_every_n_batch: Optional[int],
+        num_val_samples: int,
+        device: str,
+        run,
+        verbose: bool,
+        model_name: str,
+        train_metric: str,
+        val_metric: str,
+        checkpoint_path: Optional[str],
+    ):
+        """Train the model on the given input data and labels for a
+        specified number of epochs."""
+        pass
+
+    @abstractmethod
+    def get_F_at_points(self, points, pred_params):
+        pass
+
+    def get_numerical_CRPS(
+        self,
+        y: torch.Tensor,
+        pred: torch.Tensor,
+        lower: float,
+        upper: float,
+        count: int,
+    ):
+        dys = torch.linspace(lower, upper, count).to(self.device)
+        dys = dys.view(1, count, 1, 1)
+        dys = dys.expand(1, count, pred.shape[2], pred.shape[3])
+
+        Fy = self.get_F_at_points(dys, pred)  # (B, count, H, W)
+        heavyside = 1 * (y <= dys)  # (1, count, H, W)
+        integrant = (Fy - heavyside) ** 2  # (B, count, H, W)
+        crps = (dys[0, 1] - dys[0, 0]) * (
+            integrant[:, 0] / 2 + integrant[:, 1:].sum(dim=1) + integrant[:, -1] / 2
+        )
+        return torch.mean(crps)
+
+    def predict(self, X, iterations: Optional[int] = None):
+        return self.model(X.float())
+
+
 class BinClassifierUNet(ProbabilisticUNet):
     def __init__(
         self,
-        n_bins=10,
-        in_frames=3,
-        filters=16,
-        device="cpu",
-        output_activation="sigmoid",
+        config: UNetConfig,
+        n_bins: int = 10,
     ):
-        super().__init__(in_frames, filters, output_activation, device)
+        super().__init__(config)
         self.n_bins = n_bins
         self.model = UNet(
             in_frames=self.in_frames,
@@ -208,7 +291,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         self.multiclass_precision_metric = MulticlassPrecision(
             num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
         ).to(device=self.device)
-        
+
     def get_F_at_points(self, points, pred_params):
         # TODO: implement if want to use NUMERICAL CRPS
         pass
@@ -238,7 +321,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         cross_entropy_per_epoch = []
         precision_per_epoch = []
 
-        best_val_loss = 1e5
+        best_val_loss = float('inf')
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -257,6 +340,10 @@ class BinClassifierUNet(ProbabilisticUNet):
                 # forward
                 frames_pred = self.model(in_frames.float())
 
+                frames_pred, out_frames, bin_output = self.remove_spatial_context(
+                    frames_pred, out_frames, bin_output
+                )
+
                 if train_metric is None or train_metric in ["cross_entropy", "ce"]:
                     bin_output = bin_output.to(device=device)
                     loss = self.calculate_loss(frames_pred, bin_output)
@@ -269,8 +356,6 @@ class BinClassifierUNet(ProbabilisticUNet):
                 # backward
                 self.optimizer.zero_grad()
                 loss.backward()
-
-                # gradient descent or adam step
                 self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
@@ -309,6 +394,10 @@ class BinClassifierUNet(ProbabilisticUNet):
                     bin_output = bin_output.to(device=device)
 
                     frames_pred = self.model(in_frames.float())
+
+                    frames_pred, out_frames, bin_output = self.remove_spatial_context(
+                        frames_pred, out_frames, bin_output
+                    )
 
                     cross_entropy_loss = self.calculate_loss(frames_pred, bin_output)
                     cross_entropy_loss_per_batch.append(
@@ -354,8 +443,6 @@ class BinClassifierUNet(ProbabilisticUNet):
                     step=epoch,
                 )
 
-            end_epoch = time.time()
-
             if verbose:
                 self._logger.info(
                     f"Epoch({epoch + 1}/{n_epochs}) | "
@@ -364,11 +451,10 @@ class BinClassifierUNet(ProbabilisticUNet):
                     f"Cross Entropy({cross_entropy_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f} | "
                     f"precision({precision_in_epoch:.4f} | "
-                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
+                    f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
             # epoch end
-            end_epoch = time.time()
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             cross_entropy_per_epoch.append(cross_entropy_in_epoch)
@@ -380,6 +466,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                     f"Saving best model. Best val loss: " f"{val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
+                best_epoch = epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -399,13 +486,8 @@ class BinClassifierUNet(ProbabilisticUNet):
                 }
 
         if checkpoint_path is not None:
-            self._logger.info(f"Saving best model to {checkpoint_path}")
-            checkpoint_name = (
-                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-            )
-            torch.save(
-                self.best_model_dict,
-                os.path.join(checkpoint_path, checkpoint_name),
+            self.save_checkpoint(
+                model_name, best_epoch, best_val_loss, checkpoint_path
             )
 
         return train_loss_per_epoch, val_loss_per_epoch
@@ -430,20 +512,17 @@ class BinClassifierUNet(ProbabilisticUNet):
 
     @property
     def name(self):
-        return f"BinClassifierUNet_{self.n_bins}bins_{self.in_frames}frames_{self.filters}filters"
+        return f"BinUNet_IN{self.in_frames}_NB{self.n_bins}_F{self.filters}_SC{self.spatial_context}"
 
 
 class QuantileRegressorUNet(ProbabilisticUNet):
     def __init__(
         self,
-        in_frames: int = 3,
-        filters: int = 16,
-        device: str = "cpu",
-        output_activation="sigmoid",
+        config: UNetConfig,
         quantiles: Optional[List[float]] = None,
         predict_diff: bool = False,
     ):
-        super().__init__(in_frames, filters, output_activation, device)
+        super().__init__(config)
         self.predict_diff = predict_diff
         if quantiles is None:
             self.quantiles = [0.1, 0.5, 0.9]
@@ -488,7 +567,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         quantile_loss_per_epoch = []
         crps_per_epoch = []
 
-        best_val_loss = 1e5
+        best_val_loss = float('inf')
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -508,6 +587,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 if self.predict_diff:
                     frames_pred = torch.cumsum(frames_pred, dim=1)
 
+                frames_pred, out_frames = self.remove_spatial_context(
+                    frames_pred, out_frames
+                )
+
                 if train_metric is None or train_metric in [
                     "quantile",
                     "pinball",
@@ -525,8 +608,6 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 # backward
                 self.optimizer.zero_grad()
                 loss.backward()
-
-                # gradient descent or adam step
                 self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
@@ -565,6 +646,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     frames_pred = self.model(in_frames.float())
                     if self.predict_diff:
                         frames_pred = torch.cumsum(frames_pred, dim=1)
+
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
 
                     quantile_loss = self.calculate_loss(frames_pred, out_frames)
                     quantile_loss_per_batch.append(quantile_loss.detach().item())
@@ -608,8 +693,6 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     step=epoch,
                 )
 
-            end_epoch = time.time()
-
             if verbose:
                 self._logger.info(
                     f"Epoch({epoch + 1}/{n_epochs}) | "
@@ -617,11 +700,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
                     f"Quantile_loss({quantile_loss_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f}) | "
-                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
+                    f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
             # epoch end
-            end_epoch = time.time()
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
@@ -632,6 +714,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
+                best_epoch = epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -651,13 +734,8 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 }
 
         if checkpoint_path is not None:
-            self._logger.info(f"Saving best model to {checkpoint_path}")
-            checkpoint_name = (
-                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-            )
-            torch.save(
-                self.best_model_dict,
-                os.path.join(checkpoint_path, checkpoint_name),
+            self.save_checkpoint(
+                model_name, best_epoch, best_val_loss, checkpoint_path
             )
 
         return train_loss_per_epoch, val_loss_per_epoch
@@ -693,18 +771,15 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
     @property
     def name(self):
-        return f"QuantileRegressorUNet_{self.n_bins}bins_{self.in_frames}frames_{self.filters}filters"
+        return (
+            f"QRUNet_IN{self.in_frames}_NB{self.n_bins}_F{self.filters}_"
+            f"SC{self.spatial_context}_PD{self.predict_diff}"
+        )
 
 
 class MeanStdUNet(ProbabilisticUNet):
-    def __init__(
-        self,
-        in_frames: int = 3,
-        filters: int = 16,
-        output_activation: str = "sigmoid",
-        device: str = "cpu",
-    ):
-        super().__init__(in_frames, filters, output_activation, device)
+    def __init__(self, config):
+        super().__init__(config)
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=2,
@@ -740,7 +815,7 @@ class MeanStdUNet(ProbabilisticUNet):
         crps_per_epoch = []
         mean_std_per_epoch = []
 
-        best_val_loss = 1e5
+        best_val_loss = float('inf')
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -754,16 +829,18 @@ class MeanStdUNet(ProbabilisticUNet):
                 # data to cuda if possible
                 in_frames = in_frames.to(device=device).float()
                 out_frames = out_frames.to(device=device).float()
-
                 # forward
                 frames_pred = self.model(in_frames.float())
+
+                frames_pred, out_frames = self.remove_spatial_context(
+                    frames_pred, out_frames
+                )
+
                 loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
                 self.optimizer.zero_grad()
                 loss.backward()
-
-                # gradient descent or adam step
                 self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
@@ -802,6 +879,10 @@ class MeanStdUNet(ProbabilisticUNet):
                     out_frames = out_frames.to(device=device).float()
 
                     frames_pred = self.model(in_frames.float())
+
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
 
                     mean_std_loss_per_batch.append(
                         self.calculate_loss(frames_pred, out_frames).detach().item()
@@ -860,8 +941,6 @@ class MeanStdUNet(ProbabilisticUNet):
                     step=epoch,
                 )
 
-            end_epoch = time.time()
-
             if verbose:
                 self._logger.info(
                     f"Epoch({epoch + 1}/{n_epochs}) | "
@@ -870,11 +949,10 @@ class MeanStdUNet(ProbabilisticUNet):
                     f"mean_std_loss: {mean_std_loss_in_epoch:.4f}) | "
                     f"MSE({mse_mean_pred_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f} | "
-                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
+                    f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
             # epoch end
-            end_epoch = time.time()
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
@@ -886,6 +964,7 @@ class MeanStdUNet(ProbabilisticUNet):
                     f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
+                best_epoch = epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -903,13 +982,8 @@ class MeanStdUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
         if checkpoint_path is not None:
-            self._logger.info(f"Saving best model to {checkpoint_path}")
-            checkpoint_name = (
-                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-            )
-            torch.save(
-                self.best_model_dict,
-                os.path.join(checkpoint_path, checkpoint_name),
+            self.save_checkpoint(
+                model_name, best_epoch, best_val_loss, checkpoint_path
             )
 
         return train_loss_per_epoch, val_loss_per_epoch
@@ -941,18 +1015,17 @@ class MeanStdUNet(ProbabilisticUNet):
 
     @property
     def name(self):
-        return f"MeanStdUNet_{self.in_frames}frames_{self.filters}filters"
+        return (
+            f"MeanStdUNet_IN{self.in_frames}_F{self.filters}_SC{self.spatial_context}"
+        )
 
 
 class MedianScaleUNet(ProbabilisticUNet):
     def __init__(
         self,
-        in_frames: int = 3,
-        filters: int = 16,
-        output_activation: str = "sigmoid",
-        device: str = "cpu",
+        config: UNetConfig,
     ):
-        super().__init__(in_frames, filters, output_activation, device)
+        super().__init__(config)
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=2,
@@ -988,7 +1061,7 @@ class MedianScaleUNet(ProbabilisticUNet):
         crps_per_epoch = []
         median_scale_per_epoch = []
 
-        best_val_loss = 1e5
+        best_val_loss = float('inf')
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -1005,13 +1078,16 @@ class MedianScaleUNet(ProbabilisticUNet):
 
                 # forward
                 frames_pred = self.model(in_frames.float())
+
+                frames_pred, out_frames = self.remove_spatial_context(
+                    frames_pred, out_frames
+                )
+
                 loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
                 self.optimizer.zero_grad()
                 loss.backward()
-
-                # gradient descent or adam step
                 self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
@@ -1050,6 +1126,9 @@ class MedianScaleUNet(ProbabilisticUNet):
                     out_frames = out_frames.to(device=device).float()
 
                     frames_pred = self.model(in_frames.float())
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
 
                     median_scale_loss_per_batch.append(
                         self.calculate_loss(frames_pred, out_frames).detach().item()
@@ -1107,8 +1186,6 @@ class MedianScaleUNet(ProbabilisticUNet):
                     step=epoch,
                 )
 
-            end_epoch = time.time()
-
             if verbose:
                 self._logger.info(
                     f"Epoch({epoch + 1}/{n_epochs}) | "
@@ -1117,11 +1194,10 @@ class MedianScaleUNet(ProbabilisticUNet):
                     f"MedianScale({median_scale_loss_in_epoch:.4f}) | "
                     f"MAE({mae_mean_pred_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f} | "
-                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
+                    f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
             # epoch end
-            end_epoch = time.time()
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
@@ -1133,6 +1209,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                     f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
                 )
                 best_val_loss = val_loss_in_epoch
+                best_epoch = epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
@@ -1149,13 +1226,8 @@ class MedianScaleUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
         if checkpoint_path is not None:
-            self._logger.info(f"Saving best model to {checkpoint_path}")
-            checkpoint_name = (
-                f"{model_name}_" f"{datetime.datetime.now().strftime('%Y-%m-%d')}.pt"
-            )
-            torch.save(
-                self.best_model_dict,
-                os.path.join(checkpoint_path, checkpoint_name),
+            self.save_checkpoint(
+                model_name, best_epoch, best_val_loss, checkpoint_path
             )
 
         return train_loss_per_epoch, val_loss_per_epoch
@@ -1185,20 +1257,20 @@ class MedianScaleUNet(ProbabilisticUNet):
 
     @property
     def name(self):
-        return f"MedianScaleUNet_{self.in_frames}frames_{self.filters}filters"
+        return (
+            f"MedianScaleUNet_IN{self.in_frames}_F{self.filters}"
+            f"_SC{self.spatial_context}"
+        )
 
 
 class MonteCarloDropoutUNet(ProbabilisticUNet):
     def __init__(
         self,
-        in_frames: int = 3,
-        filters: int = 16,
-        output_activation="sigmoid",
-        device: str = "cpu",
+        config: UNetConfig,
         n_quantiles: int = 5,
         dropout_p: float = 0.5,
     ):
-        super().__init__(in_frames, filters, output_activation, device)
+        super().__init__(config)
         if dropout_p is None:
             raise ValueError("Dropout probability must be specified.")
 
@@ -1215,7 +1287,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=self.device)
         self.crps_loss_bin = CRPSLoss(num_bins=101, device=self.device)
         self.loss_fn = nn.L1Loss()
-    
+
     def get_F_at_points(self, points, pred_params):
         # TODO: implement if want to use NUMERICAL CRPS
         pass
@@ -1245,7 +1317,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         crps_per_epoch = []
         mae_per_epoch = []
 
-        best_val_loss = 1e5
+        best_val_loss = float('inf')
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -1263,13 +1335,15 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 # forward
                 frames_pred = self.model(in_frames.float())
 
+                frames_pred, out_frames = self.remove_spatial_context(
+                    frames_pred, out_frames
+                )
+
                 loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
                 self.optimizer.zero_grad()
                 loss.backward()
-
-                # gradient descent or adam step
                 self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
@@ -1311,6 +1385,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
                     frames_pred = self.predict(
                         in_frames.float(), iterations=self.n_quantiles
+                    )
+
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
                     )
 
                     # validation loss is calculated as the mean of the quantiles predictions
@@ -1389,8 +1467,6 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     step=epoch,
                 )
 
-            end_epoch = time.time()
-
             if verbose:
                 self._logger.info(
                     f"Epoch({epoch + 1}/{n_epochs}) | "
@@ -1400,11 +1476,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     f"CRPS({crps_in_epoch:.4f}) | "
                     f"CRPS_Torch({crps_quantile_in_epoch:.4f}) | "
                     f"CRPS_Bin({crps_bin_in_epoch:.4f}) | "
-                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
+                    f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
             # epoch end
-            end_epoch = time.time()
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
@@ -1435,16 +1510,8 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
         if checkpoint_path is not None:
-            checkpoint_name = (
-                f"{model_name}_E{best_epoch}_VM{val_metric}_BVM{str(best_val_loss).replace('0.', '')[:4]}_"
-                f"D{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}.pt"
-            )
-            self._logger.info(
-                f"Saving best model to {checkpoint_path}/{checkpoint_name}"
-            )
-            torch.save(
-                self.best_model_dict,
-                os.path.join(checkpoint_path, checkpoint_name),
+            self.save_checkpoint(
+                model_name, best_epoch, best_val_loss, checkpoint_path
             )
 
         return train_loss_per_epoch, val_loss_per_epoch
@@ -1543,4 +1610,8 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
     @property
     def name(self):
-        return f"MCD_IN{self.in_frames}_F{self.filters}_DP{str(self.dropout_p).replace('0.', '')}_NQ{self.n_quantiles}"
+        return (
+            f"MCD_IN{self.in_frames}_F{self.filters}"
+            f"_DP{str(self.dropout_p).replace('0.', '')}"
+            f"_NQ{self.n_quantiles}_SC{self.spatial_context}"
+        )

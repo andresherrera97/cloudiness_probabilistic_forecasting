@@ -8,13 +8,10 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 from metrics import QuantileLoss
-
-from .model_initialization import weights_init, optimizer_init, scheduler_init
+from .probabilistic_unet import ProbabilisticUNet, UNetConfig
 import logging
 
-from data_handlers import MovingMnistDataset, SatelliteDataset, normalize_pixels
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -217,112 +214,34 @@ class IQUNet(nn.Module):
         return (weight * loss).mean()
 
 
-class IQUNetPipeline:
+class IQUNetPipeline(ProbabilisticUNet):
     def __init__(
         self,
-        in_frames: int = 3,
-        filters: int = 16,
+        config: UNetConfig,
         cosine_embedding_dimension: int = 64,
         num_taus: int = 9,
         predict_diff: bool = False,
-        device: str = "cpu",
         min_value: float = 0,
         max_value: float = 1,
     ):
-        self.in_frames = in_frames
-        self.filters = filters
+        super().__init__(config)
         self.cosine_embedding_dimension = cosine_embedding_dimension
-        self.device = device
         self.predict_diff = predict_diff
         self.num_taus = num_taus
         self.min_value = min_value
         self.max_value = max_value
         self.val_quantiles = torch.linspace(min_value, max_value, self.num_taus + 2)[
             1:-1
-        ].to(device=device)
+        ].to(device=self.device)
 
         self.model = IQUNet(
-            in_frames=in_frames,
+            in_frames=self.in_frames,
             n_classes=num_taus,
-            filters=filters,
+            filters=self.filters,
             cosine_embedding_dimension=cosine_embedding_dimension,
             num_taus=num_taus,
-            device=device,
-        ).to(device)
-
-        self.train_loader = None
-        self.val_loader = None
-        self.optimizer = None
-        self.scheduler = None
-
-        self._logger = logging.getLogger(self.__class__.__name__)
-
-    def initialize_weights(self):
-        self.model.apply(weights_init)
-
-    def initialize_optimizer(self, method: str, lr: float):
-        self.optimizer = optimizer_init(self.model, method, lr)
-
-    def initialize_scheduler(
-        self,
-        method: str,
-        step_size: int,
-        gamma: float,
-        patience: int,
-        min_lr: float,
-    ):
-        self.scheduler = scheduler_init(
-            self.optimizer, method, step_size, gamma, patience, min_lr
-        )
-
-    def create_dataloaders(
-        self,
-        dataset: str,
-        path: str,
-        batch_size: int,
-        time_horizon: int,
-        cosangs_csv_path: Optional[str] = None,
-        binarization_method=None,
-    ):
-        if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
-            train_dataset = MovingMnistDataset(
-                path=os.path.join(path, "train/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-            val_dataset = MovingMnistDataset(
-                path=os.path.join(path, "validation/"),
-                input_frames=self.in_frames,
-                num_bins=None,
-            )
-
-        elif dataset.lower() in ["goes16", "satellite"]:
-            train_dataset = SatelliteDataset(
-                path=os.path.join(path, "train/"),
-                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-            val_dataset = SatelliteDataset(
-                path=os.path.join(path, "validation/"),
-                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
-                in_channel=self.in_frames,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
-            )
-
-        else:
-            raise ValueError(f"Dataset {dataset} not recognized.")
-
-        self.train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True
-        )
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+            device=self.device,
+        ).to(self.device)
 
     def fit(
         self,
@@ -348,7 +267,7 @@ class IQUNetPipeline:
         val_loss_per_epoch = []
         quantile_loss_per_epoch = []
 
-        best_val_loss = 1e5
+        best_val_loss = float('inf')
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -366,6 +285,11 @@ class IQUNetPipeline:
                 # forward
                 taus = torch.rand(self.num_taus).to(device=device)
                 frames_pred = self.model(in_frames.float(), taus)
+
+                frames_pred, out_frames = self.remove_spatial_context(
+                    frames_pred, out_frames
+                )
+
                 if self.predict_diff:
                     frames_pred = torch.cumsum(frames_pred, dim=1)
 
@@ -374,12 +298,9 @@ class IQUNetPipeline:
                 # backward
                 self.optimizer.zero_grad()
                 loss.backward()
-
-                # gradient descent or adam step
                 self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
-                end_batch = time.time()
 
                 if (
                     verbose
@@ -389,7 +310,7 @@ class IQUNetPipeline:
                     self._logger.info(
                         f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | "
                         f"Train loss({loss.detach().item():.4f}) | "
-                        f"Time Batch({(end_batch - start_batch):.2f}) | "
+                        f"Time Batch({(time.time() - start_batch):.2f}) | "
                     )
 
                 if num_train_samples is not None and batch_idx >= num_train_samples:
@@ -411,6 +332,9 @@ class IQUNetPipeline:
                     out_frames = out_frames.to(device=device)
 
                     frames_pred = self.model(in_frames.float(), self.val_quantiles)
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
                     if self.predict_diff:
                         frames_pred = torch.cumsum(frames_pred, dim=1)
 
@@ -440,7 +364,6 @@ class IQUNetPipeline:
                     step=epoch,
                 )
 
-            end_epoch = time.time()
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             quantile_loss_per_epoch.append(quantile_loss_in_epoch)
@@ -451,7 +374,7 @@ class IQUNetPipeline:
                     f"Train_loss({(train_loss_in_epoch):06.4f}) | "
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
                     f"Quantile_loss({quantile_loss_in_epoch:.4f}) | "
-                    f"Time_Epoch({(end_epoch - start_epoch):.2f}s) |"
+                    f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
             if val_loss_in_epoch < best_val_loss:
@@ -479,16 +402,8 @@ class IQUNetPipeline:
                 }
 
         if checkpoint_path is not None:
-            checkpoint_name = (
-                f"{model_name}_E{best_epoch}_BVM{str(best_val_loss).replace('0.', '')[:4]}_"
-                f"D{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}.pt"
-            )
-            self._logger.info(
-                f"Saving best model to {checkpoint_path}/{checkpoint_name}"
-            )
-            torch.save(
-                self.best_model_dict,
-                os.path.join(checkpoint_path, checkpoint_name),
+            self.save_checkpoint(
+                model_name, best_epoch, best_val_loss, checkpoint_path
             )
 
         return train_loss_per_epoch, val_loss_per_epoch
@@ -497,6 +412,12 @@ class IQUNetPipeline:
         loss_fn = QuantileLoss(quantiles=taus)
         y_target = y_target.repeat(1, predictions.shape[1], 1, 1)
         return loss_fn(predictions, y_target)
+
+    def get_F_at_points(self, points, pred_params):
+        pass
+
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        pass
 
     @property
     def name(self):
