@@ -8,6 +8,7 @@ from .probabilistic_unet import (
     QuantileRegressorUNet,
     MonteCarloDropoutUNet,
     UNetConfig,
+    MixtureDensityUNet,
 )
 from .probabilistic_persistence import PersistenceEnsemble
 from .deterministic_unet import DeterministicUNet

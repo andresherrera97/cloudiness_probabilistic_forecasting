@@ -24,6 +24,7 @@ from metrics import (
     crps_gaussian,
     crps_laplace,
     CRPSLoss,
+    MixtureDensityLoss,
 )
 from data_handlers import MovingMnistDataset, GOES16Dataset
 from .unet import UNet
@@ -1260,6 +1261,208 @@ class MedianScaleUNet(ProbabilisticUNet):
         return (
             f"MedianScaleUNet_IN{self.in_frames}_F{self.filters}"
             f"_SC{self.spatial_context}"
+        )
+
+
+class MixtureDensityUNet(ProbabilisticUNet):
+    def __init__(
+        self,
+        config: UNetConfig,
+        n_components: int = 5,
+    ):
+        super().__init__(config)
+        self.n_components = n_components
+        self.model = UNet(
+            in_frames=self.in_frames,
+            n_classes=3 * self.n_components,
+            filters=self.filters,
+            output_activation=self.output_activation,
+        )
+        self.loss_fn = MixtureDensityLoss(n_components=n_components)
+
+    def get_F_at_points(self, points, pred_params):
+        pis, mus, sigs = torch.split(pred_params, points.shape[1], dim=1)
+        F = torch.zeros_like(points)
+        for i in range(points.shape[1]):
+            F[:, i] = torch.sum(
+                pis
+                * (0.5 * (1 + torch.erf((points[:, i] - mus) / (sigs * np.sqrt(2)))))
+            )
+        return F
+
+    def fit(
+        self,
+        n_epochs: int,
+        num_train_samples: int,
+        print_train_every_n_batch: Optional[int],
+        num_val_samples: int,
+        device: str,
+        run,
+        verbose: bool,
+        model_name: str,
+        train_metric: Optional[str] = None,
+        val_metric: Optional[str] = None,
+        checkpoint_path: Optional[str] = None,
+    ) -> Tuple[List[float], List[float]]:
+
+        # create checkpoint directory if it does not exist
+        if checkpoint_path is not None:
+            Path(checkpoint_path).mkdir(parents=True, exist_ok=True)
+
+        # perists through epochs, stores the mean of each epoch
+        train_loss_per_epoch = []
+        val_loss_per_epoch = []
+
+        best_val_loss = float('inf')
+
+        for epoch in range(n_epochs):
+            start_epoch = time.time()
+            train_loss_in_epoch_list = []
+            self.model.train()
+
+            for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
+                start_batch = time.time()
+
+                # data to cuda if possible
+                in_frames = in_frames.to(device=device).float()
+                out_frames = out_frames.to(device=device).float()
+
+                # forward
+                frames_pred = self.model(in_frames.float())
+
+                frames_pred, out_frames = self.remove_spatial_context(
+                    frames_pred, out_frames
+                )
+
+                loss = self.calculate_loss(frames_pred, out_frames)
+
+                # backward
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+                train_loss_in_epoch_list.append(loss.detach().item())
+                end_batch = time.time()
+
+                if (
+                    verbose
+                    and print_train_every_n_batch is not None
+                    and batch_idx % print_train_every_n_batch == 0
+                ):
+                    self._logger.info(
+                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | "
+                        f"Train loss({loss.detach().item():.4f}) | "
+                        f"Time Batch({(end_batch - start_batch):.2f}) | "
+                    )
+
+                if num_train_samples is not None and batch_idx >= num_train_samples:
+                    break
+
+            train_loss_in_epoch = sum(train_loss_in_epoch_list) / len(
+                train_loss_in_epoch_list
+            )
+
+            self.model.eval()
+            val_loss_per_batch = []  # stores values for this validation run
+
+            with torch.no_grad():
+                for val_batch_idx, (in_frames, out_frames) in enumerate(
+                    self.val_loader
+                ):
+                    in_frames = in_frames.to(device=device).float()
+                    out_frames = out_frames.to(device=device).float()
+
+                    frames_pred = self.model(in_frames.float())
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
+
+                    val_loss_per_batch.append(
+                        self.calculate_loss(frames_pred, out_frames).detach().item()
+                    )
+
+                    if num_val_samples is not None and val_batch_idx >= num_val_samples:
+                        break
+
+            val_loss_in_epoch = sum(val_loss_per_batch) / len(
+                val_loss_per_batch
+            )
+
+            if self.scheduler is not None:
+                self.scheduler.step(val_loss_in_epoch)
+
+            if run is not None:
+
+                run.log({"train_loss": train_loss_in_epoch}, step=epoch)
+                run.log({"val_loss": val_loss_in_epoch}, step=epoch)
+                run.log(
+                    {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
+                    step=epoch,
+                )
+
+            if verbose:
+                self._logger.info(
+                    f"Epoch({epoch + 1}/{n_epochs}) | "
+                    f"Train_loss({(train_loss_in_epoch):06.4f}) | "
+                    f"Val_loss({val_loss_in_epoch:.4f}) | "
+                    f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
+                )
+
+            # epoch end
+            train_loss_per_epoch.append(train_loss_in_epoch)
+            val_loss_per_epoch.append(val_loss_in_epoch)
+
+            if val_loss_in_epoch < best_val_loss:
+                self._logger.info(
+                    f"Saving best model. Best val loss: {val_loss_in_epoch:.4f}"
+                )
+                best_val_loss = val_loss_in_epoch
+                best_epoch = epoch
+                self.best_model_dict = {
+                    "num_input_frames": self.in_frames,
+                    "num_filters": self.filters,
+                    "n_components": self.n_components,
+                    "epoch": epoch + 1,
+                    "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
+                    "model_state_dict": copy.deepcopy(self.model.state_dict()),
+                    "optimizer_state_dict": copy.deepcopy(self.optimizer.state_dict()),
+                    "train_loss_per_epoch": train_loss_per_epoch,
+                    "val_loss_per_epoch": val_loss_per_epoch,
+                    "train_loss_epoch_mean": train_loss_in_epoch,
+                    "val_metric": val_metric,
+                    "train_metric": train_metric,
+                }
+
+        if checkpoint_path is not None:
+            self.save_checkpoint(
+                model_name, best_epoch, best_val_loss, checkpoint_path
+            )
+
+        return train_loss_per_epoch, val_loss_per_epoch
+
+    def load_checkpoint(self, checkpoint_path: str, device: str):
+        """Abstract method to load a trained checkpoint of the model."""
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+
+        self.in_frames = checkpoint["num_input_frames"]
+        self.filters = checkpoint["num_filters"]
+        self.n_components = checkpoint["n_components"]
+
+        # Generate same architecture
+        self.model = UNet(
+            in_frames=self.in_frames,
+            n_classes=3 * self.n_components,
+            filters=self.filters,
+        )
+
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.to(device=device)
+
+    @property
+    def name(self):
+        return (
+            f"MixDensityUNet_IN{self.in_frames}_F{self.filters}"
+            f"_NC{self.n_components}_SC{self.spatial_context}"
         )
 
 

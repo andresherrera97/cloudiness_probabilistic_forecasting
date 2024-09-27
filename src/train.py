@@ -14,6 +14,7 @@ from models import (
     DeterministicUNet,
     IQUNetPipeline,
     UNetConfig,
+    MixtureDensityUNet,
 )
 import numpy as np
 from typing import Optional, List
@@ -46,6 +47,7 @@ def main(
     num_val_samples: Optional[int] = None,
     batch_size: int = 8,
     num_filters: int = 16,
+    n_components: int = 3,
     learning_rate: float = 1e-3,
     quantiles: Optional[List[float]] = None,
     predict_diff: bool = False,
@@ -148,6 +150,16 @@ def main(
             cosine_embedding_dimension=cos_dim,
             num_taus=num_taus,
             predict_diff=predict_diff,
+        )
+    elif model_name.lower() in ["mdn"]:
+        logger.info("Selected model: MixtureDensityUNet")
+        logger.info(f"    - input_frames: {input_frames}")
+        logger.info(f"    - filters: {num_filters}")
+        logger.info(f"    - Output activation: {output_activation}")
+        logger.info(f"    - Num components: {n_components}")
+        probabilistic_unet = MixtureDensityUNet(
+            config=unet_config,
+            n_components=n_components,
         )
     else:
         raise ValueError(f"Wrong class type! {model_name} not recognized.")
