@@ -223,10 +223,10 @@ def main(
             )
 
             filename_date = datetime.datetime.strptime(str_date, "%d/%m/%Y %H:%M")
+            cosangs, _ = sat_functions.get_cosangs(
+                filename_date, crop_lats, crop_lons
+            )
             if skip_night:
-                cosangs, _ = sat_functions.get_cosangs(
-                    filename_date, crop_lats, crop_lons
-                )
                 download_img = sat_functions.is_a_full_day_crop(cosangs)
             else:
                 download_img = True
