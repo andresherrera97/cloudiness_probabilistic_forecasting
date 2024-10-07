@@ -223,6 +223,7 @@ def main(
             )
 
             filename_date = datetime.datetime.strptime(str_date, "%d/%m/%Y %H:%M")
+            out_path = os.path.join(output_folder, f"{yl}_{day_of_year}")
             cosangs, _ = sat_functions.get_cosangs(
                 filename_date, crop_lats, crop_lons
             )
@@ -242,8 +243,6 @@ def main(
                     CMI_DQF_crop, cosangs
                 )
                 inpaint_pct.append(pixel_pct_to_inpaint)
-
-                out_path = os.path.join(output_folder, f"{yl}_{day_of_year}")
                 crop_filename = f"{yl}_{day_of_year}_UTC_{hh}{mm}{ss}"
 
                 if save_as_npy:
