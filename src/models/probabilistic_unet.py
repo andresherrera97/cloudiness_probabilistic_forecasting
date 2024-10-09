@@ -116,6 +116,7 @@ class UNetPipeline(ABC):
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
                 expected_time_diff=10,
+                inpaint_pct_threshold=1.,
             )
 
             val_dataset = GOES16Dataset(
@@ -125,6 +126,7 @@ class UNetPipeline(ABC):
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
                 expected_time_diff=10,
+                inpaint_pct_threshold=1.,
             )
 
         else:

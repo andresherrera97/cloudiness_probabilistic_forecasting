@@ -369,4 +369,43 @@ def classify_array_in_integer_classes(input_array: np.ndarray, num_bins: int):
     # Compute bin indices for each element
     bin_indices = np.digitize(input_array, np.linspace(0, 1, num_bins)) - 1
 
-    return bin_indices
+    return bin_indices 
+
+
+def nc_name_to_npy(filename: str) -> str:
+    t_coverage = filename.split("/")[-1].split("_")[3][1:]
+    
+    yl = t_coverage[0:4]
+    day_of_year = t_coverage[4:7]
+    hh = t_coverage[7:9]
+    mm = t_coverage[9:11]
+    ss = t_coverage[11:13]
+    
+    out_path = f"{yl}_{day_of_year}"
+    crop_filename = f"{yl}_{day_of_year}_UTC_{hh}{mm}{ss}"
+    path_to_img = out_path + f"/{crop_filename}.npy"
+    return path_to_img
+
+
+def filter_df_by_inpaint_pct(df: pd.DataFrame, inpaint_pct: float, dataset_path: str) -> pd.DataFrame:
+    latest_folder = ""
+    columns = df.columns.to_list()
+    rows_to_drop = []
+    for index, row in df.iterrows():
+        for n in range(len(row) - 1):
+            if row[columns[n]].split("/")[0] != row[columns[n+1]].split("/")[0]:
+                raise ValueError("Images in row are from different days")
+            folder = row[columns[0]].split("/")[0]
+            if folder != latest_folder:
+                data_df = pd.read_csv(os.path.join(dataset_path, folder, f"data_{folder}.csv"))
+                data_df = data_df.dropna()
+                data_df['npy_filename'] = data_df['filenames'].apply(lambda x: nc_name_to_npy(x))
+                latest_folder = folder
+        for col in columns:
+            if data_df.loc[data_df["npy_filename"] == row[col]]["inpaint_pct"].to_numpy() > inpaint_pct:
+                # an image in the sequence is too broken
+                rows_to_drop.append(index)
+                break
+    df = df.drop(rows_to_drop)
+    return df
+    

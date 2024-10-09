@@ -3,12 +3,18 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import rotate
 from torch.utils.data import Dataset
+import logging
 import utils.utils as utils
 from typing import Optional
 from .utils import (
     classify_array_in_bins,
     classify_array_in_integer_classes,
+    filter_df_by_inpaint_pct,
 )
+
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 
 class GOES16Dataset(Dataset):
@@ -22,6 +28,7 @@ class GOES16Dataset(Dataset):
         num_bins: Optional[int] = None,
         binarization_method: Optional[str] = None,
         expected_time_diff: int = 10,
+        inpaint_pct_threshold: Optional[float] = None,
     ):
         super().__init__()
 
@@ -46,6 +53,7 @@ class GOES16Dataset(Dataset):
             min_time_diff = 5
             max_time_diff = 15
 
+        self._logger = logging.getLogger(self.__class__.__name__)
         self.path = path
         self.num_in_images = num_in_images
         self.minutes_forward = minutes_forward
@@ -66,6 +74,12 @@ class GOES16Dataset(Dataset):
 
         # Keep only the first num_in_images columns and the last one
         self.sequence_df = self.sequence_df.iloc[:, list(range(num_in_images)) + [-1]]
+
+        if inpaint_pct_threshold is not None:
+            # filter sequences which contain images with an inpaint pct over threshold
+            num_seq_before = len(self.sequence_df)
+            self.sequence_df = filter_df_by_inpaint_pct(self.sequence_df, inpaint_pct_threshold, path)
+            self._logger.info(f"Number of sequences filtered: {num_seq_before - len(self.sequence_df)}")
 
     def __getitem__(self, index):
         # images loading
