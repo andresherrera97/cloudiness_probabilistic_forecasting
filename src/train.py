@@ -200,7 +200,7 @@ def main(
     if save_experiment:
         run_name = f'{model_name}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
-            project="cloudiness_probabilistic_forecasting",
+            project="cloud_prob/salto",
             name=run_name,
             config={
                 "time_horizon": time_horizon,
