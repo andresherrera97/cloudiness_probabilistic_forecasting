@@ -2,7 +2,6 @@ import calendar
 import datetime as dt
 import logging
 import os
-import sys
 from pathlib import Path
 
 import cv2 as cv
@@ -315,13 +314,3 @@ def find_nearest_index(array, value):
     array = np.asarray(array)
     idx = (np.abs(array - value)).argmin()
     return idx
-
-
-def handle_exception(exc_type, exc_value, exc_traceback):
-    if not issubclass(exc_type, KeyboardInterrupt):
-        logging.critical(
-            "Uncaught exception",
-            exc_info=(exc_type, exc_value, exc_traceback),
-        )
-    sys.__excepthook__(exc_type, exc_value, exc_traceback)
-    return
