@@ -1,5 +1,4 @@
 # Standard library imports
-import os
 import time
 import copy
 import datetime

@@ -67,6 +67,7 @@ class UNetPipeline(ABC):
         self.n_bins = None
         self.height = None
         self.width = None
+        self.batch_size = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -94,6 +95,8 @@ class UNetPipeline(ABC):
         time_horizon: int,
         binarization_method: Optional[str] = None,
     ):
+        self.batch_size = batch_size
+
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
             train_dataset = MovingMnistDataset(
                 path=os.path.join(path, "train/"),
@@ -116,7 +119,7 @@ class UNetPipeline(ABC):
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
                 expected_time_diff=10,
-                inpaint_pct_threshold=1.,
+                inpaint_pct_threshold=1.0,
             )
 
             val_dataset = GOES16Dataset(
@@ -126,7 +129,7 @@ class UNetPipeline(ABC):
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
                 expected_time_diff=10,
-                inpaint_pct_threshold=1.,
+                inpaint_pct_threshold=1.0,
             )
 
         else:
@@ -187,14 +190,19 @@ class UNetPipeline(ABC):
     def calculate_loss(self, predictions: torch.Tensor, y_target: torch.Tensor):
         return self.loss_fn(predictions, y_target)
 
-    def save_checkpoint(self, model_name: str, best_epoch: int, best_val_loss: float, checkpoint_path: str):
+    def save_checkpoint(
+        self,
+        model_name: str,
+        best_epoch: int,
+        best_val_loss: float,
+        checkpoint_path: str,
+    ):
         checkpoint_name = (
-            f"{model_name}_E{best_epoch}_BVM{str(best_val_loss).replace('.', '_')[:4]}_"
+            f"{model_name}_BS_{self.batch_size}_E{best_epoch}_"
+            f"BVM{str(best_val_loss).replace('.', '_')[:4]}_"
             f"D{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}.pt"
         )
-        self._logger.info(
-            f"Saving best model to {checkpoint_path}/{checkpoint_name}"
-        )
+        self._logger.info(f"Saving best model to {checkpoint_path}/{checkpoint_name}")
         torch.save(
             self.best_model_dict,
             os.path.join(checkpoint_path, checkpoint_name),
@@ -324,7 +332,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         cross_entropy_per_epoch = []
         precision_per_epoch = []
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -489,9 +497,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                 }
 
         if checkpoint_path is not None:
-            self.save_checkpoint(
-                model_name, best_epoch, best_val_loss, checkpoint_path
-            )
+            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -570,7 +576,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         quantile_loss_per_epoch = []
         crps_per_epoch = []
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -737,9 +743,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 }
 
         if checkpoint_path is not None:
-            self.save_checkpoint(
-                model_name, best_epoch, best_val_loss, checkpoint_path
-            )
+            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -818,7 +822,7 @@ class MeanStdUNet(ProbabilisticUNet):
         crps_per_epoch = []
         mean_std_per_epoch = []
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -985,9 +989,7 @@ class MeanStdUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
         if checkpoint_path is not None:
-            self.save_checkpoint(
-                model_name, best_epoch, best_val_loss, checkpoint_path
-            )
+            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1064,7 +1066,7 @@ class MedianScaleUNet(ProbabilisticUNet):
         crps_per_epoch = []
         median_scale_per_epoch = []
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -1229,9 +1231,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
         if checkpoint_path is not None:
-            self.save_checkpoint(
-                model_name, best_epoch, best_val_loss, checkpoint_path
-            )
+            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1315,7 +1315,7 @@ class MixtureDensityUNet(ProbabilisticUNet):
         train_loss_per_epoch = []
         val_loss_per_epoch = []
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -1386,9 +1386,7 @@ class MixtureDensityUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            val_loss_in_epoch = sum(val_loss_per_batch) / len(
-                val_loss_per_batch
-            )
+            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
@@ -1436,9 +1434,7 @@ class MixtureDensityUNet(ProbabilisticUNet):
                 }
 
         if checkpoint_path is not None:
-            self.save_checkpoint(
-                model_name, best_epoch, best_val_loss, checkpoint_path
-            )
+            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1522,7 +1518,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         crps_per_epoch = []
         mae_per_epoch = []
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -1715,9 +1711,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
         if checkpoint_path is not None:
-            self.save_checkpoint(
-                model_name, best_epoch, best_val_loss, checkpoint_path
-            )
+            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
 
         return train_loss_per_epoch, val_loss_per_epoch
 
