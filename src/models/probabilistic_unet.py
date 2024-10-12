@@ -1386,6 +1386,18 @@ class MixtureDensityUNet(ProbabilisticUNet):
                     frames_pred, out_frames
                 )
 
+                def mdn_forward(frames_pred: torch.Tensor) -> torch.Tensor:
+                    pis, mus, sigmas = (
+                        frames_pred[:, : self.n_components, :, :],
+                        frames_pred[:, self.n_components : 2 * self.n_components, :, :],
+                        frames_pred[:, 2 * self.n_components :, :, :],
+                    )
+                    pis = nn.functional.softmax(pis, dim=1)  # pis must be positive and sum to 1
+                    sigmas = nn.functional.softplus(sigmas)  # w_b must be positive
+                    return torch.concatenate([pis, mus, sigmas], dim=1)
+
+                frames_pred = mdn_forward(frames_pred)
+
                 loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
@@ -1428,6 +1440,8 @@ class MixtureDensityUNet(ProbabilisticUNet):
                     frames_pred, out_frames = self.remove_spatial_context(
                         frames_pred, out_frames
                     )
+
+                    frames_pred = mdn_forward(frames_pred)
 
                     val_loss_per_batch.append(
                         self.calculate_loss(frames_pred, out_frames).detach().item()
