@@ -64,10 +64,12 @@ class UNetPipeline(ABC):
         self.scheduler = None
         self.best_model_dict = None
         self.loss_fn = None
-        self.n_bins = None
-        self.height = None
-        self.width = None
-        self.batch_size = None
+        self.n_bins: int = None
+        self.height: int = None
+        self.width: int = None
+        self.batch_size: int = None
+        self.time_horizon: int = None
+        self.dataset_path: str = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -96,6 +98,8 @@ class UNetPipeline(ABC):
         binarization_method: Optional[str] = None,
     ):
         self.batch_size = batch_size
+        self.time_horizon = time_horizon
+        self.dataset_path = path
 
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
             train_dataset = MovingMnistDataset(
@@ -198,8 +202,8 @@ class UNetPipeline(ABC):
         checkpoint_path: str,
     ):
         checkpoint_name = (
-            f"{model_name}_BS_{self.batch_size}_E{best_epoch}_"
-            f"BVM{str(best_val_loss).replace('.', '_')[:4]}_"
+            f"{model_name}_BS_{self.batch_size}_TH{self.time_horizon}_"
+            f"E{best_epoch}_BVM{str(best_val_loss).replace('.', '_')[:4]}_"
             f"D{datetime.datetime.now().strftime('%Y-%m-%d_%H:%M')}.pt"
         )
         self._logger.info(f"Saving best model to {checkpoint_path}/{checkpoint_name}")
@@ -209,7 +213,9 @@ class UNetPipeline(ABC):
         )
 
     @abstractmethod
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         pass
 
@@ -482,6 +488,9 @@ class BinClassifierUNet(ProbabilisticUNet):
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
                     "num_bins": self.n_bins,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "dataset": self.dataset_path,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -501,13 +510,17 @@ class BinClassifierUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
         self.in_frames = checkpoint["num_input_frames"]
         self.filters = checkpoint["num_filters"]
         self.n_bins = checkpoint["num_bins"]
+        self.spatial_context = checkpoint["spatial_context"]
+        self.time_horizon = checkpoint["time_horizon"]
 
         # Generate same architecture
         self.model = UNet(
@@ -518,6 +531,10 @@ class BinClassifierUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     @property
     def name(self):
@@ -728,6 +745,9 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
                     "quantiles": self.quantiles,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "dataset": self.dataset_path,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -757,7 +777,9 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         y_target = y_target.repeat(1, predictions.shape[1], 1, 1)
         return self.loss_fn(predictions, y_target)
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
@@ -765,6 +787,8 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self.filters = checkpoint["num_filters"]
         self.quantiles = list(checkpoint["quantiles"])
         self.n_bins = len(self.quantiles)
+        self.spatial_context = checkpoint["spatial_context"]
+        self.time_horizon = checkpoint["time_horizon"]
 
         # Generate same architecture
         self.model = UNet(
@@ -775,6 +799,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     @property
     def name(self):
@@ -975,6 +1003,9 @@ class MeanStdUNet(ProbabilisticUNet):
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "dataset": self.dataset_path,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -993,12 +1024,16 @@ class MeanStdUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
         self.in_frames = checkpoint["num_input_frames"]
         self.filters = checkpoint["num_filters"]
+        self.spatial_context = checkpoint["spatial_context"]
+        self.time_horizon = checkpoint["time_horizon"]
 
         # Generate same architecture
         self.model = UNet(
@@ -1009,6 +1044,10 @@ class MeanStdUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     def get_F_at_points(self, points: torch.Tensor, pred_params: torch.Tensor):
         mus, sig = pred_params[:, 0:1, :, :], pred_params[:, 1:, :, :]
@@ -1218,6 +1257,9 @@ class MedianScaleUNet(ProbabilisticUNet):
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "dataset": self.dataset_path,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -1235,12 +1277,16 @@ class MedianScaleUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
         self.in_frames = checkpoint["num_input_frames"]
         self.filters = checkpoint["num_filters"]
+        self.spatial_context = checkpoint["spatial_context"]
+        self.time_horizon = checkpoint["time_horizon"]
 
         # Generate same architecture
         self.model = UNet(
@@ -1251,6 +1297,10 @@ class MedianScaleUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     def get_F_at_points(self, points: torch.Tensor, pred_params: torch.Tensor):
         mus, bs = pred_params[:, 0:1, :, :], pred_params[:, 1:, :, :]
@@ -1422,6 +1472,9 @@ class MixtureDensityUNet(ProbabilisticUNet):
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
                     "n_components": self.n_components,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "dataset": self.dataset_path,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -1438,13 +1491,17 @@ class MixtureDensityUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
         self.in_frames = checkpoint["num_input_frames"]
         self.filters = checkpoint["num_filters"]
         self.n_components = checkpoint["n_components"]
+        self.spatial_context = checkpoint["spatial_context"]
+        self.time_horizon = checkpoint["time_horizon"]
 
         # Generate same architecture
         self.model = UNet(
@@ -1455,6 +1512,10 @@ class MixtureDensityUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     @property
     def name(self):
@@ -1699,6 +1760,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "dropout_p": self.dropout_p,
                     "n_quantiles": self.n_quantiles,
                     "quantiles": self.quantiles,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "dataset": self.dataset_path,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -1786,7 +1850,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         y_target = y_target.repeat(1, predictions.shape[1], 1, 1)
         return self.loss_fn(predictions, y_target)
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
@@ -1795,6 +1861,8 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.dropout_p = checkpoint["dropout_p"]
         self.n_quantiles = checkpoint["n_quantiles"]
         self.quantiles = checkpoint["quantiles"]
+        self.spatial_context = checkpoint["spatial_context"]
+        self.time_horizon = checkpoint["time_horizon"]
 
         # Generate same architecture
         self.model = UNet(
@@ -1806,6 +1874,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     @property
     def name(self):

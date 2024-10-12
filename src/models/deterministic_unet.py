@@ -163,6 +163,9 @@ class DeterministicUNet(UNetPipeline):
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "dataset": self.dataset_path,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -181,12 +184,14 @@ class DeterministicUNet(UNetPipeline):
     def predict(self, X: torch.Tensor):
         return self.model(X.float())
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
+    def load_checkpoint(self, checkpoint_path: str, device: str, eval_mode: bool = True):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
         self.in_frames = checkpoint["num_input_frames"]
         self.filters = checkpoint["num_filters"]
+        self.spatial_context = checkpoint["spatial_context"]
+        self.time_horizon = checkpoint.get("time_horizon", None)
 
         # Generate same architecture
         self.model = UNet(
@@ -197,6 +202,10 @@ class DeterministicUNet(UNetPipeline):
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
         self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     @property
     def name(self):
