@@ -45,13 +45,18 @@ class GOES16Dataset(Dataset):
         self.minutes_forward = minutes_forward
         if self.minutes_forward % self.expected_time_diff != 0:
             raise ValueError(
-                f"minutes_forward ({minutes_forward}) must be divisible by expected_time_diff ({expected_time_diff})"
+                f"minutes_forward ({minutes_forward}) must be divisible "
+                f"by expected_time_diff ({expected_time_diff})"
             )
 
         if self.expected_time_diff == 10:
             # dataset is generated from FULL DISK images
             min_time_diff = 5
             max_time_diff = 15
+        else:
+            raise ValueError(
+                f"Expected time difference {self.expected_time_diff} not supported"
+            )
 
         self._logger = logging.getLogger(self.__class__.__name__)
         self.path = path
@@ -62,7 +67,7 @@ class GOES16Dataset(Dataset):
         self.num_bins = num_bins
         self.binarization_method = binarization_method
 
-        output_index = minutes_forward//expected_time_diff
+        output_index = minutes_forward // expected_time_diff
 
         self.sequence_df = utils.sequence_df_generator_folders(
             path=path,
@@ -78,8 +83,12 @@ class GOES16Dataset(Dataset):
         if inpaint_pct_threshold is not None:
             # filter sequences which contain images with an inpaint pct over threshold
             num_seq_before = len(self.sequence_df)
-            self.sequence_df = filter_df_by_inpaint_pct(self.sequence_df, inpaint_pct_threshold, path)
-            self._logger.info(f"Number of sequences filtered: {num_seq_before - len(self.sequence_df)}")
+            self.sequence_df = filter_df_by_inpaint_pct(
+                self.sequence_df, inpaint_pct_threshold, path
+            )
+            self._logger.info(
+                f"Number of sequences filtered: {num_seq_before - len(self.sequence_df)}"
+            )
 
     def __getitem__(self, index):
         # images loading
@@ -87,10 +96,7 @@ class GOES16Dataset(Dataset):
         for i in range(self.num_in_images + 1):
             if i == 0:  # first image in in_frames
                 in_frames = np.load(
-                    os.path.join(
-                        self.path,
-                        self.sequence_df.values[index][i]
-                    )
+                    os.path.join(self.path, self.sequence_df.values[index][i])
                 )
                 in_frames = in_frames[np.newaxis]
             if 0 < i < self.num_in_images:  # next images in in_frames
@@ -114,11 +120,15 @@ class GOES16Dataset(Dataset):
                 out_frames = out_frames[np.newaxis]
 
         # pixel encoding for bin classification
-        if self.num_bins is not None and self.num_bins > 0:
+        if (
+            self.binarization_method is not None
+            and self.num_bins is not None
+            and self.num_bins > 0
+        ):
             if self.binarization_method == "one_hot_encoding":
-                out_frames = classify_array_in_bins(out_frames[0], self.num_bins)
+                bin_output = classify_array_in_bins(out_frames[0], self.num_bins)
             elif self.binarization_method == "integer_classes":
-                out_frames = classify_array_in_integer_classes(
+                bin_output = classify_array_in_integer_classes(
                     out_frames[0], self.num_bins
                 )
             elif self.binarization_method == "both":
@@ -128,12 +138,15 @@ class GOES16Dataset(Dataset):
                 out_frames_integer = classify_array_in_integer_classes(
                     out_frames[0], self.num_bins
                 )
-                out_frames = (out_frames_one_hot, out_frames_integer)
+                bin_output = (out_frames_one_hot, out_frames_integer)
+
+            out_frames = (out_frames, bin_output)
 
         return in_frames, out_frames
 
     def __len__(self):
         return len(self.sequence_df)
+
 
 class SatelliteDataset(Dataset):
     """Dataset for Satellite Dataset separated by folders named 2020XXX"""
@@ -288,6 +301,7 @@ class SatelliteDataset(Dataset):
 
     def __len__(self):
         return len(self.sequence_df)
+
 
 class MontevideoFoldersDataset(Dataset):
     """Dataset for Montevideo Dataset separated by folders named 2020XXX"""
