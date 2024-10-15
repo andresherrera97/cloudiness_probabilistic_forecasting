@@ -45,6 +45,7 @@ class DeterministicUNet(UNetPipeline):
         train_metric: Optional[str] = None,
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
+        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
@@ -56,6 +57,7 @@ class DeterministicUNet(UNetPipeline):
         val_loss_per_epoch = []
 
         best_val_loss = float('inf')
+        scaler = torch.cuda.amp.GradScaler()  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -68,22 +70,33 @@ class DeterministicUNet(UNetPipeline):
                 start_batch = time.time()
 
                 # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
+                # in_frames = in_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=torch.float16)  # Use float16 for mixed precision
                 out_frames = out_frames.to(device=device).float()
 
                 # forward
-                frames_pred = self.model(in_frames.float())
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-                loss = self.calculate_loss(frames_pred, out_frames)
+                with torch.cuda.amp.autocast():  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
+                    loss = self.calculate_loss(frames_pred, out_frames)
+
+                # frames_pred = self.model(in_frames.float())
+                # frames_pred, out_frames = self.remove_spatial_context(
+                #     frames_pred, out_frames
+                # )
+                # loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
+
+                # self.optimizer.zero_grad()
+                # loss.backward()
 
                 # gradient descent or adam step
-                self.optimizer.step()
+                # self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -114,14 +127,21 @@ class DeterministicUNet(UNetPipeline):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device).float()
+                    # in_frames = in_frames.to(device=device).float()
+                    in_frames = in_frames.to(device=device, dtype=torch.float16)
                     out_frames = out_frames.to(device=device).float()
 
-                    frames_pred = self.model(in_frames.float())
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
-                    val_loss = self.calculate_loss(frames_pred, out_frames)
+                    with torch.cuda.amp.autocast():
+                        frames_pred = self.model(in_frames)
+                        frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
+
+                        val_loss = self.calculate_loss(frames_pred, out_frames)
+
+                    # frames_pred = self.model(in_frames.float())
+                    # frames_pred, out_frames = self.remove_spatial_context(
+                    #     frames_pred, out_frames
+                    # )
+                    # val_loss = self.calculate_loss(frames_pred, out_frames)
 
                     val_loss_per_batch.append(val_loss.detach().item())
 
