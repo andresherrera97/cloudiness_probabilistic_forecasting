@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 import logging
 from data_handlers import GOES16Dataset
 from metrics.deterministic_metrics import relative_rmse, relative_mae
+from tqdm import tqdm
 
 
 class Persistence:
@@ -95,7 +96,7 @@ class Persistence:
         mae_loss = nn.L1Loss()
         mse_loss = nn.MSELoss()
 
-        for batch_idx, (in_frames, out_frames) in enumerate(loader_to_use):
+        for batch_idx, (in_frames, out_frames) in enumerate(tqdm(loader_to_use)):
             in_frames = in_frames.to(device=self.device)
             out_frames = out_frames.to(device=self.device)
 
@@ -115,7 +116,7 @@ class Persistence:
             )
 
         for key, value in metrics.items():
-            metrics[key] = np.mean(value)
+            metrics[key] = sum(value) / len(value)
 
         return metrics
 
