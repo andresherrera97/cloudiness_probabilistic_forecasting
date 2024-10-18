@@ -256,7 +256,6 @@ class ProbabilisticUNet(UNetPipeline):
         train_metric: str,
         val_metric: str,
         checkpoint_path: Optional[str],
-        mixed_precision: bool,
     ):
         """Train the model on the given input data and labels for a
         specified number of epochs."""

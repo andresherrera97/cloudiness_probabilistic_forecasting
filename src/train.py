@@ -59,7 +59,6 @@ def main(
     save_experiment: bool = False,
     binarization_method: Optional[str] = None,
     cos_dim: Optional[int] = None,
-    mixed_precision: bool = False,
 ):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -223,7 +222,6 @@ def main(
                 "output_activation": output_activation,
                 "num_filters": num_filters,
                 "cos_dim": cos_dim,
-                "mixed_precision": mixed_precision,
             },
         )
 
@@ -253,7 +251,6 @@ def main(
         train_metric=train_metric,
         val_metric=val_metric,
         checkpoint_path=checkpoint_path,
-        mixed_precision=mixed_precision,
     )
     logger.info("Training done.")
     logger.info(f"    - Train loss: {train_loss[-1]}")
