@@ -56,6 +56,7 @@ class DeterministicUNet(UNetPipeline):
         val_loss_per_epoch = []
 
         best_val_loss = float('inf')
+        scaler = torch.cuda.amp.GradScaler()  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -67,23 +68,21 @@ class DeterministicUNet(UNetPipeline):
 
                 start_batch = time.time()
 
-                # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device).float()
+                # Use float16 for mixed precision
+                in_frames = in_frames.to(device=device, dtype=torch.float16)
+                out_frames = out_frames.to(device=device, dtype=torch.float16)
 
                 # forward
-                frames_pred = self.model(in_frames.float())
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-                loss = self.calculate_loss(frames_pred, out_frames)
+                with torch.cuda.amp.autocast():  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
+                    loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-
-                # gradient descent or adam step
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -114,14 +113,14 @@ class DeterministicUNet(UNetPipeline):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device).float()
+                    in_frames = in_frames.to(device=device, dtype=torch.float16)
                     out_frames = out_frames.to(device=device).float()
 
-                    frames_pred = self.model(in_frames.float())
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
-                    val_loss = self.calculate_loss(frames_pred, out_frames)
+                    with torch.cuda.amp.autocast():
+                        frames_pred = self.model(in_frames)
+                        frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
+
+                        val_loss = self.calculate_loss(frames_pred, out_frames)
 
                     val_loss_per_batch.append(val_loss.detach().item())
 
