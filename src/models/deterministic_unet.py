@@ -45,7 +45,6 @@ class DeterministicUNet(UNetPipeline):
         train_metric: Optional[str] = None,
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
-        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist

@@ -327,7 +327,6 @@ class BinClassifierUNet(ProbabilisticUNet):
         train_metric: Optional[str] = None,
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
-        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
         # create checkpoint directory if it does not exist
         if checkpoint_path is not None:
@@ -583,7 +582,6 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         train_metric: Optional[str] = None,
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
-        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
@@ -840,7 +838,6 @@ class MeanStdUNet(ProbabilisticUNet):
         train_metric: str = "mean_std",
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
-        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
@@ -1096,7 +1093,6 @@ class MedianScaleUNet(ProbabilisticUNet):
         train_metric: str = "median_scale",
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
-        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
@@ -1360,7 +1356,6 @@ class MixtureDensityUNet(ProbabilisticUNet):
         train_metric: Optional[str] = None,
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
-        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
@@ -1587,7 +1582,6 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         train_metric: Optional[str] = None,
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
-        mixed_precision: bool = False,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
