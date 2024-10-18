@@ -69,10 +69,9 @@ class DeterministicUNet(UNetPipeline):
 
                 start_batch = time.time()
 
-                # data to cuda if possible
-                # in_frames = in_frames.to(device=device).float()
-                in_frames = in_frames.to(device=device, dtype=torch.float16)  # Use float16 for mixed precision
-                out_frames = out_frames.to(device=device).float()
+                # Use float16 for mixed precision
+                in_frames = in_frames.to(device=device, dtype=torch.float16)
+                out_frames = out_frames.to(device=device, dtype=torch.float16)
 
                 # forward
                 with torch.cuda.amp.autocast():  # Enable mixed precision
@@ -80,23 +79,11 @@ class DeterministicUNet(UNetPipeline):
                     frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
                     loss = self.calculate_loss(frames_pred, out_frames)
 
-                # frames_pred = self.model(in_frames.float())
-                # frames_pred, out_frames = self.remove_spatial_context(
-                #     frames_pred, out_frames
-                # )
-                # loss = self.calculate_loss(frames_pred, out_frames)
-
                 # backward
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
                 scaler.update()
                 self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
-
-                # self.optimizer.zero_grad()
-                # loss.backward()
-
-                # gradient descent or adam step
-                # self.optimizer.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -127,7 +114,6 @@ class DeterministicUNet(UNetPipeline):
                     self.val_loader
                 ):
 
-                    # in_frames = in_frames.to(device=device).float()
                     in_frames = in_frames.to(device=device, dtype=torch.float16)
                     out_frames = out_frames.to(device=device).float()
 
@@ -136,12 +122,6 @@ class DeterministicUNet(UNetPipeline):
                         frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
 
                         val_loss = self.calculate_loss(frames_pred, out_frames)
-
-                    # frames_pred = self.model(in_frames.float())
-                    # frames_pred, out_frames = self.remove_spatial_context(
-                    #     frames_pred, out_frames
-                    # )
-                    # val_loss = self.calculate_loss(frames_pred, out_frames)
 
                     val_loss_per_batch.append(val_loss.detach().item())
 
