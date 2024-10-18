@@ -21,7 +21,7 @@ def relative_rmse(
     """
 
     if pixel_wise:
-        return torch.sqrt(torch.mean(((y_true - y_pred) ** 2) / y_true))
+        return torch.sqrt(torch.mean(((y_true - y_pred) ** 2) / y_true)) * 100
 
     squared_diff = (y_true - y_pred) ** 2
 
@@ -59,6 +59,6 @@ def relative_mae(
         Relative mean absolute error.
     """
     if pixel_wise:
-        return torch.mean(torch.abs(y_true - y_pred) / y_true)
+        return torch.mean(torch.abs(y_true - y_pred) / y_true) * 100
 
     return torch.mean(torch.abs(y_true - y_pred)) / torch.mean(y_true) * 100
