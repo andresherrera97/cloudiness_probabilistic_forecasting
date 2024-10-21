@@ -1,5 +1,4 @@
 # Standard library imports
-import os
 import time
 import copy
 import datetime
@@ -139,6 +138,7 @@ class IQUNet(nn.Module):
         bias: bool = False,
         cosine_embedding_dimension: int = 64,
         num_taus: int = 10,
+        image_size: int = 1024,
         device: str = "cpu",
     ):
         super().__init__()
@@ -148,6 +148,7 @@ class IQUNet(nn.Module):
         self.bilinear = bilinear
         self.cosine_embedding_dimension = cosine_embedding_dimension
         self.num_taus = num_taus
+        self.image_size = image_size
 
         factor = 2 if bilinear else 1
 
@@ -165,7 +166,8 @@ class IQUNet(nn.Module):
 
         # the embedding dimension is the number of filters times 8, and
         # multiplied by 4*4 because of image size downscaling
-        embedding_dim = filters * 8 * 4 * 4
+        embedding_dim = filters * 8 * (image_size//16) * (image_size//16)
+        embedding_dim = int(embedding_dim)
         self.quantile_embedding = QuantileEmbedding(
             cosine_embedding_dimension, embedding_dim, device, sort_taus=True
         ).to(device)
@@ -233,6 +235,7 @@ class IQUNetPipeline(ProbabilisticUNet):
         self.val_quantiles = torch.linspace(min_value, max_value, self.num_taus + 2)[
             1:-1
         ].to(device=self.device)
+        self.image_size = 1024
 
         self.model = IQUNet(
             in_frames=self.in_frames,
@@ -240,6 +243,7 @@ class IQUNetPipeline(ProbabilisticUNet):
             filters=self.filters,
             cosine_embedding_dimension=cosine_embedding_dimension,
             num_taus=num_taus,
+            image_size=self.image_size,
             device=self.device,
         ).to(self.device)
 
