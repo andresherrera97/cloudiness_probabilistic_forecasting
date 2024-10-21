@@ -26,15 +26,16 @@ def main(
 
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
+    elif dataset.lower() in ["goes16", "satellite", "sat"]:
+        dataset_path = "datasets/goes16/salto/"
     else:
-        dataset_path = "/clusteruy/home03/DeepCloud/deepCloud/data/uru/"
+        raise ValueError(f"Wrong dataset! {dataset} not recognized")
 
     peen.create_dataloaders(
         dataset=dataset,
         path=dataset_path,
         batch_size=batch_size,
         time_horizon=time_horizon,
-        cosangs_csv_path="datasets/uru2020_day_pct_",  # only for satellite dataset
     )
 
     in_frames, out_frames, predictions, crps = peen.random_example()

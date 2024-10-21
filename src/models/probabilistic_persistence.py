@@ -1,19 +1,18 @@
 # Standard library imports
 import os
-
 # Related third-party imports
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
-from typing import Optional
-
+import logging
 # Local application/library specific imports
 from metrics import CRPSLoss
-from data_handlers import MovingMnistDataset, SatelliteDataset, normalize_pixels
+from data_handlers import MovingMnistDataset, GOES16Dataset
 
 
 class PersistenceEnsemble:
     def __init__(self, n_quantiles: int, device: str = "cpu"):
+        self._logger = logging.getLogger(self.__class__.__name__)
         self.n_quantiles = n_quantiles
         self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
         self.train_loader = None
@@ -26,39 +25,37 @@ class PersistenceEnsemble:
         dataset: str,
         path: str,
         batch_size: int,
-        time_horizon: Optional[int],
-        cosangs_csv_path: Optional[str] = None,
+        time_horizon: int,
     ):
+        self.batch_size = batch_size
+        self.time_horizon = time_horizon
+        self.dataset_path = path
+
         if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
             train_dataset = MovingMnistDataset(
                 path=os.path.join(path, "train/"),
                 input_frames=self.n_quantiles,
-                use_previous_sequence=True,
             )
             val_dataset = MovingMnistDataset(
                 path=os.path.join(path, "validation/"),
-                input_frames=self.n_quantiles,
-                use_previous_sequence=True,
+                input_frames=self.n_quantiles
             )
 
-        elif dataset.lower() in ["goes16", "satellite"]:
-            train_dataset = SatelliteDataset(
+        elif dataset.lower() in ["goes16", "satellite", "sat"]:
+            train_dataset = GOES16Dataset(
                 path=os.path.join(path, "train/"),
-                cosangs_csv_path=f"{cosangs_csv_path}train.csv",
-                in_channel=self.n_quantiles,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
+                num_in_images=self.n_quantiles,
+                minutes_forward=time_horizon,
+                expected_time_diff=10,
+                inpaint_pct_threshold=1.0,
             )
-            val_dataset = SatelliteDataset(
-                path=os.path.join(path, "validation/"),
-                cosangs_csv_path=f"{cosangs_csv_path}validation.csv",
-                in_channel=self.n_quantiles,
-                out_channel=time_horizon,
-                transform=normalize_pixels(mean0=False),
-                output_last=True,
-                day_pct=1,
+
+            val_dataset = GOES16Dataset(
+                path=os.path.join(path, "val/"),
+                num_in_images=self.n_quantiles,
+                minutes_forward=time_horizon,
+                expected_time_diff=10,
+                inpaint_pct_threshold=1.0,
             )
 
         else:
@@ -68,6 +65,24 @@ class PersistenceEnsemble:
             train_dataset, batch_size=batch_size, shuffle=True
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+
+        # Get one sample from train_loader and val_loader to check they have the same size
+        train_input_sample, train_output_sample = next(iter(self.train_loader))
+        val_input_sample, val_output_sample = next(iter(self.val_loader))
+
+        assert (
+            train_input_sample[0].shape == val_input_sample[0].shape
+        ), "Train and validation input samples have different sizes"
+        assert (
+            train_output_sample[0].shape == val_output_sample[0].shape
+        ), "Train and validation output samples have different sizes"
+
+        self.height = train_input_sample.shape[2]
+        self.width = train_input_sample.shape[3]
+
+        self._logger.info(f"Train loader size: {len(self.train_loader)}")
+        self._logger.info(f"Val loader size: {len(self.val_loader)}")
+        self._logger.info(f"Samples height: {self.height}, Samples width: {self.width}")
 
     def predict(self, X, allow_equal_quantile_values=True):
         sorted_X = torch.sort(X, dim=1)[0]
