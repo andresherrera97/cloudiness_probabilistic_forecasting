@@ -297,13 +297,18 @@ def filter_df_by_inpaint_pct(
     return df
 
 
-def filter_df_by_black_images(df: pd.DataFrame, dataset: str) -> pd.DataFrame:
+def filter_df_by_black_images(df: pd.DataFrame, path: str) -> pd.DataFrame:
+    dataset = path.split("/")[-2]
     if dataset not in ["train", "val", "test"]:
         raise ValueError(
             f"Dataset {dataset} not accepted, must be 'train', 'val' or 'test'"
         )
 
-    with open("black_images.json", "r") as file:
+    if path.startswith(".."):
+        path_to_json = "../black_images.json"
+    else:
+        path_to_json = "black_images.json"
+    with open(path_to_json, "r") as file:
         black_images = json.load(file)
 
     black_images = black_images[dataset]

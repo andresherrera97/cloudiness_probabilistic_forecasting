@@ -93,8 +93,7 @@ class GOES16Dataset(Dataset):
 
         # Check if there are sequences with black images
         num_seq_before = len(self.sequence_df)
-        dataset = path.split("/")[-2]
-        self.sequence_df = filter_df_by_black_images(self.sequence_df, dataset)
+        self.sequence_df = filter_df_by_black_images(self.sequence_df, path)
         self._logger.info(
             f"Number of sequences filtered by black images: {num_seq_before - len(self.sequence_df)}"
         )
