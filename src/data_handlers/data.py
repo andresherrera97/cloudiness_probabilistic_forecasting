@@ -10,6 +10,7 @@ from .utils import (
     classify_array_in_bins,
     classify_array_in_integer_classes,
     filter_df_by_inpaint_pct,
+    filter_df_by_black_images,
 )
 
 
@@ -89,6 +90,14 @@ class GOES16Dataset(Dataset):
             self._logger.info(
                 f"Number of sequences filtered: {num_seq_before - len(self.sequence_df)}"
             )
+
+        # Check if there are sequences with black images
+        num_seq_before = len(self.sequence_df)
+        dataset = path.split("/")[-2]
+        self.sequence_df = filter_df_by_black_images(self.sequence_df, dataset)
+        self._logger.info(
+            f"Number of sequences filtered by black images: {num_seq_before - len(self.sequence_df)}"
+        )
 
     def __getitem__(self, index):
         # images loading

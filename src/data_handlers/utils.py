@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import pandas as pd
 import cv2 as cv
 import numpy as np
@@ -292,5 +293,27 @@ def filter_df_by_inpaint_pct(
                 # an image in the sequence is too broken
                 rows_to_drop.append(index)
                 break
+    df = df.drop(rows_to_drop)
+    return df
+
+
+def filter_df_by_black_images(df: pd.DataFrame, dataset: str) -> pd.DataFrame:
+    if dataset not in ["train", "val", "test"]:
+        raise ValueError(
+            f"Dataset {dataset} not accepted, must be 'train', 'val' or 'test'"
+        )
+
+    with open("black_images.json", "r") as file:
+        black_images = json.load(file)
+
+    black_images = black_images[dataset]
+
+    rows_to_drop = []
+    for index, row in df.iterrows():
+        for col in df.columns:
+            if row[col] in black_images:
+                rows_to_drop.append(index)
+                break
+
     df = df.drop(rows_to_drop)
     return df
