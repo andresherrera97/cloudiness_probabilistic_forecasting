@@ -316,7 +316,7 @@ def filter_df_by_black_images(df: pd.DataFrame, path: str) -> pd.DataFrame:
     rows_to_drop = []
     for index, row in df.iterrows():
         for col in df.columns:
-            if row[col] in black_images:
+            if row[col].split("/")[-1] in black_images:
                 rows_to_drop.append(index)
                 break
 

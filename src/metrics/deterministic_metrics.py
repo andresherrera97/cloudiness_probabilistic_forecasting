@@ -2,7 +2,7 @@ import torch
 
 
 def relative_rmse(
-    y_true: torch.Tensor, y_pred: torch.Tensor, pixel_wise: bool = False
+    y_true: torch.Tensor, y_pred: torch.Tensor, pixel_wise: bool = False, eps: float = 1e-5
 ):
     """
     Computes the relative root mean squared error.
@@ -21,7 +21,7 @@ def relative_rmse(
     """
 
     if pixel_wise:
-        return torch.sqrt(torch.mean(((y_true - y_pred) ** 2) / y_true)) * 100
+        return torch.sqrt(torch.mean(((y_true - y_pred) ** 2) / (y_true + eps))) * 100
 
     squared_diff = (y_true - y_pred) ** 2
 
@@ -41,7 +41,7 @@ def relative_rmse(
 
 
 def relative_mae(
-    y_true: torch.Tensor, y_pred: torch.Tensor, pixel_wise: bool = False
+    y_true: torch.Tensor, y_pred: torch.Tensor, pixel_wise: bool = False, eps: float = 1e-5
 ):
     """
     Computes the relative mean absolute error.
@@ -59,6 +59,6 @@ def relative_mae(
         Relative mean absolute error.
     """
     if pixel_wise:
-        return torch.mean(torch.abs(y_true - y_pred) / y_true) * 100
+        return torch.mean(torch.abs(y_true - y_pred) / (y_true + eps)) * 100
 
     return torch.mean(torch.abs(y_true - y_pred)) / torch.mean(y_true) * 100

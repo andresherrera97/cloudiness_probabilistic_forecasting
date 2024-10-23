@@ -114,9 +114,9 @@ class Persistence:
             metrics["r_rmse_pw"].append(
                 relative_rmse(out_frames, in_frames, pixel_wise=True)
             )
-
+ 
         for key, value in metrics.items():
-            metrics[key] = sum(value) / len(value)
+            metrics[key] = torch.mean(torch.tensor(value))
 
         return metrics
 
