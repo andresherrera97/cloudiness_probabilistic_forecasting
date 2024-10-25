@@ -56,7 +56,11 @@ class DeterministicUNet(UNetPipeline):
         val_loss_per_epoch = []
 
         best_val_loss = float('inf')
-        scaler = torch.cuda.amp.GradScaler()  # For mixed precision training
+
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -69,11 +73,11 @@ class DeterministicUNet(UNetPipeline):
                 start_batch = time.time()
 
                 # Use float16 for mixed precision
-                in_frames = in_frames.to(device=device, dtype=torch.float16)
-                out_frames = out_frames.to(device=device, dtype=torch.float16)
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                with torch.cuda.amp.autocast():  # Enable mixed precision
+                with torch.autocast(device_type=device_type, dtype=self.torch_dtype):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
                     frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
                     loss = self.calculate_loss(frames_pred, out_frames)
@@ -113,10 +117,10 @@ class DeterministicUNet(UNetPipeline):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device, dtype=torch.float16)
-                    out_frames = out_frames.to(device=device).float()
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    with torch.cuda.amp.autocast():
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
                         frames_pred = self.model(in_frames)
                         frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
 

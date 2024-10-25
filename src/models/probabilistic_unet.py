@@ -70,6 +70,7 @@ class UNetPipeline(ABC):
         self.batch_size: int = None
         self.time_horizon: int = None
         self.dataset_path: str = None
+        self.torch_dtype = torch.float16
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -339,6 +340,10 @@ class BinClassifierUNet(ProbabilisticUNet):
         precision_per_epoch = []
 
         best_val_loss = float("inf")
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -352,28 +357,35 @@ class BinClassifierUNet(ProbabilisticUNet):
                 start_batch = time.time()
 
                 # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                frames_pred = self.model(in_frames.float())
+                with torch.autocast(
+                    device_type=device_type, dtype=self.torch_dtype
+                ):  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    frames_pred, out_frames, bin_output = self.remove_spatial_context(
+                        frames_pred, out_frames, bin_output
+                    )
 
-                frames_pred, out_frames, bin_output = self.remove_spatial_context(
-                    frames_pred, out_frames, bin_output
-                )
-
-                if train_metric is None or train_metric in ["cross_entropy", "ce"]:
-                    bin_output = bin_output.to(device=device)
-                    loss = self.calculate_loss(frames_pred, bin_output)
-                elif train_metric == "crps":
-                    out_frames = out_frames.to(device=device)
-                    loss = self.crps_loss.crps_loss(frames_pred, out_frames)
-                else:
-                    raise ValueError(f"Training loss {train_metric} not recognized.")
+                    if train_metric is None or train_metric in ["cross_entropy", "ce"]:
+                        bin_output = bin_output.to(device=device, dtype=torch.long)
+                        loss = self.calculate_loss(frames_pred, bin_output)
+                    elif train_metric == "crps":
+                        out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+                        loss = self.crps_loss.crps_loss(frames_pred, out_frames)
+                    else:
+                        raise ValueError(
+                            f"Training loss {train_metric} not recognized."
+                        )
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -406,17 +418,21 @@ class BinClassifierUNet(ProbabilisticUNet):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device).float()
-                    out_frames = out_frames.to(device=device)
-                    bin_output = bin_output.to(device=device)
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+                    bin_output = bin_output.to(device=device, dtype=torch.long)
 
-                    frames_pred = self.model(in_frames.float())
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                        frames_pred = self.model(in_frames)
+                        frames_pred, out_frames, bin_output = (
+                            self.remove_spatial_context(
+                                frames_pred, out_frames, bin_output
+                            )
+                        )
+                        cross_entropy_loss = self.calculate_loss(
+                            frames_pred, bin_output
+                        )
 
-                    frames_pred, out_frames, bin_output = self.remove_spatial_context(
-                        frames_pred, out_frames, bin_output
-                    )
-
-                    cross_entropy_loss = self.calculate_loss(frames_pred, bin_output)
                     cross_entropy_loss_per_batch.append(
                         cross_entropy_loss.detach().item()
                     )
@@ -595,6 +611,11 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
         best_val_loss = float("inf")
 
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
+
         for epoch in range(n_epochs):
             start_epoch = time.time()
             train_loss_in_epoch_list = []  # stores values inside the current epoch
@@ -605,36 +626,44 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 start_batch = time.time()
 
                 # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                frames_pred = self.model(in_frames.float())
-                if self.predict_diff:
-                    frames_pred = torch.cumsum(frames_pred, dim=1)
+                with torch.autocast(
+                    device_type=device_type, dtype=self.torch_dtype
+                ):  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    if self.predict_diff:
+                        frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-
-                if train_metric is None or train_metric in [
-                    "quantile",
-                    "pinball",
-                    "quant",
-                ]:
-                    loss = self.calculate_loss(frames_pred, out_frames)
-                elif train_metric == "crps":
-                    loss = self.crps_loss.crps_loss(
-                        pred=frames_pred,
-                        y=out_frames,
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
                     )
-                else:
-                    raise ValueError(f"Training loss {train_metric} not recognized.")
+
+                    if train_metric is None or train_metric in [
+                        "quantile",
+                        "pinball",
+                        "quant",
+                    ]:
+                        loss = self.calculate_loss(frames_pred, out_frames)
+                    elif train_metric == "crps":
+                        loss = self.crps_loss.crps_loss(
+                            pred=frames_pred,
+                            y=out_frames,
+                        )
+                    else:
+                        raise ValueError(
+                            f"Training loss {train_metric} not recognized."
+                        )
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -666,26 +695,27 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device).float()
-                    out_frames = out_frames.to(device=device)
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    frames_pred = self.model(in_frames.float())
-                    if self.predict_diff:
-                        frames_pred = torch.cumsum(frames_pred, dim=1)
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                        frames_pred = self.model(in_frames)
+                        if self.predict_diff:
+                            frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
+                        frames_pred, out_frames = self.remove_spatial_context(
+                            frames_pred, out_frames
+                        )
 
-                    quantile_loss = self.calculate_loss(frames_pred, out_frames)
-                    quantile_loss_per_batch.append(quantile_loss.detach().item())
+                        quantile_loss = self.calculate_loss(frames_pred, out_frames)
+                        quantile_loss_per_batch.append(quantile_loss.detach().item())
 
-                    crps_loss = self.crps_loss.crps_loss(
-                        pred=frames_pred,
-                        y=out_frames,
-                    )
+                        crps_loss = self.crps_loss.crps_loss(
+                            pred=frames_pred,
+                            y=out_frames,
+                        )
 
-                    crps_loss_per_batch.append(crps_loss.detach().item())
+                        crps_loss_per_batch.append(crps_loss.detach().item())
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -851,6 +881,10 @@ class MeanStdUNet(ProbabilisticUNet):
         mean_std_per_epoch = []
 
         best_val_loss = float("inf")
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -861,22 +895,26 @@ class MeanStdUNet(ProbabilisticUNet):
 
                 start_batch = time.time()
 
-                # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+
                 # forward
-                frames_pred = self.model(in_frames.float())
-
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-
-                loss = self.calculate_loss(frames_pred, out_frames)
+                with torch.autocast(
+                    device_type=device_type, dtype=self.torch_dtype
+                ):  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
+                    loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -909,31 +947,33 @@ class MeanStdUNet(ProbabilisticUNet):
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
                     self.val_loader
                 ):
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    in_frames = in_frames.to(device=device).float()
-                    out_frames = out_frames.to(device=device).float()
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                        frames_pred = self.model(in_frames)
 
-                    frames_pred = self.model(in_frames.float())
-
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
-
-                    mean_std_loss_per_batch.append(
-                        self.calculate_loss(frames_pred, out_frames).detach().item()
-                    )
-
-                    # calculate auxiliary metrics
-                    mse_loss_mean_pred.append(
-                        nn.MSELoss()(frames_pred[:, 0, :, :], out_frames[:, 0, :, :])
-                    )
-                    crps_gaussian_list.append(
-                        crps_gaussian(
-                            out_frames[:, 0, :, :],
-                            frames_pred[:, 0, :, :],
-                            frames_pred[:, 1, :, :],
+                        frames_pred, out_frames = self.remove_spatial_context(
+                            frames_pred, out_frames
                         )
-                    )
+
+                        mean_std_loss_per_batch.append(
+                            self.calculate_loss(frames_pred, out_frames).detach().item()
+                        )
+
+                        # calculate auxiliary metrics
+                        mse_loss_mean_pred.append(
+                            nn.MSELoss()(
+                                frames_pred[:, 0, :, :], out_frames[:, 0, :, :]
+                            )
+                        )
+                        crps_gaussian_list.append(
+                            crps_gaussian(
+                                out_frames[:, 0, :, :],
+                                frames_pred[:, 0, :, :],
+                                frames_pred[:, 1, :, :],
+                            )
+                        )
 
                     # numeric_crps.append(
                     #     self.get_numerical_CRPS(
@@ -1106,6 +1146,10 @@ class MedianScaleUNet(ProbabilisticUNet):
         median_scale_per_epoch = []
 
         best_val_loss = float("inf")
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -1117,22 +1161,26 @@ class MedianScaleUNet(ProbabilisticUNet):
                 start_batch = time.time()
 
                 # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                frames_pred = self.model(in_frames.float())
-
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-
-                loss = self.calculate_loss(frames_pred, out_frames)
+                with torch.autocast(
+                    device_type=device_type, dtype=self.torch_dtype
+                ):  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
+                    loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -1166,34 +1214,35 @@ class MedianScaleUNet(ProbabilisticUNet):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device).float()
-                    out_frames = out_frames.to(device=device).float()
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    frames_pred = self.model(in_frames.float())
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
-
-                    median_scale_loss_per_batch.append(
-                        self.calculate_loss(frames_pred, out_frames).detach().item()
-                    )
-
-                    # calculate auxiliary metrics
-                    mae_loss_mean_pred.append(
-                        nn.L1Loss()(frames_pred[:, 0, :, :], out_frames[:, 0, :, :])
-                    )
-                    crps_laplace_list.append(
-                        crps_laplace(
-                            out_frames,
-                            frames_pred,
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                        frames_pred = self.model(in_frames)
+                        frames_pred, out_frames = self.remove_spatial_context(
+                            frames_pred, out_frames
                         )
-                    )
 
-                    # numeric_crps.append(
-                    #     self.get_numerical_CRPS(
-                    #         y=out_frames, pred=frames_pred, lower=0., upper=1., count=100
-                    #     )
-                    # )
+                        median_scale_loss_per_batch.append(
+                            self.calculate_loss(frames_pred, out_frames).detach().item()
+                        )
+
+                        # calculate auxiliary metrics
+                        mae_loss_mean_pred.append(
+                            nn.L1Loss()(frames_pred[:, 0, :, :], out_frames[:, 0, :, :])
+                        )
+                        crps_laplace_list.append(
+                            crps_laplace(
+                                out_frames,
+                                frames_pred,
+                            )
+                        )
+
+                        # numeric_crps.append(
+                        #     self.get_numerical_CRPS(
+                        #         y=out_frames, pred=frames_pred, lower=0., upper=1., count=100
+                        #     )
+                        # )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -1367,6 +1416,11 @@ class MixtureDensityUNet(ProbabilisticUNet):
 
         best_val_loss = float("inf")
 
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
+
         for epoch in range(n_epochs):
             start_epoch = time.time()
             train_loss_in_epoch_list = []
@@ -1376,34 +1430,27 @@ class MixtureDensityUNet(ProbabilisticUNet):
                 start_batch = time.time()
 
                 # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                frames_pred = self.model(in_frames.float())
-
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-
-                def mdn_forward(frames_pred: torch.Tensor) -> torch.Tensor:
-                    pis, mus, sigmas = (
-                        frames_pred[:, : self.n_components, :, :],
-                        frames_pred[:, self.n_components : 2 * self.n_components, :, :],
-                        frames_pred[:, 2 * self.n_components :, :, :],
+                with torch.autocast(
+                    device_type=device_type, dtype=self.torch_dtype
+                ):  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
                     )
-                    pis = nn.functional.softmax(pis, dim=1)  # pis must be positive and sum to 1
-                    sigmas = nn.functional.softplus(sigmas)  # w_b must be positive
-                    return torch.concatenate([pis, mus, sigmas], dim=1)
-
-                frames_pred = mdn_forward(frames_pred)
-
-                loss = self.calculate_loss(frames_pred, out_frames)
+                    frames_pred = self.mdn_forward(frames_pred)
+                    loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -1433,19 +1480,18 @@ class MixtureDensityUNet(ProbabilisticUNet):
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
                     self.val_loader
                 ):
-                    in_frames = in_frames.to(device=device).float()
-                    out_frames = out_frames.to(device=device).float()
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    frames_pred = self.model(in_frames.float())
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
-
-                    frames_pred = mdn_forward(frames_pred)
-
-                    val_loss_per_batch.append(
-                        self.calculate_loss(frames_pred, out_frames).detach().item()
-                    )
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                        frames_pred = self.model(in_frames)
+                        frames_pred, out_frames = self.remove_spatial_context(
+                            frames_pred, out_frames
+                        )
+                        frames_pred = self.mdn_forward(frames_pred)
+                        val_loss_per_batch.append(
+                            self.calculate_loss(frames_pred, out_frames).detach().item()
+                        )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -1504,6 +1550,16 @@ class MixtureDensityUNet(ProbabilisticUNet):
             self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
 
         return train_loss_per_epoch, val_loss_per_epoch
+
+    def mdn_forward(self, frames_pred: torch.Tensor) -> torch.Tensor:
+        pis, mus, sigmas = (
+            frames_pred[:, : self.n_components, :, :],
+            frames_pred[:, self.n_components : 2 * self.n_components, :, :],
+            frames_pred[:, 2 * self.n_components :, :, :],
+        )
+        pis = nn.functional.softmax(pis, dim=1)  # pis must be positive and sum to 1
+        sigmas = nn.functional.softplus(sigmas)  # w_b must be positive
+        return torch.concatenate([pis, mus, sigmas], dim=1)
 
     def load_checkpoint(
         self, checkpoint_path: str, device: str, eval_mode: bool = True
@@ -1594,6 +1650,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         mae_per_epoch = []
 
         best_val_loss = float("inf")
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -1605,22 +1665,26 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 start_batch = time.time()
 
                 # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                frames_pred = self.model(in_frames.float())
-
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-
-                loss = self.calculate_loss(frames_pred, out_frames)
+                with torch.autocast(
+                    device_type=device_type, dtype=self.torch_dtype
+                ):  # Enable mixed precision
+                    frames_pred = self.model(in_frames)
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
+                    loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -1656,60 +1720,62 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device).float()
-                    out_frames = out_frames.to(device=device).float()
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    frames_pred = self.predict(
-                        in_frames.float(), iterations=self.n_quantiles
-                    )
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
 
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
-
-                    # validation loss is calculated as the mean of the quantiles predictions
-                    # mae_loss = self.calculate_loss(frames_pred[:, :1, :, :], out_frames)
-                    mae_loss = self.calculate_loss(frames_pred, out_frames)
-                    mae_loss_per_batch.append(mae_loss.detach().item())
-
-                    # calculate auxiliary metrics
-                    # ranked predictions takes the predictions and sorts them from lowest to highest to
-                    # calcualte an aproximation to the values of the quantiles. While quantile predictions
-                    # takes the predictions and from the distribution it calculates the value of the quantiles.
-                    ranked_predictions = self.rank_predictions(frames_pred)
-                    crps_ranked_list.append(
-                        self.crps_loss.crps_loss(
-                            pred=ranked_predictions,
-                            y=out_frames,
+                        frames_pred = self.predict(
+                            in_frames, iterations=self.n_quantiles
                         )
-                    )
 
-                    # extra_frames_pred = self.predict(
-                    #     in_frames.float(), iterations=self.n_quantiles * 2
-                    # )
-                    # extra_frames_pred = torch.cat(
-                    #     (extra_frames_pred, frames_pred), dim=1
-                    # )
+                        frames_pred, out_frames = self.remove_spatial_context(
+                            frames_pred, out_frames
+                        )
 
-                    # quantile_predictions = self.quantile_predictions(
-                    #     extra_frames_pred, torch.tensor(self.quantiles, device=device, dtype=torch.float32)
-                    # )
-                    # crps_quantile_list.append(
-                    #     self.crps_loss.crps_loss(
-                    #         pred=quantile_predictions,
-                    #         y=out_frames,
-                    #     )
-                    # )
-                    crps_quantile_list.append(-1)
+                        # validation loss is calculated as the mean of the quantiles predictions
+                        # mae_loss = self.calculate_loss(frames_pred[:, :1, :, :], out_frames)
+                        mae_loss = self.calculate_loss(frames_pred, out_frames)
+                        mae_loss_per_batch.append(mae_loss.detach().item())
 
-                    # bin_predictions = self.bin_predictions(extra_frames_pred, bins=100)
-                    # crps_bin_list.append(
-                    #     self.crps_loss_bin.crps_loss(
-                    #         pred=bin_predictions,
-                    #         y=out_frames,
-                    #     )
-                    # )
-                    crps_bin_list.append(-1)
+                        # calculate auxiliary metrics
+                        # ranked predictions takes the predictions and sorts them from lowest to highest to
+                        # calcualte an aproximation to the values of the quantiles. While quantile predictions
+                        # takes the predictions and from the distribution it calculates the value of the quantiles.
+                        ranked_predictions = self.rank_predictions(frames_pred)
+                        crps_ranked_list.append(
+                            self.crps_loss.crps_loss(
+                                pred=ranked_predictions,
+                                y=out_frames,
+                            )
+                        )
+
+                        # extra_frames_pred = self.predict(
+                        #     in_frames.float(), iterations=self.n_quantiles * 2
+                        # )
+                        # extra_frames_pred = torch.cat(
+                        #     (extra_frames_pred, frames_pred), dim=1
+                        # )
+
+                        # quantile_predictions = self.quantile_predictions(
+                        #     extra_frames_pred, torch.tensor(self.quantiles, device=device, dtype=torch.float32)
+                        # )
+                        # crps_quantile_list.append(
+                        #     self.crps_loss.crps_loss(
+                        #         pred=quantile_predictions,
+                        #         y=out_frames,
+                        #     )
+                        # )
+                        crps_quantile_list.append(-1)
+
+                        # bin_predictions = self.bin_predictions(extra_frames_pred, bins=100)
+                        # crps_bin_list.append(
+                        #     self.crps_loss_bin.crps_loss(
+                        #         pred=bin_predictions,
+                        #         y=out_frames,
+                        #     )
+                        # )
+                        crps_bin_list.append(-1)
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -1802,10 +1868,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         --------
         torch.Tensor: A tensor of shape (B, iterations, H, W)
         """
-        predictions = self.model(X.float())
+        predictions = self.model(X)
 
         for _ in range(iterations - 1):
-            predictions = torch.cat((predictions, self.model(X.float())), dim=1)
+            predictions = torch.cat((predictions, self.model(X)), dim=1)
 
         return predictions
 

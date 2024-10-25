@@ -272,6 +272,10 @@ class IQUNetPipeline(ProbabilisticUNet):
         quantile_loss_per_epoch = []
 
         best_val_loss = float('inf')
+        device_type = "cpu" if device == torch.device("cpu") else "cuda"
+        self._logger.info(f"device type: {device_type}")
+
+        scaler = torch.amp.GradScaler(device)  # For mixed precision training
 
         for epoch in range(n_epochs):
             start_epoch = time.time()
@@ -283,26 +287,25 @@ class IQUNetPipeline(ProbabilisticUNet):
                 start_batch = time.time()
 
                 # data to cuda if possible
-                in_frames = in_frames.to(device=device).float()
-                out_frames = out_frames.to(device=device).float()
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                taus = torch.rand(self.num_taus).to(device=device)
-                frames_pred = self.model(in_frames.float(), taus)
-
-                frames_pred, out_frames = self.remove_spatial_context(
-                    frames_pred, out_frames
-                )
-
-                if self.predict_diff:
-                    frames_pred = torch.cumsum(frames_pred, dim=1)
-
-                loss = self.calculate_loss(frames_pred, out_frames, taus)
+                with torch.autocast(device_type=device_type, dtype=self.torch_dtype):  # Enable mixed precision
+                    taus = torch.rand(self.num_taus).to(device=device)
+                    frames_pred = self.model(in_frames, taus)
+                    frames_pred, out_frames = self.remove_spatial_context(
+                        frames_pred, out_frames
+                    )
+                    if self.predict_diff:
+                        frames_pred = torch.cumsum(frames_pred, dim=1)
+                    loss = self.calculate_loss(frames_pred, out_frames, taus)
 
                 # backward
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
+                scaler.scale(loss).backward()
+                scaler.step(self.optimizer)
+                scaler.update()
+                self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
 
@@ -332,20 +335,20 @@ class IQUNetPipeline(ProbabilisticUNet):
                     self.val_loader
                 ):
 
-                    in_frames = in_frames.to(device=device).float()
-                    out_frames = out_frames.to(device=device)
+                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    frames_pred = self.model(in_frames.float(), self.val_quantiles)
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
-                    if self.predict_diff:
-                        frames_pred = torch.cumsum(frames_pred, dim=1)
-
-                    quantile_loss = self.calculate_loss(
-                        frames_pred, out_frames, self.val_quantiles
-                    )
-                    quantile_loss_per_batch.append(quantile_loss.detach().item())
+                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                        frames_pred = self.model(in_frames, self.val_quantiles)
+                        frames_pred, out_frames = self.remove_spatial_context(
+                            frames_pred, out_frames
+                        )
+                        if self.predict_diff:
+                            frames_pred = torch.cumsum(frames_pred, dim=1)
+                        quantile_loss = self.calculate_loss(
+                            frames_pred, out_frames, self.val_quantiles
+                        )
+                        quantile_loss_per_batch.append(quantile_loss.detach().item())
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
