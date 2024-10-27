@@ -198,7 +198,7 @@ def main(
 
     # start a new wandb run to track this script
     if save_experiment:
-        run_name = f'{model_name}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
+        run_name = f'{model_name}_{time_horizon}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
             project="cloud_probabilistic_forecasting",
             name=run_name,
