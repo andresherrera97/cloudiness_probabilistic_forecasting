@@ -167,6 +167,7 @@ class DeterministicUNet(UNetPipeline):
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
                     "spatial_context": self.spatial_context,
+                    "output_activation": self.output_activation,
                     "time_horizon": self.time_horizon,
                     "dataset": self.dataset_path,
                     "epoch": epoch + 1,
@@ -194,6 +195,7 @@ class DeterministicUNet(UNetPipeline):
         self.in_frames = checkpoint["num_input_frames"]
         self.filters = checkpoint["num_filters"]
         self.spatial_context = checkpoint["spatial_context"]
+        self.output_activation = checkpoint.get("output_activation", None)
         self.time_horizon = checkpoint.get("time_horizon", None)
 
         # Generate same architecture

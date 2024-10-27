@@ -394,6 +394,7 @@ class IQUNetPipeline(ProbabilisticUNet):
                     "num_input_frames": self.in_frames,
                     "num_filters": self.filters,
                     "quantiles": self.val_quantiles,
+                    "output_activation": self.output_activation,
                     "epoch": epoch + 1,
                     "ts": datetime.datetime.now().strftime("%d-%m-%Y_%H:%M"),
                     "model_state_dict": copy.deepcopy(self.model.state_dict()),
@@ -423,8 +424,35 @@ class IQUNetPipeline(ProbabilisticUNet):
     def get_F_at_points(self, points, pred_params):
         pass
 
-    def load_checkpoint(self, checkpoint_path: str, device: str):
-        pass
+    def load_checkpoint(self, checkpoint_path: str, device: str, eval_mode: bool = True):
+        """Abstract method to load a trained checkpoint of the model."""
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+
+        self.in_frames = checkpoint["num_input_frames"]
+        self.filters = checkpoint["num_filters"]
+        self.spatial_context = checkpoint["spatial_context"]
+        self.output_activation = checkpoint.get("output_activation", None)
+        self.time_horizon = checkpoint.get("time_horizon", None)
+        self.num_taus = checkpoint.get("num_taus", 9)
+        self.cosine_embedding_dimension = checkpoint.get("cosine_embedding_dimension", 64)
+
+        # Generate same architecture
+        self.model = IQUNet(
+            in_frames=self.in_frames,
+            n_classes=self.num_taus,
+            filters=self.filters,
+            cosine_embedding_dimension=self.cosine_embedding_dimension,
+            num_taus=self.num_taus,
+            image_size=self.image_size,
+            device=self.device,
+        ).to(self.device)
+
+        self.model.load_state_dict(checkpoint["model_state_dict"])
+        self.model.to(device=device)
+        if eval_mode:
+            self.model.eval()
+        else:
+            self.model.train()
 
     @property
     def name(self):
