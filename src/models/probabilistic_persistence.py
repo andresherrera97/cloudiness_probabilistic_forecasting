@@ -129,6 +129,8 @@ class PersistenceEnsemble:
 
     def random_example(self):
         for _, (in_frames, out_frames) in enumerate(self.train_loader):
+            in_frames = in_frames.to(self.device)
+            out_frames = out_frames.to(self.device)
             predictions = self.predict(in_frames)
             crps = self.crps_loss.crps_loss(
                 pred=predictions,
@@ -143,7 +145,10 @@ class PersistenceEnsemble:
         )
         crps_per_batch = []
         for batch_idx, (in_frames, out_frames) in enumerate(data_loader):
+            in_frames = in_frames.to(self.device)
+            out_frames = out_frames.to(self.device)
             predictions = self.predict(in_frames)
+            predictions = predictions.to(self.device)
             crps_per_batch.append(
                 self.crps_loss.crps_loss(
                     pred=predictions,
@@ -151,5 +156,5 @@ class PersistenceEnsemble:
                 )
             )
 
-        dataset_crps = np.mean(crps_per_batch)
+        dataset_crps = torch.mean(torch.tensor(crps_per_batch))
         return dataset_crps

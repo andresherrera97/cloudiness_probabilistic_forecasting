@@ -3,7 +3,7 @@ import visualization as viz
 import logging
 import fire
 import torch
-from typing import Optional
+from typing import Optional, List
 
 
 # Configure logging
@@ -13,7 +13,8 @@ logger = logging.getLogger("Persistence Ensemble")
 
 def main(
     dataset: str,
-    time_horizon: Optional[int] = None,
+    # time_horizon: Optional[int] = None,
+    time_horizon: Optional[List[int]] = None,
     num_quantiles: int = 9,
     batch_size: int = 1,
     create_plots: bool = False,
@@ -31,42 +32,47 @@ def main(
     else:
         raise ValueError(f"Wrong dataset! {dataset} not recognized")
 
-    peen.create_dataloaders(
-        dataset=dataset,
-        path=dataset_path,
-        batch_size=batch_size,
-        time_horizon=time_horizon,
-    )
+    if isinstance(time_horizon, int):
+        time_horizon = [time_horizon]
 
-    in_frames, out_frames, predictions, crps = peen.random_example()
-    logging.info(f"CRPS in random example: {crps}")
-
-    if create_plots:
-        viz.show_image_list(
-            images_list=in_frames[0].tolist(),
-            fig_name="figures/peen_input.jpg",
-            save_fig=True,
+    for th in time_horizon:
+        logging.info(f"{'---'*3} Time Horizon: {th} {'---'*3}")
+        peen.create_dataloaders(
+            dataset=dataset,
+            path=dataset_path,
+            batch_size=batch_size,
+            time_horizon=th,
         )
-
-        viz.show_image_list(
-            images_list=predictions[0].tolist(),
-            fig_name="figures/peen_quantiles_pred.jpg",
-            save_fig=True,
-        )
-
-        viz.plot_quantile_predictions(
-            input_images=in_frames[0],
-            pred_quantiles=predictions[0],
-            quantiles=peen.quantiles,
-            target_img=out_frames[0],
-            pixel_coords=[32, 32],
-        )
-
-    train_crps = peen.predict_on_dataset(dataset="train")
-    logging.info(f"Train CRPS: {train_crps}")
-
-    val_crps = peen.predict_on_dataset(dataset="validation")
-    logging.info(f"Validation CRPS: {val_crps}")
+    
+        in_frames, out_frames, predictions, crps = peen.random_example()
+        logging.info(f"CRPS in random example: {crps}")
+    
+        if create_plots:
+            viz.show_image_list(
+                images_list=in_frames[0].tolist(),
+                fig_name=f"figures/peen_input_{dataset}_{th}.jpg",
+                save_fig=True,
+            )
+    
+            viz.show_image_list(
+                images_list=predictions[0].tolist(),
+                fig_name=f"figures/peen_quantiles_pred_{dataset}_{th}.jpg",
+                save_fig=True,
+            )
+    
+            viz.plot_quantile_predictions(
+                input_images=in_frames[0],
+                pred_quantiles=predictions[0],
+                quantiles=peen.quantiles,
+                target_img=out_frames[0],
+                pixel_coords=[32, 32],
+            )
+    
+        # train_crps = peen.predict_on_dataset(dataset="train")
+        # logging.info(f"Train CRPS: {train_crps}")
+    
+        val_crps = peen.predict_on_dataset(dataset="validation")
+        logging.info(f"Validation CRPS: {val_crps}")
 
     # MMNIST
     # num_quantiles = 9
