@@ -1386,12 +1386,18 @@ class MixtureDensityUNet(ProbabilisticUNet):
         self.loss_fn = MixtureDensityLoss(n_components=n_components)
 
     def get_F_at_points(self, points, pred_params):
-        pis, mus, sigs = torch.split(pred_params, points.shape[1], dim=1)
+        pis, mus, sigmas = (
+            pred_params[:, : self.n_components, :, :],
+            pred_params[:, self.n_components : 2 * self.n_components, :, :],
+            pred_params[:, 2 * self.n_components :, :, :],
+        )
+
         F = torch.zeros_like(points)
         for i in range(points.shape[1]):
-            F[:, i] = torch.sum(
+            # F[:, i] = torch.sum(
+            F[:, i] = torch.mean(
                 pis
-                * (0.5 * (1 + torch.erf((points[:, i] - mus) / (sigs * np.sqrt(2)))))
+                * (0.5 * (1 + torch.erf((points[:, i] - mus) / (sigmas * np.sqrt(2)))))
             )
         return F
 
