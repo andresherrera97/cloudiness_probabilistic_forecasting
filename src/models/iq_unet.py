@@ -409,10 +409,10 @@ class IQUNetPipeline(ProbabilisticUNet):
                     "cosine_embedding_dimension": self.cosine_embedding_dimension,
                 }
 
-        if checkpoint_path is not None:
-            self.save_checkpoint(
-                model_name, best_epoch, best_val_loss, checkpoint_path
-            )
+                if checkpoint_path is not None:
+                    self.save_checkpoint(
+                        model_name, best_epoch, best_val_loss, checkpoint_path
+                    )
 
         return train_loss_per_epoch, val_loss_per_epoch
 

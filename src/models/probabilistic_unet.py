@@ -372,7 +372,9 @@ class BinClassifierUNet(ProbabilisticUNet):
                         bin_output = bin_output.to(device=device, dtype=torch.long)
                         loss = self.calculate_loss(frames_pred, bin_output)
                     elif train_metric == "crps":
-                        out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+                        out_frames = out_frames.to(
+                            device=device, dtype=self.torch_dtype
+                        )
                         loss = self.crps_loss.crps_loss(frames_pred, out_frames)
                     else:
                         raise ValueError(
@@ -422,7 +424,9 @@ class BinClassifierUNet(ProbabilisticUNet):
                     out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
                     bin_output = bin_output.to(device=device, dtype=torch.long)
 
-                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):
                         frames_pred = self.model(in_frames)
                         frames_pred, out_frames, bin_output = (
                             self.remove_spatial_context(
@@ -522,8 +526,10 @@ class BinClassifierUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                 }
 
-        if checkpoint_path is not None:
-            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
+                if checkpoint_path is not None:
+                    self.save_checkpoint(
+                        model_name, best_epoch, best_val_loss, checkpoint_path
+                    )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -699,7 +705,9 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                     out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):
                         frames_pred = self.model(in_frames)
                         if self.predict_diff:
                             frames_pred = torch.cumsum(frames_pred, dim=1)
@@ -794,8 +802,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                 }
 
-        if checkpoint_path is not None:
-            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
+                if checkpoint_path is not None:
+                    self.save_checkpoint(
+                        model_name, best_epoch, best_val_loss, checkpoint_path
+                    )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -952,7 +962,9 @@ class MeanStdUNet(ProbabilisticUNet):
                     in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                     out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):
                         frames_pred = self.model(in_frames)
 
                         frames_pred, out_frames = self.remove_spatial_context(
@@ -1062,8 +1074,10 @@ class MeanStdUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                     "train_metric": train_metric,
                 }
-        if checkpoint_path is not None:
-            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
+                if checkpoint_path is not None:
+                    self.save_checkpoint(
+                        model_name, best_epoch, best_val_loss, checkpoint_path
+                    )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1220,7 +1234,9 @@ class MedianScaleUNet(ProbabilisticUNet):
                     in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                     out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):
                         frames_pred = self.model(in_frames)
                         frames_pred, out_frames = self.remove_spatial_context(
                             frames_pred, out_frames
@@ -1325,8 +1341,10 @@ class MedianScaleUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                     "train_metric": train_metric,
                 }
-        if checkpoint_path is not None:
-            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
+                if checkpoint_path is not None:
+                    self.save_checkpoint(
+                        model_name, best_epoch, best_val_loss, checkpoint_path
+                    )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1487,7 +1505,9 @@ class MixtureDensityUNet(ProbabilisticUNet):
                     in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                     out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):
                         frames_pred = self.model(in_frames)
                         frames_pred, out_frames = self.remove_spatial_context(
                             frames_pred, out_frames
@@ -1551,8 +1571,10 @@ class MixtureDensityUNet(ProbabilisticUNet):
                     "train_metric": train_metric,
                 }
 
-        if checkpoint_path is not None:
-            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
+                if checkpoint_path is not None:
+                    self.save_checkpoint(
+                        model_name, best_epoch, best_val_loss, checkpoint_path
+                    )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
@@ -1728,7 +1750,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                     out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):
 
                         frames_pred = self.predict(
                             in_frames, iterations=self.n_quantiles
@@ -1860,8 +1884,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     "val_metric": val_metric,
                     "train_metric": train_metric,
                 }
-        if checkpoint_path is not None:
-            self.save_checkpoint(model_name, best_epoch, best_val_loss, checkpoint_path)
+                if checkpoint_path is not None:
+                    self.save_checkpoint(
+                        model_name, best_epoch, best_val_loss, checkpoint_path
+                    )
 
         return train_loss_per_epoch, val_loss_per_epoch
 
