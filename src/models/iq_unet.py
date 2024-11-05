@@ -392,6 +392,9 @@ class IQUNetPipeline(ProbabilisticUNet):
                 best_epoch = epoch
                 self.best_model_dict = {
                     "num_input_frames": self.in_frames,
+                    "spatial_context": self.spatial_context,
+                    "time_horizon": self.time_horizon,
+                    "image_size": self.image_size,
                     "num_filters": self.filters,
                     "quantiles": self.val_quantiles,
                     "output_activation": self.output_activation,
@@ -430,11 +433,12 @@ class IQUNetPipeline(ProbabilisticUNet):
 
         self.in_frames = checkpoint["num_input_frames"]
         self.filters = checkpoint["num_filters"]
-        self.spatial_context = checkpoint["spatial_context"]
+        self.spatial_context = checkpoint.get("spatial_context", 0)
         self.output_activation = checkpoint.get("output_activation", None)
         self.time_horizon = checkpoint.get("time_horizon", None)
         self.num_taus = checkpoint.get("num_taus", 9)
         self.cosine_embedding_dimension = checkpoint.get("cosine_embedding_dimension", 64)
+        self.image_size = checkpoint.get("image_size", 1024)
 
         # Generate same architecture
         self.model = IQUNet(
