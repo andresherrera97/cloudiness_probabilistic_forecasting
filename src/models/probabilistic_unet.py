@@ -30,6 +30,7 @@ from metrics import (
 from data_handlers import MovingMnistDataset, GOES16Dataset
 from .unet import UNet
 from .model_initialization import weights_init, optimizer_init, scheduler_init
+from utils.nan_debugger import NaNDebugger
 import logging
 
 
@@ -76,6 +77,7 @@ class UNetPipeline(ABC):
         self.time_horizon: int = None
         self.dataset_path: str = None
         self.torch_dtype = torch.float16
+        self.debugger = None
 
     def initialize_weights(self):
         self.model.apply(weights_init)
@@ -93,6 +95,13 @@ class UNetPipeline(ABC):
     ):
         self.scheduler = scheduler_init(
             self.optimizer, method, step_size, gamma, patience, min_lr
+        )
+
+    def initialize_nan_debugger(self, log_freq: int = 100, gradient_clip_threshold: float = 1000.0):
+        self.debugger = NaNDebugger(
+            model=self.model,
+            log_freq=log_freq,
+            gradient_clip_threshold=gradient_clip_threshold,
         )
 
     def create_dataloaders(
@@ -1231,6 +1240,12 @@ class MedianScaleUNet(ProbabilisticUNet):
                         median_scale_loss_per_batch.append(
                             self.calculate_loss(frames_pred, out_frames).detach().item()
                         )
+                        if torch.isnan(median_scale_loss_per_batch[-1]):
+                            self._logger.warning(
+                                "NaN detected in validation loss."
+                                f"min - max of frames_pred: {torch.min(frames_pred)} - {torch.max(frames_pred)}"
+                                f"min - max of out_frames: {torch.min(out_frames)} - {torch.max(out_frames)}"
+                            )
 
                         # calculate auxiliary metrics
                         mae_loss_mean_pred.append(
@@ -1252,11 +1267,16 @@ class MedianScaleUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            median_scale_loss_in_epoch = sum(median_scale_loss_per_batch) / len(
-                median_scale_loss_per_batch
-            )
-            mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(mae_loss_mean_pred)
-            crps_in_epoch = sum(crps_laplace_list) / len(crps_laplace_list)
+            median_scale_loss_in_epoch = torch.mean(torch.tensor(median_scale_loss_per_batch))
+            if torch.isnan(median_scale_loss_in_epoch):
+                self._logger.warning("NaN detected in validation loss.")
+                nan_count = torch.isnan(median_scale_loss_per_batch).sum().item()
+                self._logger.warning(f"Number of NaN values: {nan_count}")
+
+            # mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(mae_loss_mean_pred)
+            mae_mean_pred_in_epoch = torch.mean(torch.tensor(mae_loss_mean_pred))
+            # crps_in_epoch = sum(crps_laplace_list) / len(crps_laplace_list)
+            crps_in_epoch = torch.mean(torch.tensor(crps_laplace_list))
             # numeric_crps_in_epoch = sum(numeric_crps) / len(numeric_crps)
 
             if val_metric is None or val_metric.lower() in ["median_scale"]:
