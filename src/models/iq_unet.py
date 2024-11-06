@@ -294,9 +294,7 @@ class IQUNetPipeline(ProbabilisticUNet):
                 with torch.autocast(device_type=device_type, dtype=self.torch_dtype):  # Enable mixed precision
                     taus = torch.rand(self.num_taus).to(device=device)
                     frames_pred = self.model(in_frames, taus)
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
+                    frames_pred = self.remove_spatial_context(frames_pred)
                     if self.predict_diff:
                         frames_pred = torch.cumsum(frames_pred, dim=1)
                     loss = self.calculate_loss(frames_pred, out_frames, taus)
@@ -340,9 +338,7 @@ class IQUNetPipeline(ProbabilisticUNet):
 
                     with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
                         frames_pred = self.model(in_frames, self.val_quantiles)
-                        frames_pred, out_frames = self.remove_spatial_context(
-                            frames_pred, out_frames
-                        )
+                        frames_pred = self.remove_spatial_context(frames_pred)
                         if self.predict_diff:
                             frames_pred = torch.cumsum(frames_pred, dim=1)
                         quantile_loss = self.calculate_loss(

@@ -26,6 +26,7 @@ class GOES16Dataset(Dataset):
         path: str,
         num_in_images: int = 3,
         minutes_forward: int = 60,
+        spatial_context: int = 0,
         num_bins: Optional[int] = None,
         binarization_method: Optional[str] = None,
         expected_time_diff: int = 10,
@@ -63,6 +64,7 @@ class GOES16Dataset(Dataset):
         self.path = path
         self.num_in_images = num_in_images
         self.minutes_forward = minutes_forward
+        self.spatial_context = spatial_context
         self.min_time_diff = min_time_diff
         self.max_time_diff = max_time_diff
         self.num_bins = num_bins
@@ -125,6 +127,11 @@ class GOES16Dataset(Dataset):
                         self.sequence_df.values[index][i],
                     )
                 )
+                if self.spatial_context > 0:
+                    out_frames = out_frames[
+                        self.spatial_context : -self.spatial_context,
+                        self.spatial_context : -self.spatial_context,
+                    ]
                 out_frames = out_frames[np.newaxis]
 
         # pixel encoding for bin classification

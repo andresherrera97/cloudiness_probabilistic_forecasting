@@ -79,7 +79,7 @@ class DeterministicUNet(UNetPipeline):
                 # forward
                 with torch.autocast(device_type=device_type, dtype=self.torch_dtype):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
-                    frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
+                    frames_pred = self.remove_spatial_context(frames_pred)
                     loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
@@ -122,7 +122,7 @@ class DeterministicUNet(UNetPipeline):
 
                     with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
                         frames_pred = self.model(in_frames)
-                        frames_pred, out_frames = self.remove_spatial_context(frames_pred, out_frames)
+                        frames_pred = self.remove_spatial_context(frames_pred)
 
                         val_loss = self.calculate_loss(frames_pred, out_frames)
 

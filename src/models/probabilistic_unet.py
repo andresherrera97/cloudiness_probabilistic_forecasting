@@ -3,6 +3,7 @@ import os
 import time
 import copy
 import datetime
+import random
 from typing import List, Optional, Tuple
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -34,6 +35,10 @@ import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+
+torch.manual_seed(0)
+random.seed(0)
+np.random.seed(0)
 
 
 @dataclass
@@ -121,6 +126,7 @@ class UNetPipeline(ABC):
                 path=os.path.join(path, "train/"),
                 num_in_images=self.in_frames,
                 minutes_forward=time_horizon,
+                spatial_context=self.spatial_context,
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
                 expected_time_diff=10,
@@ -131,6 +137,7 @@ class UNetPipeline(ABC):
                 path=os.path.join(path, "val/"),
                 num_in_images=self.in_frames,
                 minutes_forward=time_horizon,
+                spatial_context=self.spatial_context,
                 num_bins=self.n_bins,
                 binarization_method=binarization_method,
                 expected_time_diff=10,
@@ -364,9 +371,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                     device_type=device_type, dtype=self.torch_dtype
                 ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
-                    frames_pred, out_frames, bin_output = self.remove_spatial_context(
-                        frames_pred, out_frames, bin_output
-                    )
+                    frames_pred = self.remove_spatial_context(frames_pred)
 
                     if train_metric is None or train_metric in ["cross_entropy", "ce"]:
                         bin_output = bin_output.to(device=device, dtype=torch.long)
@@ -428,11 +433,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                         device_type=device_type, dtype=self.torch_dtype
                     ):
                         frames_pred = self.model(in_frames)
-                        frames_pred, out_frames, bin_output = (
-                            self.remove_spatial_context(
-                                frames_pred, out_frames, bin_output
-                            )
-                        )
+                        frames_pred = self.remove_spatial_context(frames_pred)
                         cross_entropy_loss = self.calculate_loss(
                             frames_pred, bin_output
                         )
@@ -644,9 +645,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     if self.predict_diff:
                         frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
+                    frames_pred = self.remove_spatial_context(frames_pred)
 
                     if train_metric is None or train_metric in [
                         "quantile",
@@ -712,9 +711,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                         if self.predict_diff:
                             frames_pred = torch.cumsum(frames_pred, dim=1)
 
-                        frames_pred, out_frames = self.remove_spatial_context(
-                            frames_pred, out_frames
-                        )
+                        frames_pred = self.remove_spatial_context(frames_pred)
 
                         quantile_loss = self.calculate_loss(frames_pred, out_frames)
                         quantile_loss_per_batch.append(quantile_loss.detach().item())
@@ -915,9 +912,7 @@ class MeanStdUNet(ProbabilisticUNet):
                     device_type=device_type, dtype=self.torch_dtype
                 ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
+                    frames_pred = self.remove_spatial_context(frames_pred)
                     loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
@@ -967,9 +962,7 @@ class MeanStdUNet(ProbabilisticUNet):
                     ):
                         frames_pred = self.model(in_frames)
 
-                        frames_pred, out_frames = self.remove_spatial_context(
-                            frames_pred, out_frames
-                        )
+                        frames_pred = self.remove_spatial_context(frames_pred)
 
                         mean_std_loss_per_batch.append(
                             self.calculate_loss(frames_pred, out_frames).detach().item()
@@ -1186,9 +1179,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                     device_type=device_type, dtype=self.torch_dtype
                 ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
+                    frames_pred = self.remove_spatial_context(frames_pred)
                     loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
@@ -1238,9 +1229,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                         device_type=device_type, dtype=self.torch_dtype
                     ):
                         frames_pred = self.model(in_frames)
-                        frames_pred, out_frames = self.remove_spatial_context(
-                            frames_pred, out_frames
-                        )
+                        frames_pred = self.remove_spatial_context(frames_pred)
 
                         median_scale_loss_per_batch.append(
                             self.calculate_loss(frames_pred, out_frames).detach().item()
@@ -1466,9 +1455,7 @@ class MixtureDensityUNet(ProbabilisticUNet):
                     device_type=device_type, dtype=self.torch_dtype
                 ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
+                    frames_pred = self.remove_spatial_context(frames_pred)
                     frames_pred = self.mdn_forward(frames_pred)
                     loss = self.calculate_loss(frames_pred, out_frames)
 
@@ -1515,9 +1502,7 @@ class MixtureDensityUNet(ProbabilisticUNet):
                         device_type=device_type, dtype=self.torch_dtype
                     ):
                         frames_pred = self.model(in_frames)
-                        frames_pred, out_frames = self.remove_spatial_context(
-                            frames_pred, out_frames
-                        )
+                        frames_pred = self.remove_spatial_context(frames_pred)
                         frames_pred = self.mdn_forward(frames_pred)
                         val_loss_per_batch.append(
                             self.calculate_loss(frames_pred, out_frames).detach().item()
@@ -1706,9 +1691,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                     device_type=device_type, dtype=self.torch_dtype
                 ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
-                    frames_pred, out_frames = self.remove_spatial_context(
-                        frames_pred, out_frames
-                    )
+                    frames_pred = self.remove_spatial_context(frames_pred)
                     loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
@@ -1764,9 +1747,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                             in_frames, iterations=self.n_quantiles
                         )
 
-                        frames_pred, out_frames = self.remove_spatial_context(
-                            frames_pred, out_frames
-                        )
+                        frames_pred = self.remove_spatial_context(frames_pred)
 
                         # validation loss is calculated as the mean of the quantiles predictions
                         # mae_loss = self.calculate_loss(frames_pred[:, :1, :, :], out_frames)
