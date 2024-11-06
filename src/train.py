@@ -24,11 +24,18 @@ from typing import Optional, List
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Train Script")
 
-torch.manual_seed(0)
-random.seed(0)
-np.random.seed(0)
-
 os.environ["WANDB__SERVICE_WAIT"] = "300"
+
+
+def set_all_seeds(seed=0):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.cuda.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    os.environ['PYTHONHASHSEED'] = str(seed)
 
 
 def main(
@@ -60,6 +67,7 @@ def main(
     binarization_method: Optional[str] = None,
     cos_dim: Optional[int] = None,
 ):
+    set_all_seeds(0)
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
