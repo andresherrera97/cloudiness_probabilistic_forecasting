@@ -133,6 +133,7 @@ class IQUNet(nn.Module):
         self,
         in_frames: int = 3,
         n_classes: int = 1,
+        output_activation: Optional[str] = "sigmoid",
         bilinear: bool = True,
         filters: int = 64,
         bias: bool = False,
@@ -173,6 +174,23 @@ class IQUNet(nn.Module):
         ).to(device)
 
         self.dim_reduction_conv = ReductionConv(filters * 8 * num_taus, filters * 8)
+        output_activation = output_activation.lower()
+        if output_activation is None or output_activation in ["none", ""]:
+            self.out_activation = nn.Identity()
+        elif output_activation in ["sigmoid", "sigmoide", "sig"]:
+            self.out_activation = nn.Sigmoid()
+        elif output_activation in ["relu"]:
+            self.out_activation = nn.Hardtanh(
+                min_val=0, max_val=1.0
+            )  # works as relu clip between [0,1]
+        elif output_activation in ["tanh"]:
+            self.out_activation = nn.Tanh()
+        elif output_activation in ["softmax"]:
+            self.out_activation = nn.Softmax(dim=1)
+        elif output_activation in ["softplus"]:
+            self.out_activation = nn.Softplus()
+        else:
+            raise ValueError(f"Activation function {output_activation} not recognized")
 
     def forward(self, x, taus):
         taus_embedding = self.quantile_embedding(taus).unsqueeze(0)
@@ -203,6 +221,7 @@ class IQUNet(nn.Module):
         x = self.up3(x, x2)
         x = self.up4(x, x1)
         out = self.outc(x)
+        out = self.out_activation(out)
         return out
 
     def quantile_huber_loss(self, predicted, target, tau, kappa=1.0):
@@ -240,6 +259,7 @@ class IQUNetPipeline(ProbabilisticUNet):
         self.model = IQUNet(
             in_frames=self.in_frames,
             n_classes=num_taus,
+            output_activation=self.output_activation,
             filters=self.filters,
             cosine_embedding_dimension=cosine_embedding_dimension,
             num_taus=num_taus,
