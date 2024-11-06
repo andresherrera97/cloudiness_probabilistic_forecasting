@@ -1196,7 +1196,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                     set_to_none=True
                 )  # More efficient than zero_grad()
 
-                train_loss_in_epoch_list.append(loss.detach().item())
+                train_loss_in_epoch_list.append(loss)
                 end_batch = time.time()
 
                 if (
@@ -1213,9 +1213,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                 if num_train_samples is not None and batch_idx >= num_train_samples:
                     break
 
-            train_loss_in_epoch = sum(train_loss_in_epoch_list) / len(
-                train_loss_in_epoch_list
-            )
+            train_loss_in_epoch = torch.mean(torch.tensor(train_loss_in_epoch_list))
 
             self.model.eval()
             median_scale_loss_per_batch = []  # stores values for this validation run
@@ -1238,7 +1236,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                         frames_pred = self.remove_spatial_context(frames_pred)
 
                         median_scale_loss_per_batch.append(
-                            self.calculate_loss(frames_pred, out_frames).detach().item()
+                            self.calculate_loss(frames_pred, out_frames)
                         )
                         if torch.isnan(median_scale_loss_per_batch[-1]):
                             self._logger.warning(
