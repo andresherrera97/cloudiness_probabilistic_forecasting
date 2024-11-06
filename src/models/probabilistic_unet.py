@@ -944,7 +944,7 @@ class MeanStdUNet(ProbabilisticUNet):
             self.model.eval()
             mean_std_loss_per_batch = []  # stores values for this validation run
             mse_loss_mean_pred = []
-            crps_gaussian_list = []
+            # crps_gaussian_list = []
             # numeric_crps = []
 
             with torch.no_grad():
@@ -962,7 +962,8 @@ class MeanStdUNet(ProbabilisticUNet):
                         frames_pred = self.remove_spatial_context(frames_pred)
 
                         mean_std_loss_per_batch.append(
-                            self.calculate_loss(frames_pred, out_frames).detach().item()
+                            # self.calculate_loss(frames_pred, out_frames).detach().item()
+                            self.calculate_loss(frames_pred, out_frames)
                         )
 
                         # calculate auxiliary metrics
@@ -971,13 +972,13 @@ class MeanStdUNet(ProbabilisticUNet):
                                 frames_pred[:, 0, :, :], out_frames[:, 0, :, :]
                             )
                         )
-                        crps_gaussian_list.append(
-                            crps_gaussian(
-                                out_frames[:, 0, :, :],
-                                frames_pred[:, 0, :, :],
-                                frames_pred[:, 1, :, :],
-                            )
-                        )
+                        # crps_gaussian_list.append(
+                        #     crps_gaussian(
+                        #         out_frames[:, 0, :, :],
+                        #         frames_pred[:, 0, :, :],
+                        #         frames_pred[:, 1, :, :],
+                        #     )
+                        # )
 
                     # numeric_crps.append(
                     #     self.get_numerical_CRPS(
@@ -988,19 +989,18 @@ class MeanStdUNet(ProbabilisticUNet):
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
 
-            mean_std_loss_in_epoch = sum(mean_std_loss_per_batch) / len(
-                mean_std_loss_per_batch
-            )
-            mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(mse_loss_mean_pred)
-            crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
+            mean_std_loss_in_epoch = torch.mean(torch.tensor(mean_std_loss_per_batch))
+            mse_mean_pred_in_epoch = torch.mean(torch.tensor(mse_loss_mean_pred))
+            # mse_mean_pred_in_epoch = sum(mse_loss_mean_pred) / len(mse_loss_mean_pred)
+            # crps_in_epoch = sum(crps_gaussian_list) / len(crps_gaussian_list)
             # numeric_crps_in_epoch = sum(numeric_crps) / len(numeric_crps)
 
             if val_metric is None or val_metric.lower() in ["mean_std", "meanstd"]:
                 val_loss_in_epoch = mean_std_loss_in_epoch
             elif val_metric.lower() == "mse":
                 val_loss_in_epoch = mse_mean_pred_in_epoch
-            elif val_metric.lower() == "crps":
-                val_loss_in_epoch = crps_in_epoch
+            # elif val_metric.lower() == "crps":
+            #     val_loss_in_epoch = crps_in_epoch
             else:
                 raise ValueError(f"Validation loss {val_metric} not recognized.")
 
@@ -1013,8 +1013,8 @@ class MeanStdUNet(ProbabilisticUNet):
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"mean_std_loss": mean_std_loss_in_epoch}, step=epoch)
                 run.log({"mse_mean_pred": mse_mean_pred_in_epoch}, step=epoch)
-                run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
-                run.log({"crps": crps_in_epoch}, step=epoch)
+                # run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
+                # run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log(
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
                     step=epoch,
@@ -1027,14 +1027,14 @@ class MeanStdUNet(ProbabilisticUNet):
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
                     f"mean_std_loss: {mean_std_loss_in_epoch:.4f}) | "
                     f"MSE({mse_mean_pred_in_epoch:.4f}) | "
-                    f"CRPS({crps_in_epoch:.4f} | "
+                    # f"CRPS({crps_in_epoch:.4f} | "
                     f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
             # epoch end
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
-            crps_per_epoch.append(crps_in_epoch)
+            # crps_per_epoch.append(crps_in_epoch)
             mse_per_epoch.append(mse_mean_pred_in_epoch)
             mean_std_per_epoch.append(mean_std_loss_in_epoch)
 
