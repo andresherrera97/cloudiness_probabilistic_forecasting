@@ -170,34 +170,31 @@ class UNetPipeline(ABC):
         self._logger.info(f"Val loader size: {len(self.val_loader)}")
         self._logger.info(f"Samples height: {self.height}, Samples width: {self.width}")
 
-    def remove_spatial_context(self, *tensors):
+    def remove_spatial_context(self, tensor):
         """
         Removes the spatial context from an arbitrary number of input tensors.
         Optimized for speed, works with both 3D and 4D tensors.
         """
         if self.spatial_context == 0:
-            return tensors
+            return tensor
 
-        cropped_tensors = []
-        for tensor in tensors:
-            if tensor.dim() == 3:
-                cropped = tensor[
-                    :,
-                    self.spatial_context : -self.spatial_context,
-                    self.spatial_context : -self.spatial_context,
-                ]
-            elif tensor.dim() == 4:
-                cropped = tensor[
-                    :,
-                    :,
-                    self.spatial_context : -self.spatial_context,
-                    self.spatial_context : -self.spatial_context,
-                ]
-            else:
-                raise ValueError(f"Expected 3D or 4D tensor, got {tensor.dim()}D")
-            cropped_tensors.append(cropped)
+        if tensor.dim() == 3:
+            tensor = tensor[
+                :,
+                self.spatial_context : -self.spatial_context,
+                self.spatial_context : -self.spatial_context,
+            ]
+        elif tensor.dim() == 4:
+            tensor = tensor[
+                :,
+                :,
+                self.spatial_context : -self.spatial_context,
+                self.spatial_context : -self.spatial_context,
+            ]
+        else:
+            raise ValueError(f"Expected 3D or 4D tensor, got {tensor.dim()}D")
 
-        return tuple(cropped_tensors)
+        return tensor
 
     def calculate_loss(self, predictions: torch.Tensor, y_target: torch.Tensor):
         return self.loss_fn(predictions, y_target)
