@@ -1308,7 +1308,7 @@ class MedianScaleUNet(ProbabilisticUNet):
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"median_sclae_loss": median_scale_loss_in_epoch}, step=epoch)
-                run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
+                run.log({"crps_laplace": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log(
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
