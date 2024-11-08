@@ -66,6 +66,7 @@ def main(
     save_experiment: bool = False,
     binarization_method: Optional[str] = None,
     cos_dim: Optional[int] = None,
+    weight_init: str = "xavier",
 ):
     set_all_seeds(0)
 
@@ -175,7 +176,7 @@ def main(
     logger.info("Initializing model...")
     probabilistic_unet.model.to(device)
     probabilistic_unet.initialize_nan_debugger()
-    probabilistic_unet.initialize_weights()
+    probabilistic_unet.initialize_weights(method=weight_init)
     probabilistic_unet.initialize_optimizer(method=optimizer, lr=learning_rate)
     if scheduler is not None:
         probabilistic_unet.initialize_scheduler(

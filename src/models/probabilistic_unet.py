@@ -29,7 +29,7 @@ from metrics import (
 )
 from data_handlers import MovingMnistDataset, GOES16Dataset
 from .unet import UNet
-from .model_initialization import weights_init, optimizer_init, scheduler_init
+from .model_initialization import xavier_weights_init, optimizer_init, scheduler_init, he_weights_init
 from utils.nan_debugger import NaNDebugger
 import logging
 
@@ -79,8 +79,11 @@ class UNetPipeline(ABC):
         self.torch_dtype = torch.float16
         self.debugger = None
 
-    def initialize_weights(self):
-        self.model.apply(weights_init)
+    def initialize_weights(self, method: str):
+        if method.lower() == "xavier":
+            self.model.apply(xavier_weights_init)
+        else:
+            self.model.apply(he_weights_init)
 
     def initialize_optimizer(self, method: str, lr: float):
         self.optimizer = optimizer_init(self.model, method, lr)

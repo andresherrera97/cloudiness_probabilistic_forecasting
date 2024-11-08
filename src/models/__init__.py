@@ -1,6 +1,6 @@
 from .persistence import Persistence
 from .unet import UNet
-from .model_initialization import weights_init
+from .model_initialization import xavier_weights_init, he_weights_init
 from .probabilistic_unet import (
     MeanStdUNet,
     MedianScaleUNet,
