@@ -14,6 +14,7 @@ from scipy import stats
 # Related third-party imports
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchmetrics.classification import MulticlassPrecision
 
@@ -858,7 +859,8 @@ class MeanStdUNet(ProbabilisticUNet):
             output_activation=self.output_activation,
         )
 
-        self.loss_fn = mean_std_loss
+        # self.loss_fn = mean_std_loss
+        self.loss_fn = torch.nn.GaussianNLLLoss(eps=1e-6, reduction="mean")
 
     def fit(
         self,
@@ -1066,10 +1068,23 @@ class MeanStdUNet(ProbabilisticUNet):
                 }
                 if checkpoint_path is not None:
                     self.save_checkpoint(
-                        model_name, best_epoch, best_val_loss, checkpoint_path
+                        model_name,
+                        best_epoch,
+                        best_val_loss.detach().item(),
+                        checkpoint_path,
                     )
 
         return train_loss_per_epoch, val_loss_per_epoch
+
+    def calculate_loss(self, predictions: torch.Tensor, y_target: torch.Tensor):
+        # Extract mean and variance from predictions
+        mu = predictions[:, 0:1, :, :]  # Keep dimension: [batch_size, 1, H, W]
+        # Convert to variance and ensure positive
+        var = (
+            F.softplus(predictions[:, 1:, :, :]) + 1e-6
+        )  # Keep dimension: [batch_size, 1, H, W]
+        # targets is already [batch_size, 1, H, W] so no need to modify
+        return self.loss_fn(mu, y_target, var)
 
     def load_checkpoint(
         self, checkpoint_path: str, device: str, eval_mode: bool = True
