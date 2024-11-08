@@ -174,6 +174,7 @@ def main(
 
     logger.info("Initializing model...")
     probabilistic_unet.model.to(device)
+    probabilistic_unet.initialize_nan_debugger()
     probabilistic_unet.initialize_weights()
     probabilistic_unet.initialize_optimizer(method=optimizer, lr=learning_rate)
     if scheduler is not None:

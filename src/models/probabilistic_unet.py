@@ -1179,47 +1179,64 @@ class MedianScaleUNet(ProbabilisticUNet):
                 # data to cuda if possible
                 in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+                try:
+                    # forward
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):  # Enable mixed precision
+                        frames_pred = self.model(in_frames)
+                        frames_pred = self.remove_spatial_context(frames_pred)
+                        loss = self.calculate_loss(frames_pred, out_frames)
 
-                # forward
-                with torch.autocast(
-                    device_type=device_type, dtype=self.torch_dtype
-                ):  # Enable mixed precision
-                    frames_pred = self.model(in_frames)
-                    frames_pred = self.remove_spatial_context(frames_pred)
-                    loss = self.calculate_loss(frames_pred, out_frames)
+                        if torch.isnan(loss):
+                            self._logger.error(
+                                f"NaN loss detected at epoch {epoch}, batch {batch_idx}"
+                            )
+                            debug_report = self.debugger.get_nan_report()
+                            print(debug_report)
+                            self._logger.info("Debug report generated")
+                            raise ValueError("NaN loss detected - training stopped")
+                    # backward
+                    scaler.scale(loss).backward()
+                    scaler.step(self.optimizer)
+                    scaler.update()
+                    self.optimizer.zero_grad(
+                        set_to_none=True
+                    )  # More efficient than zero_grad()
 
-                # backward
-                scaler.scale(loss).backward()
-                scaler.step(self.optimizer)
-                scaler.update()
-                self.optimizer.zero_grad(
-                    set_to_none=True
-                )  # More efficient than zero_grad()
+                    # Update debugger
+                    self.debugger.step_callback(loss)
 
-                train_loss_in_epoch_list.append(loss)
-                end_batch = time.time()
+                    train_loss_in_epoch_list.append(loss)
+                    end_batch = time.time()
 
-                if (
-                    verbose
-                    and print_train_every_n_batch is not None
-                    and batch_idx % print_train_every_n_batch == 0
-                ):
-                    self._logger.info(
-                        f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | "
-                        f"Train loss({loss.detach().item():.4f}) | "
-                        f"Time Batch({(end_batch - start_batch):.2f}) | "
-                    )
+                    if (
+                        verbose
+                        and print_train_every_n_batch is not None
+                        and batch_idx % print_train_every_n_batch == 0
+                    ):
+                        self._logger.info(
+                            f"BATCH({batch_idx + 1}/{len(self.train_loader)}) | "
+                            f"Train loss({loss.detach().item():.4f}) | "
+                            f"Time Batch({(end_batch - start_batch):.2f}) | "
+                        )
 
-                if num_train_samples is not None and batch_idx >= num_train_samples:
-                    break
+                    if num_train_samples is not None and batch_idx >= num_train_samples:
+                        break
+
+                except RuntimeError as error:
+                    self._logger.error(f"Runtime error in epoch {epoch}, batch {batch_idx}: {str(error)}")
+                    # Generate debug report
+                    debug_report = self.debugger.get_nan_report()
+                    print(debug_report)
+                    self._logger.info("Debug report generated")
+                    raise error
 
             train_loss_in_epoch = torch.mean(torch.tensor(train_loss_in_epoch_list))
 
             self.model.eval()
             median_scale_loss_per_batch = []  # stores values for this validation run
-            mae_loss_mean_pred = []
             crps_laplace_list = []
-            # numeric_crps = []
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -1245,22 +1262,18 @@ class MedianScaleUNet(ProbabilisticUNet):
                                 f"min - max of out_frames: {torch.min(out_frames)} - {torch.max(out_frames)}"
                             )
 
-                        # calculate auxiliary metrics
-                        mae_loss_mean_pred.append(
-                            nn.L1Loss()(frames_pred[:, 0, :, :], out_frames[:, 0, :, :])
-                        )
                         crps_laplace_list.append(
                             crps_laplace(
                                 out_frames,
                                 frames_pred,
                             )
                         )
-
-                        # numeric_crps.append(
-                        #     self.get_numerical_CRPS(
-                        #         y=out_frames, pred=frames_pred, lower=0., upper=1., count=100
-                        #     )
-                        # )
+                        if torch.isnan(crps_laplace_list[-1]):
+                            self._logger.warning(
+                                "NaN detected in validation loss."
+                                f"min - max of frames_pred: {torch.min(frames_pred)} - {torch.max(frames_pred)}"
+                                f"min - max of out_frames: {torch.min(out_frames)} - {torch.max(out_frames)}"
+                            )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -1271,16 +1284,14 @@ class MedianScaleUNet(ProbabilisticUNet):
                 nan_count = torch.isnan(median_scale_loss_per_batch).sum().item()
                 self._logger.warning(f"Number of NaN values: {nan_count}")
 
-            # mae_mean_pred_in_epoch = sum(mae_loss_mean_pred) / len(mae_loss_mean_pred)
-            mae_mean_pred_in_epoch = torch.mean(torch.tensor(mae_loss_mean_pred))
-            # crps_in_epoch = sum(crps_laplace_list) / len(crps_laplace_list)
             crps_in_epoch = torch.mean(torch.tensor(crps_laplace_list))
-            # numeric_crps_in_epoch = sum(numeric_crps) / len(numeric_crps)
+            if torch.isnan(crps_in_epoch):
+                self._logger.warning("NaN detected in validation loss.")
+                nan_count = torch.isnan(median_scale_loss_per_batch).sum().item()
+                self._logger.warning(f"Number of NaN values: {nan_count}")
 
             if val_metric is None or val_metric.lower() in ["median_scale"]:
                 val_loss_in_epoch = median_scale_loss_in_epoch
-            elif val_metric.lower() == "mae":
-                val_loss_in_epoch = mae_mean_pred_in_epoch
             elif val_metric.lower() == "crps":
                 val_loss_in_epoch = crps_in_epoch
             else:
@@ -1294,7 +1305,6 @@ class MedianScaleUNet(ProbabilisticUNet):
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log({"median_sclae_loss": median_scale_loss_in_epoch}, step=epoch)
-                run.log({"mae_mean_pred": mae_mean_pred_in_epoch}, step=epoch)
                 run.log({"crps_gaussian": crps_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log(
@@ -1308,7 +1318,6 @@ class MedianScaleUNet(ProbabilisticUNet):
                     f"Train_loss({(train_loss_in_epoch):06.4f}) | "
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
                     f"MedianScale({median_scale_loss_in_epoch:.4f}) | "
-                    f"MAE({mae_mean_pred_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f} | "
                     f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
@@ -1317,7 +1326,6 @@ class MedianScaleUNet(ProbabilisticUNet):
             train_loss_per_epoch.append(train_loss_in_epoch)
             val_loss_per_epoch.append(val_loss_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
-            mae_per_epoch.append(mae_mean_pred_in_epoch)
             median_scale_per_epoch.append(median_scale_loss_in_epoch)
 
             if val_loss_in_epoch < best_val_loss:
