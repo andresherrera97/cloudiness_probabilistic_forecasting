@@ -1285,9 +1285,9 @@ class MedianScaleUNet(ProbabilisticUNet):
                 self._logger.warning(f"Number of NaN values: {nan_count}")
 
             crps_in_epoch = torch.mean(torch.tensor(crps_laplace_list))
-            if torch.isnan(crps_in_epoch):
+            if torch.isnan(torch.tensor(crps_in_epoch)):
                 self._logger.warning("NaN detected in validation loss.")
-                nan_count = torch.isnan(median_scale_loss_per_batch).sum().item()
+                nan_count = torch.isnan(crps_in_epoch).sum().item()
                 self._logger.warning(f"Number of NaN values: {nan_count}")
 
             if val_metric is None or val_metric.lower() in ["median_scale"]:
