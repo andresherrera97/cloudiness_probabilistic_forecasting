@@ -31,6 +31,7 @@ class GOES16Dataset(Dataset):
         binarization_method: Optional[str] = None,
         expected_time_diff: int = 10,
         inpaint_pct_threshold: Optional[float] = None,
+        crop_or_downsample: Optional[str] = None,
     ):
         super().__init__()
 
@@ -69,6 +70,7 @@ class GOES16Dataset(Dataset):
         self.max_time_diff = max_time_diff
         self.num_bins = num_bins
         self.binarization_method = binarization_method
+        self.crop_or_downsample = crop_or_downsample
 
         output_index = minutes_forward // expected_time_diff
 
@@ -119,6 +121,12 @@ class GOES16Dataset(Dataset):
                 aux = aux[np.newaxis]
                 in_frames = np.concatenate((in_frames, aux), axis=0)
 
+            if self.crop_or_downsample is not None:
+                if self.crop_or_downsample == "crop":
+                    in_frames = in_frames[:, 256:-256, 256:-256]
+                if self.crop_or_downsample in ["down", "downsample"]:
+                    in_frames = in_frames[:, ::2, ::2]
+
             if i == self.num_in_images:
                 # output image
                 out_frames = np.load(
@@ -127,6 +135,11 @@ class GOES16Dataset(Dataset):
                         self.sequence_df.values[index][i],
                     )
                 )
+                if self.crop_or_downsample is not None:
+                    if self.crop_or_downsample == "crop":
+                        out_frames = out_frames[256:-256, 256:-256]
+                    if self.crop_or_downsample in ["down", "downsample"]:
+                        out_frames = out_frames[::2, ::2]
                 if self.spatial_context > 0:
                     out_frames = out_frames[
                         self.spatial_context : -self.spatial_context,
