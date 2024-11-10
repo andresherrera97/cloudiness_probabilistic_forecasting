@@ -121,12 +121,6 @@ class GOES16Dataset(Dataset):
                 aux = aux[np.newaxis]
                 in_frames = np.concatenate((in_frames, aux), axis=0)
 
-            if self.crop_or_downsample is not None:
-                if self.crop_or_downsample == "crop":
-                    in_frames = in_frames[:, 256:-256, 256:-256]
-                if self.crop_or_downsample in ["down", "downsample"]:
-                    in_frames = in_frames[:, ::2, ::2]
-
             if i == self.num_in_images:
                 # output image
                 out_frames = np.load(
@@ -146,6 +140,12 @@ class GOES16Dataset(Dataset):
                         self.spatial_context : -self.spatial_context,
                     ]
                 out_frames = out_frames[np.newaxis]
+
+        if self.crop_or_downsample is not None:
+            if self.crop_or_downsample == "crop":
+                in_frames = in_frames[:, 256:-256, 256:-256]
+            if self.crop_or_downsample in ["down", "downsample"]:
+                in_frames = in_frames[:, ::2, ::2]
 
         # pixel encoding for bin classification
         if (
