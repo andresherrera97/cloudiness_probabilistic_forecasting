@@ -11,6 +11,7 @@ import torch.nn as nn
 from .probabilistic_unet import UNetPipeline, UNetConfig
 from .unet import UNet
 import logging
+from metrics.deterministic_metrics import DeterministicMetrics
 
 
 # Configure logging
@@ -31,6 +32,7 @@ class DeterministicUNet(UNetPipeline):
         )
 
         self.loss_fn = nn.L1Loss()  # Use MAE as train loss
+        self.deterministic_metrics = DeterministicMetrics()
 
     def fit(
         self,
@@ -111,6 +113,7 @@ class DeterministicUNet(UNetPipeline):
 
             self.model.eval()
             val_loss_per_batch = []  # stores values for this validation run
+            self.deterministic_metrics.start_epoch()
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -123,8 +126,16 @@ class DeterministicUNet(UNetPipeline):
                     with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
                         frames_pred = self.model(in_frames)
                         frames_pred = self.remove_spatial_context(frames_pred)
-
+                        persistence_pred = self.remove_spatial_context(in_frames[:, self.in_frames-1:, :, :])
                         val_loss = self.calculate_loss(frames_pred, out_frames)
+
+                        self.deterministic_metrics.run_per_batch_metrics(
+                            y_true=out_frames,
+                            y_pred=frames_pred,
+                            y_persistence=persistence_pred,
+                            pixel_wise=False,
+                            eps=1e-5,
+                        )
 
                     val_loss_per_batch.append(val_loss.detach().item())
 
@@ -132,6 +143,7 @@ class DeterministicUNet(UNetPipeline):
                         break
 
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
+            forecasting_metrics = self.deterministic_metrics.end_epoch()
 
             if self.scheduler is not None:
                 self.scheduler.step(val_loss_in_epoch)
@@ -144,6 +156,8 @@ class DeterministicUNet(UNetPipeline):
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
                     step=epoch,
                 )
+                for key, value in forecasting_metrics.items():
+                    run.log({key: value}, step=epoch)
 
             if verbose:
                 self._logger.info(
