@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 import logging
 from data_handlers import GOES16Dataset
-from metrics.deterministic_metrics import relative_rmse, relative_mae
+from metrics.deterministic_metrics import DeterministicMetrics
 from tqdm import tqdm
 
 
@@ -23,6 +23,7 @@ class Persistence:
         self.time_horizon: int = None
         self.dataset_path: str = None
         self._logger = logging.getLogger(self.__class__.__name__)
+        self.deterministic_metrics = DeterministicMetrics()
 
     def create_dataloaders(
         self,
@@ -103,18 +104,26 @@ class Persistence:
             metrics["mae"].append(mae_loss(in_frames, out_frames).item())
             metrics["rmse"].append(torch.sqrt(mse_loss(in_frames, out_frames)).item())
             metrics["r_mae"].append(
-                relative_mae(out_frames, in_frames, pixel_wise=False)
+                self.deterministic_metrics.relative_mae(
+                    out_frames, in_frames, pixel_wise=False
+                )
             )
             metrics["r_mae_pw"].append(
-                relative_mae(out_frames, in_frames, pixel_wise=True)
+                self.deterministic_metrics.relative_mae(
+                    out_frames, in_frames, pixel_wise=True
+                )
             )
             metrics["r_rmse"].append(
-                relative_rmse(out_frames, in_frames, pixel_wise=False)
+                self.deterministic_metrics.relative_rmse(
+                    out_frames, in_frames, pixel_wise=False
+                )
             )
             metrics["r_rmse_pw"].append(
-                relative_rmse(out_frames, in_frames, pixel_wise=True)
+                self.deterministic_metrics.relative_rmse(
+                    out_frames, in_frames, pixel_wise=True
+                )
             )
- 
+
         for key, value in metrics.items():
             metrics[key] = torch.mean(torch.tensor(value))
 
