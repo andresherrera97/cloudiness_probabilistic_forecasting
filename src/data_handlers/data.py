@@ -130,10 +130,15 @@ class GOES16Dataset(Dataset):
                     )
                 )
                 if self.crop_or_downsample is not None:
-                    if self.crop_or_downsample == "crop":
-                        out_frames = out_frames[256:-256, 256:-256]
-                    if self.crop_or_downsample in ["down", "downsample"]:
-                        out_frames = out_frames[::2, ::2]
+                    if "crop" in self.crop_or_downsample:
+                        crop_value = int(self.crop_or_downsample.split("_")[-1])
+                        border_value = (1024 - crop_value) // 2
+                        out_frames = out_frames[
+                            border_value:-border_value, border_value:-border_value
+                        ]
+                    elif "down" in self.crop_or_downsample:
+                        down_value = int(self.crop_or_downsample.split("_")[-1])
+                        out_frames = out_frames[::down_value, ::down_value]
                 if self.spatial_context > 0:
                     out_frames = out_frames[
                         self.spatial_context : -self.spatial_context,
@@ -142,10 +147,15 @@ class GOES16Dataset(Dataset):
                 out_frames = out_frames[np.newaxis]
 
         if self.crop_or_downsample is not None:
-            if self.crop_or_downsample == "crop":
-                in_frames = in_frames[:, 256:-256, 256:-256]
-            if self.crop_or_downsample in ["down", "downsample"]:
-                in_frames = in_frames[:, ::2, ::2]
+            if "crop" in self.crop_or_downsample:
+                crop_value = int(self.crop_or_downsample.split("_")[-1])
+                border_value = (1024 - crop_value) // 2
+                in_frames = in_frames[
+                    :, border_value:-border_value, border_value:-border_value
+                ]
+            elif "down" in self.crop_or_downsample:
+                down_value = int(self.crop_or_downsample.split("_")[-1])
+                in_frames = in_frames[:, ::down_value, ::down_value]
 
         # pixel encoding for bin classification
         if (
