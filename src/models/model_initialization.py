@@ -61,14 +61,15 @@ def scheduler_init(
         raise ValueError(f"Scheduler {method} not recognized.")
 
 
-def weights_init(model):
+def xavier_weights_init(model):
     if isinstance(model, nn.Conv2d):
         torch.nn.init.xavier_normal_(model.weight)
         if model.bias is not None:
             nn.init.constant_(model.bias.data, 0)
 
 
-# how to apply
-
-# 1) load model , ex: model = UNet(...)
-# 2) model.apply(weights_init)
+def he_weights_init(model):
+    if isinstance(model, nn.Conv2d):
+        torch.nn.init.kaiming_normal_(model.weight, mode='fan_out', nonlinearity='relu')
+        if model.bias is not None:
+            nn.init.constant_(model.bias.data, 0)

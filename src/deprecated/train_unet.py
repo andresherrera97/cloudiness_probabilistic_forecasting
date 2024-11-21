@@ -8,7 +8,7 @@ import multiprocessing
 from .model_training import train_model_full
 from utils import out_channel_calculator
 from data_handlers.data import MontevideoFoldersDataset
-from models import UNet, UNet2, weights_init
+from models import UNet, UNet2, xavier_weights_init
 
 
 # parse arguments
@@ -157,7 +157,7 @@ for lr in grid_search:
     model.to(device)
 
     if not args.retrain:
-        model.apply(weights_init)
+        model.apply(xavier_weights_init)
         checkpoint = False
 
     optimizer = optim.Adam(
