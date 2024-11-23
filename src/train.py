@@ -67,6 +67,7 @@ def main(
     binarization_method: Optional[str] = None,
     cos_dim: Optional[int] = None,
     crop_or_downsample: Optional[str] = None,
+    project: str = "cloud_probabilistic_forecasting",
 ):
     set_all_seeds(0)
 
@@ -211,7 +212,7 @@ def main(
     if save_experiment:
         run_name = f'{model_name}_{time_horizon}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
-            project="cloud_probabilistic_forecasting",
+            project=project,
             name=run_name,
             config={
                 "time_horizon": time_horizon,
