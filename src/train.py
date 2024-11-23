@@ -66,6 +66,8 @@ def main(
     save_experiment: bool = False,
     binarization_method: Optional[str] = None,
     cos_dim: Optional[int] = None,
+    crop_or_downsample: Optional[str] = None,
+    project: str = "cloud_probabilistic_forecasting",
 ):
     set_all_seeds(0)
 
@@ -140,6 +142,7 @@ def main(
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Output activation: {output_activation}")
+        logger.info(f"    - Crop or downsample: {crop_or_downsample}")
         probabilistic_unet = DeterministicUNet(config=unet_config)
     elif model_name.lower() in ["iqn", "iqn_unet"]:
         num_taus = num_bins - 1
@@ -200,6 +203,7 @@ def main(
         batch_size=batch_size,
         time_horizon=time_horizon,
         binarization_method=binarization_method,  # needed for BinClassifierUNet
+        crop_or_downsample=crop_or_downsample,
     )
 
     logger.info("Initialization done.")
@@ -208,7 +212,7 @@ def main(
     if save_experiment:
         run_name = f'{model_name}_{time_horizon}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
-            project="cloud_probabilistic_forecasting",
+            project=project,
             name=run_name,
             config={
                 "time_horizon": time_horizon,
@@ -230,6 +234,7 @@ def main(
                 "output_activation": output_activation,
                 "num_filters": num_filters,
                 "cos_dim": cos_dim,
+                "crop_or_downsample": crop_or_downsample,
             },
         )
 

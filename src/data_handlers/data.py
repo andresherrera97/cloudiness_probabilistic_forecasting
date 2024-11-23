@@ -31,6 +31,7 @@ class GOES16Dataset(Dataset):
         binarization_method: Optional[str] = None,
         expected_time_diff: int = 10,
         inpaint_pct_threshold: Optional[float] = None,
+        crop_or_downsample: Optional[str] = None,
     ):
         super().__init__()
 
@@ -69,6 +70,7 @@ class GOES16Dataset(Dataset):
         self.max_time_diff = max_time_diff
         self.num_bins = num_bins
         self.binarization_method = binarization_method
+        self.crop_or_downsample = crop_or_downsample
 
         output_index = minutes_forward // expected_time_diff
 
@@ -127,12 +129,74 @@ class GOES16Dataset(Dataset):
                         self.sequence_df.values[index][i],
                     )
                 )
+                if self.crop_or_downsample is not None:
+                    if (
+                        "crop" in self.crop_or_downsample
+                        and "down" in self.crop_or_downsample
+                    ):
+                        # crop_X_down_Y
+                        if self.crop_or_downsample.split("_")[0] != "crop":
+                            raise ValueError("Invalid crop_or_downsample value, first crop")
+                        crop_value = int(self.crop_or_downsample.split("_")[1])
+                        down_value = int(self.crop_or_downsample.split("_")[3])
+                        border_value = (1024 - crop_value) // 2
+                        out_frames = out_frames[
+                            border_value:-border_value, border_value:-border_value
+                        ]
+                        out_frames = out_frames[::down_value, ::down_value]
+                    elif (
+                        "crop" in self.crop_or_downsample
+                        and "down" not in self.crop_or_downsample
+                    ):
+                        crop_value = int(self.crop_or_downsample.split("_")[-1])
+                        border_value = (1024 - crop_value) // 2
+                        out_frames = out_frames[
+                            border_value:-border_value, border_value:-border_value
+                        ]
+                    elif (
+                        "down" in self.crop_or_downsample
+                        and "crop" not in self.crop_or_downsample
+                    ):
+                        down_value = int(self.crop_or_downsample.split("_")[-1])
+                        out_frames = out_frames[::down_value, ::down_value]
+                    else:
+                        raise ValueError("Invalid crop_or_downsample value")
                 if self.spatial_context > 0:
                     out_frames = out_frames[
                         self.spatial_context : -self.spatial_context,
                         self.spatial_context : -self.spatial_context,
                     ]
                 out_frames = out_frames[np.newaxis]
+
+        if self.crop_or_downsample is not None:
+            if "crop" in self.crop_or_downsample and "down" in self.crop_or_downsample:
+                # crop_X_down_Y
+                if self.crop_or_downsample.split("_")[0] != "crop":
+                    raise ValueError("Invalid crop_or_downsample value, first crop")
+                crop_value = int(self.crop_or_downsample.split("_")[1])
+                down_value = int(self.crop_or_downsample.split("_")[3])
+                border_value = (1024 - crop_value) // 2
+                in_frames = in_frames[
+                    :, border_value:-border_value, border_value:-border_value
+                ]
+                in_frames = in_frames[:, ::down_value, ::down_value]
+            elif (
+                "crop" in self.crop_or_downsample
+                and "down" not in self.crop_or_downsample
+            ):
+                crop_value = int(self.crop_or_downsample.split("_")[-1])
+                border_value = (1024 - crop_value) // 2
+                in_frames = in_frames[
+                    :, border_value:-border_value, border_value:-border_value
+                ]
+            elif (
+                "down" in self.crop_or_downsample
+                and "crop" not in self.crop_or_downsample
+            ):
+                down_value = int(self.crop_or_downsample.split("_")[-1])
+                in_frames = in_frames[:, ::down_value, ::down_value]
+            else:
+                raise ValueError("Invalid crop_or_downsample value")
 
         # pixel encoding for bin classification
         if (
