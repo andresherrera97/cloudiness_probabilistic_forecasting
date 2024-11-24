@@ -230,6 +230,7 @@ def main(
                 "output_activation": output_activation,
                 "num_filters": num_filters,
                 "cos_dim": cos_dim,
+                "spatial_context": spatial_context,
             },
         )
 
