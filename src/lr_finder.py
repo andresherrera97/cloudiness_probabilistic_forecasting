@@ -70,8 +70,8 @@ class LRFinder:
                 inputs, targets = next(train_iter)
 
             # Move data to device
-            inputs = inputs.to(self.device)
-            targets = targets.to(self.device)
+            inputs = inputs.to(self.device).float()
+            targets = targets.to(self.device).float()
 
             # Forward pass
             self.optimizer.zero_grad()
