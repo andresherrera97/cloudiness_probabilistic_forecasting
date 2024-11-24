@@ -56,6 +56,7 @@ def main(
     num_filters: int = 16,
     n_components: int = 3,
     learning_rate: float = 1e-3,
+    max_lr: float = 0.1,
     quantiles: Optional[List[float]] = None,
     predict_diff: bool = False,
     dropout_p: Optional[float] = None,
@@ -179,14 +180,7 @@ def main(
     probabilistic_unet.model.to(device)
     probabilistic_unet.initialize_weights()
     probabilistic_unet.initialize_optimizer(method=optimizer, lr=learning_rate)
-    if scheduler is not None:
-        probabilistic_unet.initialize_scheduler(
-            method=scheduler,
-            step_size=20,
-            gamma=0.3,
-            patience=20,
-            min_lr=1e-7,
-        )
+    # initialize dataloaders
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
     elif dataset.lower() in ["goes16", "satellite", "sat"]:
@@ -205,6 +199,18 @@ def main(
         binarization_method=binarization_method,  # needed for BinClassifierUNet
         crop_or_downsample=crop_or_downsample,
     )
+
+    if scheduler is not None:
+        probabilistic_unet.initialize_scheduler(
+            method=scheduler,
+            step_size=20,
+            gamma=0.3,
+            patience=20,
+            min_lr=1e-7,
+            max_lr=max_lr,
+            epochs=epochs,
+            steps_per_epoch=len(probabilistic_unet.train_loader),
+        )
 
     logger.info("Initialization done.")
 

@@ -89,6 +89,8 @@ class DeterministicUNet(UNetPipeline):
                 scaler.step(self.optimizer)
                 scaler.update()
                 self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                    self.scheduler.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
