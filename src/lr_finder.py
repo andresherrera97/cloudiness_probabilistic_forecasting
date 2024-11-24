@@ -182,7 +182,7 @@ if __name__ == "__main__":
     train_loader = probabilistic_unet.train_loader
 
     # Initialize LR finder
-    lr_finder = LRFinder(probabilistic_unet, optimizer, criterion, device)
+    lr_finder = LRFinder(probabilistic_unet.model, optimizer, criterion, device)
 
     # Run LR range test
     learning_rates, losses = lr_finder.range_test(train_loader)
