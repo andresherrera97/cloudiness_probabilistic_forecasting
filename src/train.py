@@ -236,6 +236,7 @@ def main(
                 "cos_dim": cos_dim,
                 "spatial_context": spatial_context,
                 "crop_or_downsample": crop_or_downsample,
+                "spatial_context": spatial_context,
             },
         )
 
