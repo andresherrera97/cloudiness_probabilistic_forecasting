@@ -25,11 +25,11 @@ class LRFinder:
     def range_test(
         self,
         train_loader,
-        start_lr=1e-7,
-        end_lr=10,
-        num_iter=100,
-        smooth_f=0.05,
-        diverge_th=5,
+        start_lr: float = 1e-7,
+        end_lr: float = 10,
+        num_iter: int = 100,
+        smooth_f: float = 0.05,
+        diverge_th: float = 5,
     ):
         """
         Performs the learning rate range test.
@@ -150,6 +150,11 @@ def main(
     batch_size: int = 4,
     time_horizon: int = 60,
     crop_or_downsample: str = None,
+    start_lr: float = 1e-7,
+    end_lr: float = 10,
+    num_iter: int = 100,
+    smooth_f: float = 0.05,
+    diverge_th: float = 5,
 ):
     # Load model, optimizer, criterion, and data
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -190,7 +195,14 @@ def main(
     lr_finder = LRFinder(probabilistic_unet.model, optimizer, criterion, device)
 
     # Run LR range test
-    learning_rates, losses = lr_finder.range_test(train_loader)
+    learning_rates, losses = lr_finder.range_test(
+        train_loader,
+        start_lr=start_lr,
+        end_lr=end_lr,
+        num_iter=num_iter,
+        smooth_f=smooth_f,
+        diverge_th=diverge_th,
+    )
 
     # Plot results
     sufix = f"filters_{filters}_batch_{batch_size}_time_{time_horizon}_crop_{crop_or_downsample}"
