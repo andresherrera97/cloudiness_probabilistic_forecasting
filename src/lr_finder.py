@@ -120,6 +120,7 @@ class LRFinder:
         plt.grid(True)
         plt.savefig(f"figures/lr_finder_{sufix}.png")
         plt.close()
+        print(f"Figure saved as figures/lr_finder_{sufix}.png")
 
     def suggest_lr(self, learning_rates, losses, skip_start=10, skip_end=5):
         """
