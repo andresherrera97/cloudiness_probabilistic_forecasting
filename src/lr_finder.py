@@ -146,6 +146,7 @@ class LRFinder:
 
 def main(
     filters: int = 32,
+    spatial_context: int = 0,
     batch_size: int = 4,
     time_horizon: int = 60,
     crop_or_downsample: str = None,
@@ -154,7 +155,7 @@ def main(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     unet_config = UNetConfig(
         in_frames=3,
-        spatial_context=0,
+        spatial_context=spatial_context,
         filters=filters,
         output_activation="sigmoid",
         device=device,
