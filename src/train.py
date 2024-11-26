@@ -225,6 +225,7 @@ def main(
                 "optimizer": optimizer,
                 "scheduler": scheduler,
                 "learning_rate": learning_rate,
+                "max_lr": max_lr,
                 "architecture": probabilistic_unet.name,
                 "dataset": dataset,
                 "epochs": epochs,
