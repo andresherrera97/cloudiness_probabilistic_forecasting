@@ -1,4 +1,5 @@
 import torch
+import fire
 import matplotlib.pyplot as plt
 import numpy as np
 from copy import deepcopy
@@ -7,7 +8,7 @@ import logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("Train Script")
+logger = logging.getLogger("LR Finder")
 
 
 class LRFinder:
@@ -109,7 +110,7 @@ class LRFinder:
 
         return learning_rates, losses
 
-    def plot(self, learning_rates, losses):
+    def plot(self, learning_rates, losses, sufix=""):
         """Plots the learning rate range test results."""
         plt.figure(figsize=(10, 6))
         plt.semilogx(learning_rates, losses)
@@ -117,7 +118,7 @@ class LRFinder:
         plt.ylabel("Loss")
         plt.title("Learning Rate Finder")
         plt.grid(True)
-        plt.savefig("figures/lr_finder_plot.png")
+        plt.savefig(f"figures/lr_finder_{sufix}.png")
         plt.close()
 
     def suggest_lr(self, learning_rates, losses, skip_start=10, skip_end=5):
@@ -143,13 +144,18 @@ class LRFinder:
         return learning_rates[steepest_idx]
 
 
-if __name__ == "__main__":
+def main(
+    filters: int = 32,
+    batch_size: int = 4,
+    time_horizon: int = 60,
+    crop_or_downsample: str = None,
+):
     # Load model, optimizer, criterion, and data
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     unet_config = UNetConfig(
         in_frames=3,
         spatial_context=0,
-        filters=32,
+        filters=filters,
         output_activation="sigmoid",
         device=device,
     )
@@ -163,8 +169,6 @@ if __name__ == "__main__":
 
     dataset = "goes16"
     dataset_path = "datasets/goes16/salto/"
-    batch_size = 4
-    time_horizon = 60
 
     logger.info(f"Dataset path: {dataset_path}")
     logger.info(f"Time horizon: {time_horizon}")
@@ -175,7 +179,7 @@ if __name__ == "__main__":
         batch_size=batch_size,
         time_horizon=time_horizon,
         binarization_method=None,  # needed for BinClassifierUNet
-        crop_or_downsample=None,
+        crop_or_downsample=crop_or_downsample,
     )
 
     criterion = probabilistic_unet.loss_fn
@@ -188,8 +192,13 @@ if __name__ == "__main__":
     learning_rates, losses = lr_finder.range_test(train_loader)
 
     # Plot results
-    lr_finder.plot(learning_rates, losses)
+    sufix = f"filters_{filters}_batch_{batch_size}_time_{time_horizon}_crop_{crop_or_downsample}"
+    lr_finder.plot(learning_rates, losses, sufix)
 
     # Suggest learning rate
     lr = lr_finder.suggest_lr(learning_rates, losses)
     logger.info(f"Suggested LR: {lr}")
+
+
+if __name__ == "__main__":
+    fire.Fire(main)
