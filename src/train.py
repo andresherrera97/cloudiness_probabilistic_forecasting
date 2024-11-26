@@ -216,7 +216,7 @@ def main(
 
     # start a new wandb run to track this script
     if save_experiment:
-        run_name = f'{model_name}_{time_horizon}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
+        run_name = f'{model_name}_{time_horizon}_{crop_or_downsample}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
             project=project,
             name=run_name,
