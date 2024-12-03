@@ -241,13 +241,8 @@ def main(
                 "output_activation": output_activation,
                 "num_filters": num_filters,
                 "cos_dim": cos_dim,
-<<<<<<< HEAD
-                "crop_or_downsample": crop_or_downsample,
-=======
-                "spatial_context": spatial_context,
                 "crop_or_downsample": crop_or_downsample,
                 "spatial_context": spatial_context,
->>>>>>> 8a86d0e4c77658bce1ec5fe3d15195b8a9b6bad3
             },
         )
 
