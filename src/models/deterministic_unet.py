@@ -57,7 +57,7 @@ class DeterministicUNet(UNetPipeline):
         train_loss_per_epoch = []
         val_loss_per_epoch = []
 
-        best_val_loss = float('inf')
+        best_val_loss = float("inf")
 
         device_type = "cpu" if device == torch.device("cpu") else "cuda"
         self._logger.info(f"device type: {device_type}")
@@ -79,7 +79,9 @@ class DeterministicUNet(UNetPipeline):
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
                 # forward
-                with torch.autocast(device_type=device_type, dtype=self.torch_dtype):  # Enable mixed precision
+                with torch.autocast(
+                    device_type=device_type, dtype=self.torch_dtype
+                ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
                     frames_pred = self.remove_spatial_context(frames_pred)
                     loss = self.calculate_loss(frames_pred, out_frames)
@@ -88,7 +90,9 @@ class DeterministicUNet(UNetPipeline):
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
                 scaler.update()
-                self.optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
                 if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
                     self.scheduler.step()
 
@@ -125,10 +129,14 @@ class DeterministicUNet(UNetPipeline):
                     in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                     out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
-                    with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    with torch.autocast(
+                        device_type=device_type, dtype=self.torch_dtype
+                    ):
                         frames_pred = self.model(in_frames)
                         frames_pred = self.remove_spatial_context(frames_pred)
-                        persistence_pred = self.remove_spatial_context(in_frames[:, self.in_frames-1:, :, :])
+                        persistence_pred = self.remove_spatial_context(
+                            in_frames[:, self.in_frames - 1 :, :, :]
+                        )
                         val_loss = self.calculate_loss(frames_pred, out_frames)
 
                         self.deterministic_metrics.run_per_batch_metrics(
@@ -147,7 +155,9 @@ class DeterministicUNet(UNetPipeline):
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
             forecasting_metrics = self.deterministic_metrics.end_epoch()
 
-            if self.scheduler is not None:
+            if self.scheduler is not None and not isinstance(
+                self.scheduler, torch.optim.lr_scheduler.OneCycleLR
+            ):
                 self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
@@ -204,7 +214,9 @@ class DeterministicUNet(UNetPipeline):
     def predict(self, X: torch.Tensor):
         return self.model(X.float())
 
-    def load_checkpoint(self, checkpoint_path: str, device: str, eval_mode: bool = True):
+    def load_checkpoint(
+        self, checkpoint_path: str, device: str, eval_mode: bool = True
+    ):
         """Abstract method to load a trained checkpoint of the model."""
         checkpoint = torch.load(checkpoint_path, map_location=device)
 
