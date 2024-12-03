@@ -21,7 +21,7 @@ def optimizer_init(model, method: str, lr: float):
             lr=lr,
             betas=(0.9, 0.999),
             eps=1e-08,
-            weight_decay=0.01,
+            weight_decay=0.001,
             amsgrad=False,
         )
     else:
@@ -35,6 +35,9 @@ def scheduler_init(
     gamma: float = 0.3,
     patience: int = 15,
     min_lr: float = 1e-7,
+    max_lr: float = 0.1,
+    epochs: int = 50,
+    steps_per_epoch: int = 20000,
 ):
     """Initialize scheduler for the optimizer"""
     if method.lower() == "plateau":
@@ -57,6 +60,20 @@ def scheduler_init(
         return torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma)
     elif method.lower() == "cosine":
         return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, step_size)
+    elif method.lower() == "onecycle":
+        return torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=max_lr,
+            epochs=epochs,
+            steps_per_epoch=steps_per_epoch,
+            pct_start=0.3,
+            anneal_strategy="cos",
+            cycle_momentum=True,
+            base_momentum=0.85,
+            max_momentum=0.95,
+            div_factor=25.0,
+            final_div_factor=10000.0,
+        )
     else:
         raise ValueError(f"Scheduler {method} not recognized.")
 

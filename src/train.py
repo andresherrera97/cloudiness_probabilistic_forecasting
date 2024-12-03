@@ -56,6 +56,7 @@ def main(
     num_filters: int = 16,
     n_components: int = 3,
     learning_rate: float = 1e-3,
+    max_lr: float = 0.1,
     quantiles: Optional[List[float]] = None,
     predict_diff: bool = False,
     dropout_p: Optional[float] = None,
@@ -179,14 +180,7 @@ def main(
     probabilistic_unet.model.to(device)
     probabilistic_unet.initialize_weights()
     probabilistic_unet.initialize_optimizer(method=optimizer, lr=learning_rate)
-    if scheduler is not None:
-        probabilistic_unet.initialize_scheduler(
-            method=scheduler,
-            step_size=20,
-            gamma=0.3,
-            patience=20,
-            min_lr=1e-7,
-        )
+    # initialize dataloaders
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
     elif dataset.lower() in ["goes16", "satellite", "sat"]:
@@ -206,11 +200,23 @@ def main(
         crop_or_downsample=crop_or_downsample,
     )
 
+    if scheduler is not None:
+        probabilistic_unet.initialize_scheduler(
+            method=scheduler,
+            step_size=20,
+            gamma=0.3,
+            patience=20,
+            min_lr=1e-7,
+            max_lr=max_lr,
+            epochs=epochs,
+            steps_per_epoch=len(probabilistic_unet.train_loader),
+        )
+
     logger.info("Initialization done.")
 
     # start a new wandb run to track this script
     if save_experiment:
-        run_name = f'{model_name}_{time_horizon}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
+        run_name = f'{model_name}_{time_horizon}_{crop_or_downsample}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
             project=project,
             name=run_name,
@@ -219,6 +225,7 @@ def main(
                 "optimizer": optimizer,
                 "scheduler": scheduler,
                 "learning_rate": learning_rate,
+                "max_lr": max_lr,
                 "architecture": probabilistic_unet.name,
                 "dataset": dataset,
                 "epochs": epochs,
@@ -234,7 +241,13 @@ def main(
                 "output_activation": output_activation,
                 "num_filters": num_filters,
                 "cos_dim": cos_dim,
+<<<<<<< HEAD
                 "crop_or_downsample": crop_or_downsample,
+=======
+                "spatial_context": spatial_context,
+                "crop_or_downsample": crop_or_downsample,
+                "spatial_context": spatial_context,
+>>>>>>> 8a86d0e4c77658bce1ec5fe3d15195b8a9b6bad3
             },
         )
 

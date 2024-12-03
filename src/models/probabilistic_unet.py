@@ -91,9 +91,20 @@ class UNetPipeline(ABC):
         gamma: float,
         patience: int,
         min_lr: float,
+        max_lr: float = 0.1,
+        epochs: int = 50,
+        steps_per_epoch: int = 20000,
     ):
         self.scheduler = scheduler_init(
-            self.optimizer, method, step_size, gamma, patience, min_lr
+            self.optimizer,
+            method,
+            step_size,
+            gamma,
+            patience,
+            min_lr,
+            max_lr,
+            epochs,
+            steps_per_epoch,
         )
 
     def create_dataloaders(
