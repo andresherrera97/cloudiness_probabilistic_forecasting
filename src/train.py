@@ -56,6 +56,7 @@ def main(
     num_filters: int = 16,
     n_components: int = 3,
     learning_rate: float = 1e-3,
+    max_lr: float = 0.1,
     quantiles: Optional[List[float]] = None,
     predict_diff: bool = False,
     dropout_p: Optional[float] = None,
@@ -66,6 +67,8 @@ def main(
     save_experiment: bool = False,
     binarization_method: Optional[str] = None,
     cos_dim: Optional[int] = None,
+    crop_or_downsample: Optional[str] = None,
+    project: str = "cloud_probabilistic_forecasting",
 ):
     set_all_seeds(0)
 
@@ -140,6 +143,7 @@ def main(
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Output activation: {output_activation}")
+        logger.info(f"    - Crop or downsample: {crop_or_downsample}")
         probabilistic_unet = DeterministicUNet(config=unet_config)
     elif model_name.lower() in ["iqn", "iqn_unet"]:
         num_taus = num_bins - 1
@@ -176,14 +180,7 @@ def main(
     probabilistic_unet.model.to(device)
     probabilistic_unet.initialize_weights()
     probabilistic_unet.initialize_optimizer(method=optimizer, lr=learning_rate)
-    if scheduler is not None:
-        probabilistic_unet.initialize_scheduler(
-            method=scheduler,
-            step_size=20,
-            gamma=0.3,
-            patience=20,
-            min_lr=1e-7,
-        )
+    # initialize dataloaders
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
     elif dataset.lower() in ["goes16", "satellite", "sat"]:
@@ -200,21 +197,35 @@ def main(
         batch_size=batch_size,
         time_horizon=time_horizon,
         binarization_method=binarization_method,  # needed for BinClassifierUNet
+        crop_or_downsample=crop_or_downsample,
     )
+
+    if scheduler is not None:
+        probabilistic_unet.initialize_scheduler(
+            method=scheduler,
+            step_size=20,
+            gamma=0.3,
+            patience=20,
+            min_lr=1e-7,
+            max_lr=max_lr,
+            epochs=epochs,
+            steps_per_epoch=len(probabilistic_unet.train_loader),
+        )
 
     logger.info("Initialization done.")
 
     # start a new wandb run to track this script
     if save_experiment:
-        run_name = f'{model_name}_{time_horizon}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
+        run_name = f'{model_name}_{time_horizon}_{crop_or_downsample}_{datetime.datetime.now().strftime("%Y-%m-%d")}'
         run = wandb.init(
-            project="cloud_probabilistic_forecasting",
+            project=project,
             name=run_name,
             config={
                 "time_horizon": time_horizon,
                 "optimizer": optimizer,
                 "scheduler": scheduler,
                 "learning_rate": learning_rate,
+                "max_lr": max_lr,
                 "architecture": probabilistic_unet.name,
                 "dataset": dataset,
                 "epochs": epochs,
@@ -230,6 +241,8 @@ def main(
                 "output_activation": output_activation,
                 "num_filters": num_filters,
                 "cos_dim": cos_dim,
+                "spatial_context": spatial_context,
+                "crop_or_downsample": crop_or_downsample,
                 "spatial_context": spatial_context,
             },
         )

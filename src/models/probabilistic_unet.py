@@ -91,9 +91,20 @@ class UNetPipeline(ABC):
         gamma: float,
         patience: int,
         min_lr: float,
+        max_lr: float = 0.1,
+        epochs: int = 50,
+        steps_per_epoch: int = 20000,
     ):
         self.scheduler = scheduler_init(
-            self.optimizer, method, step_size, gamma, patience, min_lr
+            self.optimizer,
+            method,
+            step_size,
+            gamma,
+            patience,
+            min_lr,
+            max_lr,
+            epochs,
+            steps_per_epoch,
         )
 
     def create_dataloaders(
@@ -103,6 +114,7 @@ class UNetPipeline(ABC):
         batch_size: int,
         time_horizon: int,
         binarization_method: Optional[str] = None,
+        crop_or_downsample: Optional[str] = None,
     ):
         self.batch_size = batch_size
         self.time_horizon = time_horizon
@@ -132,6 +144,7 @@ class UNetPipeline(ABC):
                 binarization_method=binarization_method,
                 expected_time_diff=10,
                 inpaint_pct_threshold=1.0,
+                crop_or_downsample=crop_or_downsample,
             )
 
             val_dataset = GOES16Dataset(
@@ -143,6 +156,7 @@ class UNetPipeline(ABC):
                 binarization_method=binarization_method,
                 expected_time_diff=10,
                 inpaint_pct_threshold=1.0,
+                crop_or_downsample=crop_or_downsample,
             )
 
         else:
