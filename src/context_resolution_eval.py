@@ -10,6 +10,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ContextResolutionEval")
 
 
+models_to_test = [None, "down_2", "down_4", "down_8", "down_16", "down_32",
+                  "crop_512", "crop_512_down_2", "crop_512_down_4", "crop_256"]
+
+
 def get_model_path(
     crop_or_downsample: Optional[str],
     time_horizon: int = 60,
@@ -219,6 +223,7 @@ def main(
     batch_size: int = 1,
     upsample_method: str = "nearest",
     eval_crop_size: int = 32,
+    test_all_models: bool = False,
 ):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
@@ -234,7 +239,8 @@ def main(
     logger.info(f"    - input_frames: {input_frames}")
     logger.info(f"    - filters: {num_filters}")
     logger.info(f"    - Output activation: {output_activation}")
-    logger.info(f"    - Crop or downsample: {crop_or_downsample}")
+    if not test_all_models:
+        logger.info(f"    - Crop or downsample: {crop_or_downsample}")
     unet = DeterministicUNet(config=unet_config)
 
     unet.model.to(device)
@@ -252,18 +258,30 @@ def main(
         crop_or_downsample=None,
     )
 
-    unet.model.to(device)
-    checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
-    unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
+    if test_all_models:
+        for crop_or_downsample in models_to_test:
+            checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
+            unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
+            val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = evaluate_model(
+                unet, device, eval_crop_size, crop_or_downsample, upsample_method
+            )
+            logger.info(f"Model: {crop_or_downsample}")
+            logger.info(f"Validation loss: {val_loss_in_epoch}")
+            logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
+            for key, value in forecasting_metrics.items():
+                logger.info(f"{key}: {value}")
+    else:
+        checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
+        unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
 
-    val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = evaluate_model(
-        unet, device, eval_crop_size, crop_or_downsample, upsample_method
-    )
+        val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = evaluate_model(
+            unet, device, eval_crop_size, crop_or_downsample, upsample_method
+        )
 
-    logger.info(f"Validation loss: {val_loss_in_epoch}")
-    logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
-    for key, value in forecasting_metrics.items():
-        logger.info(f"{key}: {value}")
+        logger.info(f"Validation loss: {val_loss_in_epoch}")
+        logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
+        for key, value in forecasting_metrics.items():
+            logger.info(f"{key}: {value}")
 
 
 if __name__ == "__main__":
