@@ -3,6 +3,7 @@ import fire
 import logging
 from models import DeterministicUNet, UNetConfig
 from typing import Optional
+import pandas as pd
 
 
 # Configure logging
@@ -10,8 +11,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ContextResolutionEval")
 
 
-models_to_test = [None, "down_2", "down_4", "down_8", "down_16", "down_32",
-                  "crop_512", "crop_512_down_2", "crop_512_down_4", "crop_256"]
+models_to_test = [
+    None,
+    "down_2",
+    "down_4",
+    "down_8",
+    "down_16",
+    "down_32",
+    "crop_512",
+    "crop_512_down_2",
+    "crop_512_down_4",
+    "crop_256",
+]
 
 
 def get_model_path(
@@ -259,23 +270,41 @@ def main(
     )
 
     if test_all_models:
+
+        results = []
+
         for crop_or_downsample in models_to_test:
             checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
             unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
-            val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = evaluate_model(
-                unet, device, eval_crop_size, crop_or_downsample, upsample_method
+            val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = (
+                evaluate_model(
+                    unet, device, eval_crop_size, crop_or_downsample, upsample_method
+                )
             )
             logger.info(f"Model: {crop_or_downsample}")
             logger.info(f"Validation loss: {val_loss_in_epoch}")
             logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
             for key, value in forecasting_metrics.items():
                 logger.info(f"{key}: {value}")
+
+            result = {
+                "model": crop_or_downsample,
+                "val_loss": val_loss_in_epoch,
+                "val_loss_cropped": val_loss_cropped_in_epoch,
+                **forecasting_metrics,
+            }
+            results.append(result)
+
+        df_results = pd.DataFrame(results)
+        df_results.to_csv("evaluation_results.csv", index=False)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
         unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
 
-        val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = evaluate_model(
-            unet, device, eval_crop_size, crop_or_downsample, upsample_method
+        val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = (
+            evaluate_model(
+                unet, device, eval_crop_size, crop_or_downsample, upsample_method
+            )
         )
 
         logger.info(f"Validation loss: {val_loss_in_epoch}")
