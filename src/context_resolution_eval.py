@@ -225,6 +225,9 @@ def main(
     overwrite: bool = False,
     run_id: str = "",
 ):
+    if upsample_method not in ["nearest", "bilinear", "bicubic", "trilinear"]:
+        raise ValueError("Invalid upsample method")
+
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
 
