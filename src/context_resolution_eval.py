@@ -212,7 +212,7 @@ def evaluate_model(
 
 
 def main(
-    crop_or_downsample: str,
+    crop_or_downsample: Optional[str] = None,
     input_frames: int = 3,
     spatial_context: int = 0,
     output_activation: str = "sigmoid",
@@ -279,8 +279,6 @@ def main(
             df_previous_results = pd.read_csv("evaluation_results.csv")
             models_tested = df_previous_results["model"].values
             models_to_test = [model for model in trained_models if model not in models_tested]
-            if math.isnan(models_to_test[0]):
-                models_to_test[0] = None
         else:
             models_to_test = trained_models
             df_previous_results = None
