@@ -223,6 +223,7 @@ def main(
     eval_crop_size: int = 32,
     test_all_models: bool = False,
     overwrite: bool = False,
+    run_id: str = "",
 ):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
@@ -287,6 +288,7 @@ def main(
         results = []
 
         for crop_or_downsample in models_to_test:
+            logger.info(f"Testing model: {crop_or_downsample}")
             checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
             unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
             val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = (
@@ -311,7 +313,7 @@ def main(
         df_results = pd.DataFrame(results)
         if df_previous_results is not None:
             df_results = pd.concat([df_previous_results, df_results], ignore_index=True)
-        df_results.to_csv("evaluation_results.csv", index=False)
+        df_results.to_csv(f"evaluation_results{run_id}.csv", index=False)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
         unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
