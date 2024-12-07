@@ -277,11 +277,13 @@ def main(
 
         if not overwrite:
             df_previous_results = pd.read_csv("evaluation_results.csv")
-            models_tested = df_previous_results["model"].values
+            models_tested = df_previous_results["model"].values.tolist()
             models_to_test = [model for model in trained_models if model not in models_tested]
         else:
             models_to_test = trained_models
             df_previous_results = None
+
+        logger.info(f"Models to test: {models_to_test}")
 
         results = []
 
