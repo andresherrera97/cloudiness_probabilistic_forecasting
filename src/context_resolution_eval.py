@@ -276,9 +276,14 @@ def main(
         ]
 
         if not overwrite:
-            df_previous_results = pd.read_csv("evaluation_results.csv")
-            models_tested = df_previous_results["model"].values.tolist()
-            models_to_test = [model for model in trained_models if model not in models_tested]
+            try:
+                df_previous_results = pd.read_csv(f"evaluation_results{run_id}.csv")
+                models_tested = df_previous_results["model"].values.tolist()
+                models_to_test = [model for model in trained_models if model not in models_tested]
+            except FileNotFoundError:
+                logger.warning("No previous results found")
+                models_to_test = trained_models
+                df_previous_results = None
         else:
             models_to_test = trained_models
             df_previous_results = None
