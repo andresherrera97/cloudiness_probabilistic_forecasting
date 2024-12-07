@@ -1,3 +1,4 @@
+import math
 import torch
 import fire
 import logging
@@ -9,20 +10,6 @@ import pandas as pd
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ContextResolutionEval")
-
-
-models_to_test = [
-    None,
-    "down_2",
-    "down_4",
-    "down_8",
-    "down_16",
-    "down_32",
-    "crop_512",
-    "crop_512_down_2",
-    "crop_512_down_4",
-    "crop_256",
-]
 
 
 def get_model_path(
@@ -56,9 +43,9 @@ def get_model_path(
         elif crop_or_downsample == "crop_512_down_4":
             return "checkpoints/goes16/60min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-03_09:15.pt"
         elif crop_or_downsample == "crop_512_down_8":
-            raise ValueError("Not implemented")
+            return "checkpoints/goes16/60min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-03_18:25.pt"
         elif crop_or_downsample == "crop_512_down_16":
-            raise ValueError("Not implemented")
+            return "checkpoints/goes16/60min_crop_512_down_16/det/UNet_IN3_F32_SC0_BS_4_TH60_E12_BVM0_05_D2024-12-03_08:11.pt"
         elif (
             crop_or_downsample == "crop_256" or crop_or_downsample == "crop_256_down_1"
         ):
@@ -235,6 +222,7 @@ def main(
     upsample_method: str = "nearest",
     eval_crop_size: int = 32,
     test_all_models: bool = False,
+    overwrite: bool = False,
 ):
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
@@ -271,6 +259,31 @@ def main(
 
     if test_all_models:
 
+        trained_models = [
+            None,
+            "down_2",
+            "down_4",
+            "down_8",
+            "down_16",
+            "down_32",
+            "crop_512",
+            "crop_512_down_2",
+            "crop_512_down_4",
+            "crop_512_down_8",
+            "crop_512_down_16",
+            "crop_256",
+        ]
+
+        if not overwrite:
+            df_previous_results = pd.read_csv("evaluation_results.csv")
+            models_tested = df_previous_results["model"].values
+            models_to_test = [model for model in trained_models if model not in models_tested]
+            if math.isnan(models_to_test[0]):
+                models_to_test[0] = None
+        else:
+            models_to_test = trained_models
+            df_previous_results = None
+
         results = []
 
         for crop_or_downsample in models_to_test:
@@ -296,6 +309,8 @@ def main(
             results.append(result)
 
         df_results = pd.DataFrame(results)
+        if df_previous_results is not None:
+            df_results = pd.concat([df_previous_results, df_results], ignore_index=True)
         df_results.to_csv("evaluation_results.csv", index=False)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
