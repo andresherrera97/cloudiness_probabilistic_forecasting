@@ -191,7 +191,7 @@ def evaluate_model(
 
                 frames_pred_upsample = upsample_function(frames_pred)
                 persistence_pred_upsample = upsample_function(
-                    in_frames[
+                    in_frames_processed[
                         :,
                         unet.in_frames - 1 :,
                     ]
