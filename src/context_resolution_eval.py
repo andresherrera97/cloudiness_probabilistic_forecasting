@@ -1,4 +1,3 @@
-import math
 import torch
 import fire
 import logging
@@ -37,7 +36,6 @@ def get_model_path(
             crop_or_downsample == "crop_512" or crop_or_downsample == "crop_512_down_1"
         ):
             return "checkpoints/goes16/60min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-02_15:39.pt"
-        # to update if necessary
         elif crop_or_downsample == "crop_512_down_2":
             return "checkpoints/goes16/60min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-03_09:15.pt"
         elif crop_or_downsample == "crop_512_down_4":
@@ -51,7 +49,12 @@ def get_model_path(
         ):
             return "checkpoints/goes16/60min_crop_256_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E10_BVM0_06_D2024-12-03_00:52.pt"
         elif crop_or_downsample == "crop_256_down_2":
-            raise ValueError("Not implemented")
+            return "checkpoints/goes16/60min_crop_256_down_2_w_bug/det/UNet_IN3_F32_SC0_BS_4_TH60_E23_BVM0_06_D2024-12-07_23:01.pt"
+        # check if correct results
+        elif crop_or_downsample == "crop_256_down_4":
+            return "checkpoints/goes16/60min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_06_D2024-12-06_06:08.pt"
+        else:
+            raise ValueError("Invalid crop_or_downsample value")
 
 
 def crop_or_downsample_image(
@@ -115,6 +118,23 @@ def get_crop_size(crop_or_downsample: Optional[str]):
     return 1024
 
 
+def evaluate_persistence_sampling_error(
+    unet: DeterministicUNet,
+    target: torch.Tensor,
+    persistence_pred: torch.Tensor,
+    persistence_upsample_pred: torch.Tensor,
+):
+    persistence_error = unet.calculate_loss(persistence_pred, target)
+    persistence_upsample_error = unet.calculate_loss(persistence_upsample_pred, target)
+    return 1 - (persistence_upsample_error / persistence_error)
+
+
+def calculate_reconstruction_error(
+    unet: DeterministicUNet, target: torch.Tensor, target_upsampled: torch.Tensor
+):
+    return unet.calculate_loss(target, target_upsampled)
+
+
 def evaluate_model(
     unet: DeterministicUNet,
     device: str,
@@ -131,6 +151,8 @@ def evaluate_model(
     val_loss_per_batch = []  # stores values for this validation run
     val_loss_cropped_per_batch = []  # stores values for this validation run
     unet.deterministic_metrics.start_epoch()
+    upsample_forecasting_error_per_batch = []
+    reconstruction_error_per_batch = []
 
     with torch.no_grad():
         for val_batch_idx, (in_frames, out_frames) in enumerate(unet.val_loader):
@@ -168,6 +190,13 @@ def evaluate_model(
                 ]
 
                 frames_pred_upsample = upsample_function(frames_pred)
+                persistence_pred_upsample = upsample_function(
+                    in_frames[
+                        :,
+                        unet.in_frames - 1 :,
+                    ]
+                )
+                out_frames_processed_upsample = upsample_function(out_frames_processed)
                 original_crop_size = frames_pred_upsample.shape[-1]
                 if original_crop_size != expected_crop_size:
                     raise ValueError(
@@ -181,6 +210,26 @@ def evaluate_model(
                         crop_border_pred:-crop_border_pred,
                         crop_border_pred:-crop_border_pred,
                     ]
+                    persistence_pred_upsample_cropped = persistence_pred_upsample[
+                        :,
+                        :,
+                        crop_border_pred:-crop_border_pred,
+                        crop_border_pred:-crop_border_pred,
+                    ]
+                    out_frames_processed_upsample_cropped = (
+                        out_frames_processed_upsample[
+                            :,
+                            :,
+                            crop_border_pred:-crop_border_pred,
+                            crop_border_pred:-crop_border_pred,
+                        ]
+                    )
+                else:
+                    frames_pred_upsample_cropped = frames_pred_upsample
+                    persistence_pred_upsample_cropped = persistence_pred_upsample
+                    out_frames_processed_upsample_cropped = (
+                        out_frames_processed_upsample
+                    )
 
                 if (
                     out_frames_cropped.shape[-1]
@@ -203,12 +252,38 @@ def evaluate_model(
                     eps=1e-5,
                 )
 
+                upsample_forecasting_error = evaluate_persistence_sampling_error(
+                    unet,
+                    target=out_frames_cropped,
+                    persistence_pred=persistence_pred_cropped,
+                    persistence_upsample_pred=persistence_pred_upsample_cropped,
+                )
+                upsample_forecasting_error_per_batch.append(upsample_forecasting_error)
+
+                reconstruction_error_per_batch.append(
+                    calculate_reconstruction_error(
+                        unet, out_frames_cropped, out_frames_processed_upsample_cropped
+                    )
+                )
+
     val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
     val_loss_cropped_in_epoch = sum(val_loss_cropped_per_batch) / len(
         val_loss_cropped_per_batch
     )
     forecasting_metrics = unet.deterministic_metrics.end_epoch()
-    return val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics
+    reconstruction_error = sum(reconstruction_error_per_batch) / len(
+        reconstruction_error_per_batch
+    )
+    upsample_forecasting_error = sum(upsample_forecasting_error_per_batch) / len(
+        upsample_forecasting_error_per_batch
+    )
+    return (
+        val_loss_in_epoch,
+        val_loss_cropped_in_epoch,
+        forecasting_metrics,
+        reconstruction_error,
+        upsample_forecasting_error,
+    )
 
 
 def main(
@@ -276,13 +351,18 @@ def main(
             "crop_512_down_8",
             "crop_512_down_16",
             "crop_256",
+            "crop_256_down_2",
         ]
 
         if not overwrite:
             try:
                 df_previous_results = pd.read_csv(f"evaluation_results{run_id}.csv")
                 models_tested = df_previous_results["model"].values.tolist()
-                models_to_test = [model for model in trained_models if model not in models_tested]
+                models_to_test = [
+                    model for model in trained_models if model not in models_tested
+                ]
+                if models_to_test[0] is None:
+                    models_to_test = models_to_test[1:]
             except FileNotFoundError:
                 logger.warning("No previous results found")
                 models_to_test = trained_models
@@ -299,14 +379,19 @@ def main(
             logger.info(f"Testing model: {crop_or_downsample}")
             checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
             unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
-            val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = (
-                evaluate_model(
-                    unet, device, eval_crop_size, crop_or_downsample, upsample_method
-                )
+            (
+                val_loss_in_epoch,
+                val_loss_cropped_in_epoch,
+                forecasting_metrics,
+                reconstruction_error,
+                upsample_forecasting_error,
+            ) = evaluate_model(
+                unet, device, eval_crop_size, crop_or_downsample, upsample_method
             )
             logger.info(f"Model: {crop_or_downsample}")
             logger.info(f"Validation loss: {val_loss_in_epoch}")
             logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
+            logger.info(f"Reconstruction error: {reconstruction_error}")
             for key, value in forecasting_metrics.items():
                 logger.info(f"{key}: {value}")
 
@@ -314,6 +399,8 @@ def main(
                 "model": crop_or_downsample,
                 "val_loss": val_loss_in_epoch,
                 "val_loss_cropped": val_loss_cropped_in_epoch,
+                "reconstruction_error": reconstruction_error,
+                "upsample_forecasting_error": upsample_forecasting_error,
                 **forecasting_metrics,
             }
             results.append(result)
@@ -326,14 +413,20 @@ def main(
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
         unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
 
-        val_loss_in_epoch, val_loss_cropped_in_epoch, forecasting_metrics = (
-            evaluate_model(
-                unet, device, eval_crop_size, crop_or_downsample, upsample_method
-            )
+        (
+            val_loss_in_epoch,
+            val_loss_cropped_in_epoch,
+            forecasting_metrics,
+            reconstruction_error,
+            upsample_forecasting_error,
+        ) = evaluate_model(
+            unet, device, eval_crop_size, crop_or_downsample, upsample_method
         )
 
         logger.info(f"Validation loss: {val_loss_in_epoch}")
         logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
+        logger.info(f"Reconstruction error: {reconstruction_error}")
+        logger.info(f"Upsample forecasting error: {upsample_forecasting_error}")
         for key, value in forecasting_metrics.items():
             logger.info(f"{key}: {value}")
 
