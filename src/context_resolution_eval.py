@@ -368,8 +368,8 @@ def main(
             "crop_256",
             "crop_256_down_2",
             "crop_256_down_4",
-            "crop_256_down_8"
-            "crop_128_down_4"
+            "crop_256_down_8",
+            "crop_128_down_4",
             "crop_64_down_2",
         ]
 
