@@ -53,6 +53,21 @@ def get_model_path(
         # check if correct results
         elif crop_or_downsample == "crop_256_down_4":
             return "checkpoints/goes16/60min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_06_D2024-12-06_06:08.pt"
+        elif crop_or_downsample == "crop_256_down_8":
+            # check if improved
+            return "checkpoints/goes16/60min_crop_256_down_8/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_06_D2024-12-10_21:12.pt"
+        elif crop_or_downsample == "crop_128":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_128_down_2":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_128_down_4":
+            return "checkpoints/goes16/60min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E10_BVM0_06_D2024-12-10_13:03.pt"
+        elif crop_or_downsample == "crop_64":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_64_down_2":
+            return "checkpoints/goes16/60min_crop_64_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E70_BVM0_07_D2024-12-10_05:23.pt"
+        elif crop_or_downsample == "crop_32":
+            raise ValueError("Model not trained")
         else:
             raise ValueError("Invalid crop_or_downsample value")
 
@@ -281,8 +296,8 @@ def evaluate_model(
         val_loss_in_epoch,
         val_loss_cropped_in_epoch,
         forecasting_metrics,
-        reconstruction_error,
-        upsample_forecasting_error,
+        reconstruction_error.item(),
+        upsample_forecasting_error.item(),
     )
 
 
@@ -352,6 +367,8 @@ def main(
             "crop_512_down_16",
             "crop_256",
             "crop_256_down_2",
+            "crop_256_down_4",
+            "crop_64_down_2",
         ]
 
         if not overwrite:
