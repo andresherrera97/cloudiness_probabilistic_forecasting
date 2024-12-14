@@ -98,6 +98,7 @@ class GOES16Dataset(Dataset):
         # Check if there are sequences with black images
         num_seq_before = len(self.sequence_df)
         self.sequence_df = filter_df_by_black_images(self.sequence_df, path)
+        self.sequence_df = self.sequence_df.sort_values(by=self.sequence_df.columns[0])
         self._logger.info(
             f"Number of sequences filtered by black images: {num_seq_before - len(self.sequence_df)}"
         )
@@ -136,7 +137,9 @@ class GOES16Dataset(Dataset):
                     ):
                         # crop_X_down_Y
                         if self.crop_or_downsample.split("_")[0] != "crop":
-                            raise ValueError("Invalid crop_or_downsample value, first crop")
+                            raise ValueError(
+                                "Invalid crop_or_downsample value, first crop"
+                            )
                         crop_value = int(self.crop_or_downsample.split("_")[1])
                         down_value = int(self.crop_or_downsample.split("_")[3])
                         border_value = (1024 - crop_value) // 2

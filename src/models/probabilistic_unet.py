@@ -115,6 +115,7 @@ class UNetPipeline(ABC):
         time_horizon: int,
         binarization_method: Optional[str] = None,
         crop_or_downsample: Optional[str] = None,
+        shuffle: bool = True,
     ):
         self.batch_size = batch_size
         self.time_horizon = time_horizon
@@ -163,9 +164,9 @@ class UNetPipeline(ABC):
             raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=True
+            train_dataset, batch_size=batch_size, shuffle=shuffle
         )
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle)
 
         # Get one sample from train_loader and val_loader to check they have the same size
         train_input_sample, train_output_sample = next(iter(self.train_loader))
