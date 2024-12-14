@@ -57,13 +57,13 @@ def get_model_path(
             # check if improved
             return "checkpoints/goes16/60min_crop_256_down_8/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_06_D2024-12-10_21:12.pt"
         elif crop_or_downsample == "crop_128":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/60min_crop_128_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E41_BVM0_07_D2024-12-13_22:43.pt"
         elif crop_or_downsample == "crop_128_down_2":
             raise ValueError("Model not trained")
         elif crop_or_downsample == "crop_128_down_4":
             return "checkpoints/goes16/60min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E10_BVM0_06_D2024-12-10_13:03.pt"
         elif crop_or_downsample == "crop_64":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/60min_crop_64_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E6_BVM0_07_D2024-12-12_09:49.pt"
         elif crop_or_downsample == "crop_64_down_2":
             return "checkpoints/goes16/60min_crop_64_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E70_BVM0_07_D2024-12-10_05:23.pt"
         elif crop_or_downsample == "crop_32":
@@ -369,7 +369,9 @@ def main(
             "crop_256_down_2",
             "crop_256_down_4",
             "crop_256_down_8",
+            "crop_128",
             "crop_128_down_4",
+            "crop_64",
             "crop_64_down_2",
         ]
 
@@ -427,7 +429,7 @@ def main(
         df_results = pd.DataFrame(results)
         if df_previous_results is not None:
             df_results = pd.concat([df_previous_results, df_results], ignore_index=True)
-        df_results.to_csv(f"evaluation_results{run_id}.csv", index=False)
+        df_results.to_csv(f"evaluation_results_TH{time_horizon}_{run_id}.csv", index=False)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
         unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
