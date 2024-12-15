@@ -192,15 +192,15 @@ class DeterministicMetrics:
             Dictionary containing all metrics.
         """
         self.per_batch_metrics["relative_rmse"].append(
-            self.relative_rmse(y_true, y_pred, pixel_wise, eps)
+            self.relative_rmse(y_true, y_pred, pixel_wise, eps).item()
         )
         self.per_batch_metrics["relative_mae"].append(
-            self.relative_mae(y_true, y_pred, pixel_wise, eps)
+            self.relative_mae(y_true, y_pred, pixel_wise, eps).item()
         )
         self.per_batch_metrics["forecasting_skill"].append(
-            self.forecasting_skill(y_true, y_pred, y_persistence)
+            self.forecasting_skill(y_true, y_pred, y_persistence).item()
         )
-        self.per_batch_metrics["rmse"].append(self.rmse(y_true, y_pred))
+        self.per_batch_metrics["rmse"].append(self.rmse(y_true, y_pred).item())
 
     def run_all_metrics(
         self,

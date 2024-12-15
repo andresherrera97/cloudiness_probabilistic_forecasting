@@ -378,12 +378,12 @@ def evaluate_model(
                     persistence_pred=persistence_pred_cropped,
                     persistence_upsample_pred=persistence_pred_upsample_cropped,
                 )
-                upsample_forecasting_error_per_batch.append(upsample_forecasting_error)
+                upsample_forecasting_error_per_batch.append(upsample_forecasting_error.item())
 
                 reconstruction_error_per_batch.append(
                     calculate_reconstruction_error(
                         unet, out_frames_cropped, out_frames_processed_upsample_cropped
-                    )
+                    ).item()
                 )
 
             if debug and val_batch_idx == 5:
@@ -590,10 +590,10 @@ def main(
             )
         else:
             with open(f"evaluation_results_TH{time_horizon}_{run_id}.json", "w") as f:
-                for key, value in results_json.items():
-                    results_json[key] = {
-                        k: v.item() for k, v in value.items() if isinstance(v, torch.Tensor)
-                    }
+                # for key, value in results_json.items():
+                #     results_json[key] = {
+                #         k: v.item() for k, v in value.items() if isinstance(v, torch.Tensor)
+                #     }
                 json.dump(results_json, f)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
