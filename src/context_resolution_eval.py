@@ -590,6 +590,10 @@ def main(
             )
         else:
             with open(f"evaluation_results_TH{time_horizon}_{run_id}.json", "w") as f:
+                for key, value in results_json.items():
+                    results_json[key] = {
+                        k: v.item() for k, v in value.items() if isinstance(v, torch.Tensor)
+                    }
                 json.dump(results_json, f)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
