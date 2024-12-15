@@ -370,7 +370,7 @@ def evaluate_model(
                 mae_fs = 1 - torch.mean(
                     abs(out_frames_cropped - frames_pred_upsample_cropped)
                 ) / torch.mean(abs(out_frames_cropped - persistence_pred_cropped))
-                mae_fs_per_batch.append(mae_fs)
+                mae_fs_per_batch.append(mae_fs.item())
 
                 upsample_forecasting_error = evaluate_persistence_sampling_error(
                     unet,
