@@ -11,6 +11,7 @@ class DeterministicMetrics:
             "relative_rmse": [],
             "relative_mae": [],
             "forecasting_skill": [],
+            "rmse": [],
         }
 
     def end_epoch(self) -> Dict[str, float]:
@@ -18,6 +19,27 @@ class DeterministicMetrics:
             key: torch.mean(torch.tensor(values)).item()
             for key, values in self.per_batch_metrics.items()
         }
+
+    def return_per_batch_metrics(self) -> Dict[str, float]:
+        return self.per_batch_metrics
+
+    def rmse(self, y_true: torch.Tensor, y_pred: torch.Tensor):
+        """
+        Computes the root mean squared error.
+
+        Parameters
+        ----------
+        y_true : torch.tensor
+            True values.
+        y_pred : torch.tensor
+            Predicted values.
+
+        Returns
+        -------
+        float
+            Root mean squared error.
+        """
+        return torch.sqrt(torch.mean((y_true - y_pred) ** 2))
 
     def relative_rmse(
         self,
@@ -178,6 +200,7 @@ class DeterministicMetrics:
         self.per_batch_metrics["forecasting_skill"].append(
             self.forecasting_skill(y_true, y_pred, y_persistence)
         )
+        self.per_batch_metrics["rmse"].append(self.rmse(y_true, y_pred))
 
     def run_all_metrics(
         self,
@@ -208,4 +231,5 @@ class DeterministicMetrics:
             "relative_rmse": self.relative_rmse(y_true, y_pred, pixel_wise, eps).item(),
             "relative_mae": self.relative_mae(y_true, y_pred, pixel_wise, eps).item(),
             "forecasting_skill": self.forecasting_skill(y_true, y_pred, y_persistence).item(),
+            "rmse": self.rmse(y_true, y_pred).item(),
         }

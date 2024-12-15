@@ -1,3 +1,4 @@
+import json
 import torch
 import fire
 import logging
@@ -70,6 +71,101 @@ def get_model_path(
             raise ValueError("Model not trained")
         else:
             raise ValueError("Invalid crop_or_downsample value")
+    elif time_horizon == 300:
+        if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
+            return "checkpoints/goes16/det32_300min_CROP0_DOWN0/det/UNet_IN3_F32_SC0_BS_4_TH300_E13_BVM0_10_D2024-11-26_20:28.pt"
+        elif crop_or_downsample == "down_2" or crop_or_downsample == "crop_1024_down_2":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "down_4" or crop_or_downsample == "crop_1024_down_4":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "down_8" or crop_or_downsample == "crop_1024_down_8":
+            raise ValueError("Model not trained")
+        elif (
+            crop_or_downsample == "down_16" or crop_or_downsample == "crop_1024_down_16"
+        ):
+            raise ValueError("Model not trained")
+        elif (
+            crop_or_downsample == "down_32" or crop_or_downsample == "crop_1024_down_32"
+        ):
+            raise ValueError("Model not trained")
+        elif (
+            crop_or_downsample == "crop_512" or crop_or_downsample == "crop_512_down_1"
+        ):
+            return "checkpoints/goes16/512min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH300_E36_BVM0_10_D2024-12-15_08:24.pt"
+        elif crop_or_downsample == "crop_512_down_2":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_512_down_4":
+            return "checkpoints/goes16/512min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2024-12-14_04:50.pt"
+        elif crop_or_downsample == "crop_512_down_8":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_512_down_16":
+            raise ValueError("Model not trained")
+        elif (
+            crop_or_downsample == "crop_256" or crop_or_downsample == "crop_256_down_1"
+        ):
+            return "checkpoints/goes16/300min_crop_256_down_1/det/UNet_IN3_F32_SC0_BS_4_TH300_E36_BVM0_10_D2024-12-15_08:24.pt"
+        elif crop_or_downsample == "crop_256_down_2":
+            raise ValueError("Model not trained")
+        # check if correct results
+        elif crop_or_downsample == "crop_256_down_4":
+            return "checkpoints/goes16/300min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2024-12-14_04:50.pt"
+        elif crop_or_downsample == "crop_256_down_8":
+            # check if improved
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_128":
+            return "checkpoints/goes16/300min_crop_128_down_1/det/UNet_IN3_F32_SC0_BS_4_TH300_E15_BVM0_11_D2024-12-14_02:01.pt"
+        elif crop_or_downsample == "crop_128_down_2":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_128_down_4":
+            return "checkpoints/goes16/300min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2024-12-14_01:36.pt"
+        elif crop_or_downsample == "crop_64":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_64_down_2":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "crop_32":
+            raise ValueError("Model not trained")
+        else:
+            raise ValueError("Invalid crop_or_downsample value")
+    else:
+        raise ValueError("Invalid time horizon")
+
+
+def get_trained_models(time_horizon: int = 60):
+    if time_horizon == 60:
+        trained_models = [
+            None,
+            "down_2",
+            "down_4",
+            "down_8",
+            "down_16",
+            "down_32",
+            "crop_512",
+            "crop_512_down_2",
+            "crop_512_down_4",
+            "crop_512_down_8",
+            "crop_512_down_16",
+            "crop_256",
+            "crop_256_down_2",
+            "crop_256_down_4",
+            "crop_256_down_8",
+            "crop_128",
+            "crop_128_down_4",
+            "crop_64",
+            "crop_64_down_2",
+        ]
+    elif time_horizon == 300:
+        trained_models = [
+            None,
+            "crop_512",
+            "crop_512_down_4",
+            "crop_256",
+            "crop_256_down_4",
+            "crop_128",
+            "crop_128_down_4",
+        ]
+    else:
+        raise ValueError("Invalid time horizon")
+    return trained_models
 
 
 def crop_or_downsample_image(
@@ -156,6 +252,8 @@ def evaluate_model(
     eval_crop_size: int = 32,
     crop_or_downsample: Optional[str] = None,
     upsample_method: str = "nearest",
+    return_average: bool = False,
+    debug: bool = False,
 ):
     scale_factor = get_upscale_factor(crop_or_downsample)
     upsample_function = torch.nn.Upsample(
@@ -168,6 +266,7 @@ def evaluate_model(
     unet.deterministic_metrics.start_epoch()
     upsample_forecasting_error_per_batch = []
     reconstruction_error_per_batch = []
+    mae_fs_per_batch = []
 
     with torch.no_grad():
         for val_batch_idx, (in_frames, out_frames) in enumerate(unet.val_loader):
@@ -267,6 +366,12 @@ def evaluate_model(
                     eps=1e-5,
                 )
 
+                # MAE forecasting skill
+                mae_fs = 1 - torch.mean(
+                    abs(out_frames_cropped - frames_pred_upsample_cropped)
+                ) / torch.mean(abs(out_frames_cropped - persistence_pred_cropped))
+                mae_fs_per_batch.append(mae_fs)
+
                 upsample_forecasting_error = evaluate_persistence_sampling_error(
                     unet,
                     target=out_frames_cropped,
@@ -281,23 +386,40 @@ def evaluate_model(
                     )
                 )
 
-    val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
-    val_loss_cropped_in_epoch = sum(val_loss_cropped_per_batch) / len(
-        val_loss_cropped_per_batch
-    )
-    forecasting_metrics = unet.deterministic_metrics.end_epoch()
-    reconstruction_error = sum(reconstruction_error_per_batch) / len(
-        reconstruction_error_per_batch
-    )
-    upsample_forecasting_error = sum(upsample_forecasting_error_per_batch) / len(
-        upsample_forecasting_error_per_batch
-    )
+            if debug and val_batch_idx == 5:
+                break
+
+    if return_average:
+        val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
+        val_loss_cropped_in_epoch = sum(val_loss_cropped_per_batch) / len(
+            val_loss_cropped_per_batch
+        )
+        forecasting_metrics = unet.deterministic_metrics.end_epoch()
+        reconstruction_error = sum(reconstruction_error_per_batch) / len(
+            reconstruction_error_per_batch
+        )
+        reconstruction_error = reconstruction_error.item()
+        upsample_forecasting_error = sum(upsample_forecasting_error_per_batch) / len(
+            upsample_forecasting_error_per_batch
+        )
+        upsample_forecasting_error = upsample_forecasting_error.item()
+        mae_fs = sum(mae_fs_per_batch) / len(mae_fs_per_batch)
+        mae_fs = mae_fs.item()
+    else:
+        val_loss_in_epoch = val_loss_per_batch
+        val_loss_cropped_in_epoch = val_loss_cropped_per_batch
+        forecasting_metrics = unet.deterministic_metrics.return_per_batch_metrics()
+        reconstruction_error = reconstruction_error_per_batch
+        upsample_forecasting_error = upsample_forecasting_error_per_batch
+        mae_fs = mae_fs_per_batch
+
     return (
         val_loss_in_epoch,
         val_loss_cropped_in_epoch,
         forecasting_metrics,
-        reconstruction_error.item(),
-        upsample_forecasting_error.item(),
+        reconstruction_error,
+        upsample_forecasting_error,
+        mae_fs,
     )
 
 
@@ -314,6 +436,8 @@ def main(
     test_all_models: bool = False,
     overwrite: bool = False,
     run_id: str = "",
+    return_average: bool = False,
+    debug: bool = False,
 ):
     if upsample_method not in ["nearest", "bilinear", "bicubic", "trilinear"]:
         raise ValueError("Invalid upsample method")
@@ -349,55 +473,47 @@ def main(
         time_horizon=time_horizon,
         binarization_method=None,  # needed for BinClassifierUNet
         crop_or_downsample=None,
+        shuffle=False,
     )
 
     if test_all_models:
-
-        trained_models = [
-            None,
-            "down_2",
-            "down_4",
-            "down_8",
-            "down_16",
-            "down_32",
-            "crop_512",
-            "crop_512_down_2",
-            "crop_512_down_4",
-            "crop_512_down_8",
-            "crop_512_down_16",
-            "crop_256",
-            "crop_256_down_2",
-            "crop_256_down_4",
-            "crop_256_down_8",
-            "crop_128",
-            "crop_128_down_4",
-            "crop_64",
-            "crop_64_down_2",
-        ]
+        trained_models = get_trained_models(time_horizon)
 
         if not overwrite:
             try:
-                df_previous_results = pd.read_csv(f"evaluation_results{run_id}.csv")
-                models_tested = df_previous_results["model"].values.tolist()
-                models_to_test = [
-                    model for model in trained_models if model not in models_tested
-                ]
-                if models_to_test[0] is None:
-                    models_to_test = models_to_test[1:]
+                if return_average:
+                    df_previous_results = pd.read_csv(f"evaluation_results{run_id}.csv")
+                    models_tested = df_previous_results["model"].values.tolist()
+                    models_to_test = [
+                        model for model in trained_models if model not in models_tested
+                    ]
+                    if models_to_test[0] is None:
+                        models_to_test = models_to_test[1:]
+                else:
+                    with open(f"evaluation_results{run_id}.json", "r") as f:
+                        results_json = json.load(f)
+                    models_tested = list(results_json.keys())
+                    models_to_test = [
+                        model for model in trained_models if model not in models_tested
+                    ]
+                    if models_to_test[0] is None:
+                        models_to_test = models_to_test[1:]
             except FileNotFoundError:
                 logger.warning("No previous results found")
                 models_to_test = trained_models
                 df_previous_results = None
+                results_json = {}
         else:
             models_to_test = trained_models
             df_previous_results = None
+            results_json = {}
 
         logger.info(f"Models to test: {models_to_test}")
 
         results = []
 
         for crop_or_downsample in models_to_test:
-            logger.info(f"Testing model: {crop_or_downsample}")
+            logger.info(f"===== Testing model: {crop_or_downsample} =====")
             checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
             unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
             (
@@ -406,30 +522,75 @@ def main(
                 forecasting_metrics,
                 reconstruction_error,
                 upsample_forecasting_error,
+                mae_fs,
             ) = evaluate_model(
-                unet, device, eval_crop_size, crop_or_downsample, upsample_method
+                unet,
+                device,
+                eval_crop_size,
+                crop_or_downsample,
+                upsample_method,
+                return_average=return_average,
+                debug=debug,
             )
-            logger.info(f"Model: {crop_or_downsample}")
-            logger.info(f"Validation loss: {val_loss_in_epoch}")
-            logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
-            logger.info(f"Reconstruction error: {reconstruction_error}")
-            for key, value in forecasting_metrics.items():
-                logger.info(f"{key}: {value}")
 
-            result = {
-                "model": crop_or_downsample,
-                "val_loss": val_loss_in_epoch,
-                "val_loss_cropped": val_loss_cropped_in_epoch,
-                "reconstruction_error": reconstruction_error,
-                "upsample_forecasting_error": upsample_forecasting_error,
-                **forecasting_metrics,
-            }
-            results.append(result)
+            if return_average:
+                logger.info(f"Validation loss: {val_loss_in_epoch}")
+                logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
+                logger.info(f"Reconstruction error: {reconstruction_error}")
+                logger.info(f"Upsample forecasting error: {upsample_forecasting_error}")
+                logger.info(f"MAE forecasting skill: {mae_fs}")
+                for key, value in forecasting_metrics.items():
+                    logger.info(f"{key}: {value}")
 
-        df_results = pd.DataFrame(results)
-        if df_previous_results is not None:
-            df_results = pd.concat([df_previous_results, df_results], ignore_index=True)
-        df_results.to_csv(f"evaluation_results_TH{time_horizon}_{run_id}.csv", index=False)
+                result = {
+                    "model": crop_or_downsample,
+                    "val_loss": val_loss_in_epoch,
+                    "val_loss_cropped": val_loss_cropped_in_epoch,
+                    "reconstruction_error": reconstruction_error,
+                    "upsample_forecasting_error": upsample_forecasting_error,
+                    "mae_fs": mae_fs,
+                    **forecasting_metrics,
+                }
+                results.append(result)
+            else:
+                logger.info(
+                    f"Validation loss: {torch.mean(torch.tensor(val_loss_in_epoch))}"
+                )
+                logger.info(
+                    f"Validation loss cropped: {torch.mean(torch.tensor(val_loss_cropped_in_epoch))}"
+                )
+                logger.info(
+                    f"Reconstruction error: {torch.mean(torch.tensor(reconstruction_error))}"
+                )
+                logger.info(
+                    f"Upsample forecasting error: {torch.mean(torch.tensor(upsample_forecasting_error))}"
+                )
+                logger.info(
+                    f"MAE forecasting skill: {torch.mean(torch.tensor(mae_fs))}"
+                )
+                for key, value in forecasting_metrics.items():
+                    logger.info(f"{key}: {torch.mean(torch.tensor(value))}")
+                results_json[crop_or_downsample] = {
+                    "val_loss": val_loss_in_epoch,
+                    "val_loss_cropped": val_loss_cropped_in_epoch,
+                    "reconstruction_error": reconstruction_error,
+                    "upsample_forecasting_error": upsample_forecasting_error,
+                    "mae_fs": mae_fs,
+                    **forecasting_metrics,
+                }
+
+        if return_average:
+            df_results = pd.DataFrame(results)
+            if df_previous_results is not None:
+                df_results = pd.concat(
+                    [df_previous_results, df_results], ignore_index=True
+                )
+            df_results.to_csv(
+                f"evaluation_results_TH{time_horizon}_{run_id}.csv", index=False
+            )
+        else:
+            with open(f"evaluation_results_TH{time_horizon}_{run_id}.json", "w") as f:
+                json.dump(results_json, f)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
         unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
@@ -440,14 +601,22 @@ def main(
             forecasting_metrics,
             reconstruction_error,
             upsample_forecasting_error,
+            mae_fs,
         ) = evaluate_model(
-            unet, device, eval_crop_size, crop_or_downsample, upsample_method
+            unet,
+            device,
+            eval_crop_size,
+            crop_or_downsample,
+            upsample_method,
+            return_average=return_average,
+            debug=debug,
         )
 
         logger.info(f"Validation loss: {val_loss_in_epoch}")
         logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
         logger.info(f"Reconstruction error: {reconstruction_error}")
         logger.info(f"Upsample forecasting error: {upsample_forecasting_error}")
+        logger.info(f"MAE forecasting skill: {mae_fs}")
         for key, value in forecasting_metrics.items():
             logger.info(f"{key}: {value}")
 
