@@ -77,7 +77,7 @@ def get_model_path(
         elif crop_or_downsample == "down_2" or crop_or_downsample == "crop_1024_down_2":
             raise ValueError("Model not trained")
         elif crop_or_downsample == "down_4" or crop_or_downsample == "crop_1024_down_4":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_1014_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2024-12-16_03:46.pt"
         elif crop_or_downsample == "down_8" or crop_or_downsample == "crop_1024_down_8":
             raise ValueError("Model not trained")
         elif (
@@ -119,9 +119,9 @@ def get_model_path(
         elif crop_or_downsample == "crop_128_down_4":
             return "checkpoints/goes16/300min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2024-12-14_01:36.pt"
         elif crop_or_downsample == "crop_64":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_64/det/UNet_IN3_F32_SC0_BS_4_TH300_E15_BVM0_11_D2024-12-16_17:34.pt"
         elif crop_or_downsample == "crop_64_down_2":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_64_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E15_BVM0_10_D2024-12-16_12:58.pt"
         elif crop_or_downsample == "crop_32":
             raise ValueError("Model not trained")
         else:
@@ -152,16 +152,21 @@ def get_trained_models(time_horizon: int = 60):
             "crop_128_down_4",
             "crop_64",
             "crop_64_down_2",
+            "persistence",
         ]
     elif time_horizon == 300:
         trained_models = [
             None,
+            "down_4",
             "crop_512",
             "crop_512_down_4",
             "crop_256",
             "crop_256_down_4",
             "crop_128",
             "crop_128_down_4",
+            "crop_64",
+            "crop_64_down_2",
+            "persistence",
         ]
     else:
         raise ValueError("Invalid time horizon")
@@ -210,7 +215,9 @@ def crop_or_downsample_image(
 
 def get_upscale_factor(crop_or_downsample: Optional[str]):
     if crop_or_downsample is not None:
-        if "crop" in crop_or_downsample and "down" in crop_or_downsample:
+        if crop_or_downsample == "persistence":
+            return 1
+        elif "crop" in crop_or_downsample and "down" in crop_or_downsample:
             down_value = int(crop_or_downsample.split("_")[3])
             return down_value
         elif "crop" in crop_or_downsample and "down" not in crop_or_downsample:
@@ -222,7 +229,9 @@ def get_upscale_factor(crop_or_downsample: Optional[str]):
         return 1
 
 
-def get_crop_size(crop_or_downsample: Optional[str]):
+def get_crop_size(crop_or_downsample: Optional[str], eval_crop_size: int):
+    if crop_or_downsample == "persistence":
+        return eval_crop_size
     if crop_or_downsample is not None:
         if "crop" in crop_or_downsample:
             return int(crop_or_downsample.split("_")[1])
@@ -246,6 +255,30 @@ def calculate_reconstruction_error(
     return unet.calculate_loss(target, target_upsampled)
 
 
+def evaluate_persistence(
+    in_frames: torch.Tensor,
+    out_frames: torch.Tensor,
+    last_img_index: int,
+    eval_crop_size: int,
+):
+    # evaluate upsampled prediction with 32x32 original crop
+    crop_border = (1024 - eval_crop_size) // 2
+    out_frames_cropped = out_frames[
+        :, :, crop_border:-crop_border, crop_border:-crop_border
+    ]
+    persistence_pred_cropped = in_frames[
+        :,
+        last_img_index:,
+        crop_border:-crop_border,
+        crop_border:-crop_border,
+    ]
+    mae_loss = torch.mean(abs(out_frames_cropped - persistence_pred_cropped))
+    rmse_loss = torch.sqrt(
+        torch.mean((out_frames_cropped - persistence_pred_cropped) ** 2)
+    )
+    return mae_loss, rmse_loss
+
+
 def evaluate_model(
     unet: DeterministicUNet,
     device: str,
@@ -259,7 +292,7 @@ def evaluate_model(
     upsample_function = torch.nn.Upsample(
         scale_factor=scale_factor, mode=upsample_method
     )
-    expected_crop_size = get_crop_size(crop_or_downsample)
+    expected_crop_size = get_crop_size(crop_or_downsample, eval_crop_size)
 
     val_loss_per_batch = []  # stores values for this validation run
     val_loss_cropped_per_batch = []  # stores values for this validation run
@@ -267,6 +300,7 @@ def evaluate_model(
     upsample_forecasting_error_per_batch = []
     reconstruction_error_per_batch = []
     mae_fs_per_batch = []
+    rmse_persistence_per_batch = []
 
     with torch.no_grad():
         for val_batch_idx, (in_frames, out_frames) in enumerate(unet.val_loader):
@@ -278,6 +312,19 @@ def evaluate_model(
             out_frames = out_frames.to(
                 device=device, dtype=unet.torch_dtype
             )  # 1024 x 1024
+
+            if crop_or_downsample == "persistence":
+                mae_loss, rmse_loss = evaluate_persistence(
+                    in_frames,
+                    out_frames,
+                    last_img_index=unet.in_frames - 1,
+                    eval_crop_size=eval_crop_size,
+                )
+
+                val_loss_cropped_per_batch.append(mae_loss)
+                rmse_persistence_per_batch.append(rmse_loss)
+                val_loss_per_batch.append(mae_loss)
+                continue
 
             in_frames_processed, out_frames_processed = crop_or_downsample_image(
                 input_tensor=in_frames,
@@ -378,7 +425,9 @@ def evaluate_model(
                     persistence_pred=persistence_pred_cropped,
                     persistence_upsample_pred=persistence_pred_upsample_cropped,
                 )
-                upsample_forecasting_error_per_batch.append(upsample_forecasting_error.item())
+                upsample_forecasting_error_per_batch.append(
+                    upsample_forecasting_error.item()
+                )
 
                 reconstruction_error_per_batch.append(
                     calculate_reconstruction_error(
@@ -420,6 +469,7 @@ def evaluate_model(
         reconstruction_error,
         upsample_forecasting_error,
         mae_fs,
+        rmse_persistence_per_batch,
     )
 
 
@@ -514,8 +564,10 @@ def main(
 
         for crop_or_downsample in models_to_test:
             logger.info(f"===== Testing model: {crop_or_downsample} =====")
-            checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
-            unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
+            if crop_or_downsample != "persistence":
+                checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
+                unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
+
             (
                 val_loss_in_epoch,
                 val_loss_cropped_in_epoch,
@@ -523,6 +575,7 @@ def main(
                 reconstruction_error,
                 upsample_forecasting_error,
                 mae_fs,
+                rmse_persistence,
             ) = evaluate_model(
                 unet,
                 device,
@@ -559,17 +612,21 @@ def main(
                 logger.info(
                     f"Validation loss cropped: {torch.mean(torch.tensor(val_loss_cropped_in_epoch))}"
                 )
-                logger.info(
-                    f"Reconstruction error: {torch.mean(torch.tensor(reconstruction_error))}"
-                )
-                logger.info(
-                    f"Upsample forecasting error: {torch.mean(torch.tensor(upsample_forecasting_error))}"
-                )
-                logger.info(
-                    f"MAE forecasting skill: {torch.mean(torch.tensor(mae_fs))}"
-                )
-                for key, value in forecasting_metrics.items():
-                    logger.info(f"{key}: {torch.mean(torch.tensor(value))}")
+                if crop_or_downsample == "persistence":
+                    logger.info(f"RMSE persistence: {torch.mean(torch.tensor(rmse_persistence))}")
+                else:
+                    logger.info(
+                        f"Reconstruction error: {torch.mean(torch.tensor(reconstruction_error))}"
+                    )
+                    logger.info(
+                        f"Upsample forecasting error: {torch.mean(torch.tensor(upsample_forecasting_error))}"
+                    )
+                    logger.info(
+                        f"MAE forecasting skill: {torch.mean(torch.tensor(mae_fs))}"
+                    )
+                    for key, value in forecasting_metrics.items():
+                        logger.info(f"{key}: {torch.mean(torch.tensor(value))}")
+
                 results_json[crop_or_downsample] = {
                     "val_loss": val_loss_in_epoch,
                     "val_loss_cropped": val_loss_cropped_in_epoch,
@@ -578,6 +635,8 @@ def main(
                     "mae_fs": mae_fs,
                     **forecasting_metrics,
                 }
+                if crop_or_downsample == "persistence":
+                    results_json[crop_or_downsample]["rmse_persistence"] = rmse_persistence
 
         if return_average:
             df_results = pd.DataFrame(results)
@@ -590,10 +649,6 @@ def main(
             )
         else:
             with open(f"evaluation_results_TH{time_horizon}_{run_id}.json", "w") as f:
-                # for key, value in results_json.items():
-                #     results_json[key] = {
-                #         k: v.item() for k, v in value.items() if isinstance(v, torch.Tensor)
-                #     }
                 json.dump(results_json, f)
     else:
         checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
@@ -606,6 +661,7 @@ def main(
             reconstruction_error,
             upsample_forecasting_error,
             mae_fs,
+            rmse_persistence,
         ) = evaluate_model(
             unet,
             device,
