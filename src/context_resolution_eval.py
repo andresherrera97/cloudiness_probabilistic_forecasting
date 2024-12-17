@@ -276,7 +276,7 @@ def evaluate_persistence(
     rmse_loss = torch.sqrt(
         torch.mean((out_frames_cropped - persistence_pred_cropped) ** 2)
     )
-    return mae_loss, rmse_loss
+    return mae_loss.item(), rmse_loss.item()
 
 
 def evaluate_model(
