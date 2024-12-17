@@ -540,7 +540,7 @@ def main(
                     if models_to_test[0] is None:
                         models_to_test = models_to_test[1:]
                 else:
-                    with open(f"evaluation_results{run_id}.json", "r") as f:
+                    with open(f"evaluation_results_TH{time_horizon}_{run_id}.csv", "r") as f:
                         results_json = json.load(f)
                     models_tested = list(results_json.keys())
                     models_to_test = [
