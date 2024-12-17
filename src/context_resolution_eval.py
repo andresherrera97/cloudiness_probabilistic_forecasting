@@ -532,6 +532,7 @@ def main(
         if not overwrite:
             try:
                 if return_average:
+                    logger.info(f"Trying to load previous results: evaluation_results{run_id}.csv")
                     df_previous_results = pd.read_csv(f"evaluation_results{run_id}.csv")
                     models_tested = df_previous_results["model"].values.tolist()
                     models_to_test = [
@@ -540,6 +541,7 @@ def main(
                     if models_to_test[0] is None:
                         models_to_test = models_to_test[1:]
                 else:
+                    logger.info(f"Trying to load previous results: evaluation_results_TH{time_horizon}_{run_id}.json")
                     with open(f"evaluation_results_TH{time_horizon}_{run_id}.csv", "r") as f:
                         results_json = json.load(f)
                     models_tested = list(results_json.keys())
