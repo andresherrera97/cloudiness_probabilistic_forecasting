@@ -69,6 +69,7 @@ def main(
     cos_dim: Optional[int] = None,
     crop_or_downsample: Optional[str] = None,
     project: str = "cloud_probabilistic_forecasting",
+    warmup_start: float = 0.3,
 ):
     set_all_seeds(0)
 
@@ -210,6 +211,7 @@ def main(
             max_lr=max_lr,
             epochs=epochs,
             steps_per_epoch=len(probabilistic_unet.train_loader),
+            warmup_start=warmup_start,
         )
 
     logger.info("Initialization done.")

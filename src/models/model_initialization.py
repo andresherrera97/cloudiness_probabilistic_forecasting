@@ -38,6 +38,7 @@ def scheduler_init(
     max_lr: float = 0.1,
     epochs: int = 50,
     steps_per_epoch: int = 20000,
+    warmup_start: float = 0.3,
 ):
     """Initialize scheduler for the optimizer"""
     if method.lower() == "plateau":
@@ -66,7 +67,7 @@ def scheduler_init(
             max_lr=max_lr,
             epochs=epochs,
             steps_per_epoch=steps_per_epoch,
-            pct_start=0.3,
+            pct_start=warmup_start,
             anneal_strategy="cos",
             cycle_momentum=True,
             base_momentum=0.85,
