@@ -63,3 +63,19 @@ The images are saved in the output folder divided in folders for each day. The f
 ## Model Training [WIP]
 
 To train the model run the script `train.py` ... COMPLETE
+
+# Comments (franchesoni)
+- readme talks about dataset but not about the `download_dataset.sh` file
+- I'm trying to download whole history but it's hard, my command is:
+```
+python src/goes16_dataset_generator.py \
+    --start_date=2000-01-01 \
+    --end_date=2001-01-01 \
+    --lat=-31.2827 \
+    --lon=-57.9181 \
+    --size=32 \
+    --output_folder=/export/home/projects/goes16/salto32/ \
+    --skip_night=True \
+    --save_only_first=True
+```
+
