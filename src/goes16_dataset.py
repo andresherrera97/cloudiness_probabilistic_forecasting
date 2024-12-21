@@ -25,6 +25,7 @@ REGION = "F"  # C (CONUS) or F (FULL_DISK)
 CHANNEL = "C02"
 S3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
 S3_CLIENT = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+# data_root = "datasets/ABI_L2_CMIP_M6C02_G16"
 
 # ---------------------------------------------------------------------
 # Metadata generation
@@ -53,29 +54,22 @@ def calculate_degrees(nc_file):
     lon = lon0 - np.arctan(s_y / (H - s_x))
     return np.degrees(lat), np.degrees(lon)
 
-def generate_metadata(region="full_disk", out_folder="ABI_L2_CMIP_M6C02_G16", download_ref=True):
+def generate_metadata(data_root, region="full_disk", out_folder="ABI_L2_CMIP_M6C02_G16", download_ref=True):
     """Pull one .nc file (local or from S3) and save lat/lon + small metadata."""
     logger.info("Generating metadata...")
     conus_s3 = "ABI-L2-CMIPC/2024/111/10/OR_ABI-L2-CMIPC-M6C02_G16_s20241111011171_e20241111013544_c20241111014046.nc"
     full_s3  = "ABI-L2-CMIPF/2024/111/10/OR_ABI-L2-CMIPF-M6C02_G16_s20241111050205_e20241111059513_c20241111059581.nc"
 
-    if download_ref:
-        file_key = conus_s3 if region.lower().startswith("c") else full_s3
-        with tempfile.NamedTemporaryFile(suffix=".nc", delete=False) as temp_file:
-            S3_CLIENT.download_fileobj(BUCKET, file_key, temp_file)
-            filename = temp_file.name
-    else:
-        # Hardcoded local fallback
-        filename = (
-            "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20241110601171_e20241110603544_c20241110604037.nc"
-            if region.lower().startswith("c") else
-            "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20220120310204_e20220120319512_c20220120319587.nc"
-        )
+    file_key = conus_s3 if region.lower().startswith("c") else full_s3
+    with tempfile.NamedTemporaryFile(suffix=".nc", delete=False) as temp_file:
+        S3_CLIENT.download_fileobj(BUCKET, file_key, temp_file)
+        filename = temp_file.name
 
     ds = Dataset(filename)
-    os.makedirs(os.path.join(out_folder, region.upper()), exist_ok=True)
+    folder = "CONUS" if region.lower().startswith("c") else "FULL_DISK"
+    out_folder = os.path.join(data_root, folder)
+    os.makedirs(out_folder, exist_ok=True)
 
-    # Save minimal metadata
     meta = {}
     for k in ds.variables:
         if k in ["geospatial_lat_lon_extent", "goes_imager_projection"]:
@@ -83,14 +77,14 @@ def generate_metadata(region="full_disk", out_folder="ABI_L2_CMIP_M6C02_G16", do
         if k in ["x", "y", "x_image_bounds", "y_image_bounds"]:
             meta[k] = ds.variables[k][:].astype(float).tolist()
 
-    with open(os.path.join(out_folder, region.upper(), "metadata.json"), "w") as f:
+    with open(os.path.join(out_folder, "metadata.json"), "w") as f:
         json.dump(meta, f, indent=2)
 
     lat, lon = calculate_degrees(ds)
     lat_data_mask = np.stack([lat.data, lat.mask]) if hasattr(lat, 'mask') else np.stack([lat, np.zeros_like(lat, dtype=bool)])
     lon_data_mask = np.stack([lon.data, lon.mask]) if hasattr(lon, 'mask') else np.stack([lon, np.zeros_like(lon, dtype=bool)])
-    np.save(os.path.join(out_folder, region.upper(), "lat.npy"), lat_data_mask)
-    np.save(os.path.join(out_folder, region.upper(), "lon.npy"), lon_data_mask)
+    np.save(os.path.join(out_folder, "lat.npy"), lat_data_mask)
+    np.save(os.path.join(out_folder, "lon.npy"), lon_data_mask)
     logger.info("Metadata ready!")
 
 # ---------------------------------------------------------------------
@@ -99,7 +93,8 @@ def generate_metadata(region="full_disk", out_folder="ABI_L2_CMIP_M6C02_G16", do
 def is_valid_date(d):
     # NOAA GOES-16 data starts ~2017. If user picks e.g. year=2000, skip quickly
     earliest = datetime.datetime(2017, 1, 1)
-    if d < earliest: 
+    latest = datetime.datetime.now()
+    if d < earliest or d > latest: 
         return False
     return True
 
@@ -144,24 +139,33 @@ def normalize(cmi, cosangs, factor=0.15):
 # ---------------------------------------------------------------------
 # Main data download
 # ---------------------------------------------------------------------
+def check_and_generate_metadata(data_root, region):
+    folder = "CONUS" if region.upper() == "C" else "FULL_DISK"
+    meta_path = os.path.join(data_root, folder)
+    if not os.path.exists(meta_path):
+        logger.info("Metadata missing. Generating...")
+        generate_metadata(data_root, region)
+
 def download_goes16(
+    data_root="datasets",
+    dataset_name="salto1024",
     region="C", 
     start_date="2024-01-05", 
     end_date=None,
     lat=-31.3905,
     lon=-57.9541,
     size=1024,
-    out_folder="datasets/goes16/",
     skip_night=True,
     save_only_first=False,
     save_as_npy=True
 ):
     """Download GOES16 data in a lat/lon crop for the specified date range."""
+    out_folder = os.path.join(data_root, dataset_name)
+    check_and_generate_metadata(data_root, region)
     logger.info("Loading precomputed lat/lon grids...")
-    meta_root = "datasets"  # Where our metadata was saved
     folder = "CONUS" if region.upper() == "C" else "FULL_DISK"
-    lat_data = np.load(os.path.join(meta_root, f"ABI_L2_CMIP_M6C02_G16/{folder}", "lat.npy"))
-    lon_data = np.load(os.path.join(meta_root, f"ABI_L2_CMIP_M6C02_G16/{folder}", "lon.npy"))
+    lat_data = np.load(os.path.join(data_root, folder, "lat.npy"))
+    lon_data = np.load(os.path.join(data_root, folder, "lon.npy"))
 
     ref_lat = np.ma.masked_array(lat_data[0], mask=lat_data[1])
     ref_lon = np.ma.masked_array(lon_data[0], mask=lon_data[1])
@@ -187,11 +191,11 @@ def download_goes16(
     bucket = S3.Bucket(BUCKET)
     for day in dates:
         if not is_valid_date(day):
-            logger.info(f"Skipping {day.date()}, no data pre-2017.")
+            logger.info(f"Skipping {day.date()}, date out of range (2017-now).")
             continue
         dofy = day.timetuple().tm_yday
         year = day.year
-        keys = get_s3_filenames(bucket, dofy, year)
+        keys = [o.key for o in bucket.objects.filter(Prefix=f"ABI-L2-CMIP{region}/{year}/{str(dofy).zfill(3)}/") if o.key.endswith(".nc")]
         if not keys:
             logger.info(f"No files for {day.date()}.")
             continue
@@ -248,10 +252,9 @@ def download_goes16(
         }).to_csv(os.path.join(odir, f"data_{year}_{str(dofy).zfill(3)}.csv"), index=False)
 
 # ---------------------------------------------------------------------
-# Combine everything in a single entry point
+# Entry point
 # ---------------------------------------------------------------------
 def main(
-    mode="download",
     region="F",
     start_date="2024-01-05",
     end_date=None,
@@ -261,20 +264,9 @@ def main(
     out_folder="datasets/goes16/",
     skip_night=True,
     save_only_first=False,
-    save_as_npy=True,
-    download_ref_metadata=True
+    save_as_npy=True
 ):
-    """
-    mode='meta': Generate lat/lon metadata for one reference file (region=F or C).
-    mode='download': Download the actual GOES16 data in a lat/lon crop for date range.
-    """
-    if mode == "meta":
-        generate_metadata(region, "ABI_L2_CMIP_M6C02_G16", download_ref_metadata)
-    else:
-        download_goes16(
-            region, start_date, end_date, lat, lon, size, 
-            out_folder, skip_night, save_only_first, save_as_npy
-        )
+    download_goes16(region, start_date, end_date, lat, lon, size, out_folder, skip_night, save_only_first, save_as_npy)
 
 if __name__ == "__main__":
     fire.Fire(main)
