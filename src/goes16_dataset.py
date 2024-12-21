@@ -254,19 +254,5 @@ def download_goes16(
 # ---------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------
-def main(
-    region="F",
-    start_date="2024-01-05",
-    end_date=None,
-    lat=-31.3905,
-    lon=-57.9541,
-    size=1024,
-    out_folder="datasets/goes16/",
-    skip_night=True,
-    save_only_first=False,
-    save_as_npy=True
-):
-    download_goes16(region, start_date, end_date, lat, lon, size, out_folder, skip_night, save_only_first, save_as_npy)
-
 if __name__ == "__main__":
-    fire.Fire(main)
+    fire.Fire(download_goes16)
