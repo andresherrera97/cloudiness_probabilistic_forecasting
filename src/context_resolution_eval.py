@@ -59,7 +59,7 @@ def get_model_path(
         elif crop_or_downsample == "crop_128":
             return "checkpoints/goes16/60min_crop_128_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E41_BVM0_07_D2024-12-13_22:43.pt"
         elif crop_or_downsample == "crop_128_down_2":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/60min_crop_128_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E48_BVM0_07_D2024-12-19_09:14.pt"
         elif crop_or_downsample == "crop_128_down_4":
             return "checkpoints/goes16/60min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E10_BVM0_06_D2024-12-10_13:03.pt"
         elif crop_or_downsample == "crop_64":
@@ -67,7 +67,7 @@ def get_model_path(
         elif crop_or_downsample == "crop_64_down_2":
             return "checkpoints/goes16/60min_crop_64_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E70_BVM0_07_D2024-12-10_05:23.pt"
         elif crop_or_downsample == "crop_32":
-            return "checkpoints/goes16/60min_crop_32_down_1/det/UNet_IN3_F32_SC0_BS_8_TH60_E7_BVM0_07_D2024-12-18_00:12.pt"
+            return "checkpoints/goes16/60min_crop_32_down_1/det/UNet_IN3_F32_SC0_BS_8_TH60_E16_BVM0_06_D2024-12-19_03:57.pt"
         else:
             raise ValueError("Invalid crop_or_downsample value")
     elif time_horizon == 300:
@@ -92,7 +92,7 @@ def get_model_path(
         ):
             return "checkpoints/goes16/512min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH300_E36_BVM0_10_D2024-12-15_08:24.pt"
         elif crop_or_downsample == "crop_512_down_2":
-            return "checkpoints/goes16/300min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E23_BVM0_10_D2024-12-18_11:47.pt"
+            return "checkpoints/goes16/300min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E29_BVM0_09_D2024-12-18_23:47.pt"
         elif crop_or_downsample == "crop_512_down_4":
             return "checkpoints/goes16/512min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2024-12-14_04:50.pt"
         elif crop_or_downsample == "crop_512_down_8":
@@ -145,6 +145,7 @@ def get_trained_models(time_horizon: int = 60):
             "crop_256_down_2",
             "crop_256_down_8",
             "crop_128",
+            "crop_128_down_2",
             "crop_128_down_4",
             "crop_64",
             "crop_64_down_2",
