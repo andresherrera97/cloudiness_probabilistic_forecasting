@@ -49,11 +49,13 @@ CORRECTION_FACTOR = (2**12 - 1) / 1.3
 
 def timeit(func):
     """Decorator to time function execution."""
+
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
         logger.info(f"Finished {func.__name__} in {time.time() - start:.2f} sec")
         return result
+
     return wrapper
 
 
@@ -137,7 +139,9 @@ def solar_angles(lat, lon, delta, eot, h, m, s, ret_mask=True):
     lat_r = lat * np.pi / 180
     h_sol = h + m / 60 + lon / 15 + eot / 60 + s / 3600
     w_rad = np.pi * (h_sol / 12 - 1)
-    cos_zen = np.sin(lat_r) * np.sin(delta) + np.cos(lat_r) * np.cos(delta) * np.cos(w_rad)
+    cos_zen = np.sin(lat_r) * np.sin(delta) + np.cos(lat_r) * np.cos(delta) * np.cos(
+        w_rad
+    )
 
     mask = cos_zen > 0
     if cos_zen.size > 1:
@@ -150,7 +154,9 @@ def solar_angles(lat, lon, delta, eot, h, m, s, ret_mask=True):
 def get_cosangs(dtime: datetime.datetime, lats: np.ndarray, lons: np.ndarray):
     """Main wrapper for solar angles for a given date/time."""
     delta, eot = daily_solar_angles(dtime.year, dtime.timetuple().tm_yday)
-    cosz, mask = solar_angles(lats, lons, delta, eot, dtime.hour, dtime.minute, dtime.second)
+    cosz, mask = solar_angles(
+        lats, lons, delta, eot, dtime.hour, dtime.minute, dtime.second
+    )
     return cosz, mask
 
 
@@ -168,7 +174,9 @@ def normalize(img: np.ndarray, cosangs: np.ndarray, thresh: float = 0.15):
     limit overly bright areas, clip to [0,1].
     """
     n1 = np.divide(img, cosangs, out=np.zeros_like(img), where=cosangs > thresh)
-    n2 = np.divide(img, cosangs, out=np.zeros_like(img), where=(0 < cosangs) & (cosangs <= thresh))
+    n2 = np.divide(
+        img, cosangs, out=np.zeros_like(img), where=(0 < cosangs) & (cosangs <= thresh)
+    )
     return n1 + np.clip(n2, 0, np.nanmean(n1))
 
 
@@ -315,16 +323,16 @@ class Listing:
         self,
         start_date: str,
         end_date: Optional[str] = None,
-        output_folder: str = "datasets/goes16/",
+        output_path: str = "dataset/to_download.json",
     ):
         """
         Return a dictionary mapping datetime -> list of S3 keys for that day.
         """
         if end_date is None:
             end_date = start_date
-        if datetime.datetime.strptime(end_date, "%Y-%m-%d") < datetime.datetime.strptime(
-            start_date, "%Y-%m-%d"
-        ):
+        if datetime.datetime.strptime(
+            end_date, "%Y-%m-%d"
+        ) < datetime.datetime.strptime(start_date, "%Y-%m-%d"):
             raise ValueError("End date must be >= start date")
 
         date_range = pd.date_range(start=start_date, end=end_date).tolist()
@@ -348,13 +356,10 @@ class Listing:
                 files_in_s3_per_date[dt] = day_files
 
         # save as json
-        os.makedirs(output_folder, exist_ok=True)
-        with open(os.path.join(output_folder, "files_in_s3_per_date.json"), "w") as outfile:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        with open(os.path.join(output_path), "w") as outfile:
             json.dump(
-                {
-                    str(k): v
-                    for k, v in files_in_s3_per_date.items()
-                },
+                {str(k): v for k, v in files_in_s3_per_date.items()},
                 outfile,
                 indent=4,
             )
@@ -363,7 +368,9 @@ class Listing:
 
     def _get_day_filenames(self, bucket, doy, year):
         prefix = PREFIX + f"/{year}/{doy:03}/"
-        return natsorted([f.key for f in bucket.objects.filter(Prefix=prefix) if CHANNEL in f.key])
+        return natsorted(
+            [f.key for f in bucket.objects.filter(Prefix=prefix) if CHANNEL in f.key]
+        )
 
 
 ########################################
@@ -380,13 +387,17 @@ class Downloader:
 
     def _read_crop_concurrent(self, f: str, x: int, y: int, size: int, verbose: bool):
         """Concurrent version of read_crop, to fetch CMI & DQF in parallel."""
+
         def read_data(product, max_tries=3):
             num_tries = 0
             while num_tries < max_tries:
                 try:
                     with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
                         c = ds.read(
-                            window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
+                            window=(
+                                (y - size // 2, y + size // 2),
+                                (x - size // 2, x + size // 2),
+                            )
                         )[0].astype(np.float32)
                         if product == "CMI":
                             c[c == -1] = np.nan
@@ -397,7 +408,9 @@ class Downloader:
                     logger.error(f"Error {e} reading {product} from {f}. Retrying...")
                     time.sleep(1)
                     continue
-            raise ValueError(f"Failed to read {product} from {f} after {max_tries} tries.")
+            raise ValueError(
+                f"Failed to read {product} from {f} after {max_tries} tries."
+            )
 
         with ThreadPoolExecutor(max_workers=2) as exe:
             futs = {exe.submit(read_data, p): p for p in ["CMI", "DQF"]}
@@ -410,7 +423,9 @@ class Downloader:
         return np.stack([results["CMI"], results["DQF"]], axis=0)
 
     @timeit
-    def crop_processing(self, CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray:
+    def crop_processing(
+        self, CMI_DQF_crop: np.ndarray, cosangs: np.ndarray
+    ) -> np.ndarray:
         """
         1) Inpaint using DQF mask, 2) normalize, 3) clip to [0,1], 4) float16.
         Returns (processed_image, inpaint_percent).
@@ -435,34 +450,34 @@ class Downloader:
     @timeit
     def download_files(
         self,
-        region: str = "full_disk",
-        rootdir="datasets",
-        outdir="salto1024",
-        start_date: str = "2024-01-05",
-        end_date: Optional[str] = None,
+        metadata_path: str,
+        files_per_date_path: str,
+        outdir: str = "salto1024",
         lat: float = -31.390502,
         lon: float = -57.954138,
         size: int = 1024,
         skip_night: bool = True,
         save_only_first: bool = False,
-        save_as_npy: bool = True,
+        save_as: str = "npy",
         verbose: bool = True,
     ):
         """
-        Download and process GOES16 data for the given date range and lat/lon region.
-        Assumes metadata (lat.npy/lon.npy) is already created.
+        Download and process GOES16 data for the given lat/lon region.
+        Assumes metadata (lat.npy/lon.npy) is already created at `metadata_path`,
+        and a JSON with date->files is present in `files_in_s3_per_date_path`.
         """
-
-        # 1) Load metadata from lat.npy / lon.npy
-        metadata_dir = os.path.join(rootdir, "ABI_L2_CMIP_M6C02_G16")
-        if region.lower() == "c":
-            region_folder = "CONUS"
-        else:
-            region_folder = "FULL_DISK"
-        lat_path = os.path.join(metadata_dir, region_folder, "lat.npy")
-        lon_path = os.path.join(metadata_dir, region_folder, "lon.npy")
+        assert save_as in [
+            "npy",
+            "png16",
+            "png8",
+        ], "Invalid save_as option. Choose 'npy', 'png16', or 'png8'."
+        # 1) Load metadata from lat.npy / lon.npy in the provided `metadata_path`
+        lat_path = os.path.join(metadata_path, "lat.npy")
+        lon_path = os.path.join(metadata_path, "lon.npy")
         if not os.path.exists(lat_path) or not os.path.exists(lon_path):
-            raise FileNotFoundError("lat.npy or lon.npy not found. Run metadata creation first!")
+            raise FileNotFoundError(
+                "lat.npy or lon.npy not found. Run metadata creation first!"
+            )
 
         REF_LAT = np.load(lat_path)
         lat_data = np.ma.masked_array(REF_LAT[0], mask=REF_LAT[1])
@@ -476,9 +491,18 @@ class Downloader:
         )
         del lat_data, lon_data
 
-        # 3) Get the list of files from the Listing class
-        listing = Listing()
-        files_per_date = listing.get_S3_files_in_range(start_date, end_date, os.path.join(rootdir, outdir))
+        # 3) Load the JSON containing {datetime-string: [list_of_files]} from the provided path
+        if not os.path.exists(files_per_date_path):
+            raise FileNotFoundError(
+                f"{files_per_date_path} not found. Run the listing step first!"
+            )
+        with open(files_per_date_path, "r") as f:
+            raw_dict = json.load(f)
+        # Convert string keys to datetime
+        files_per_date = {}
+        for date_str, file_list in raw_dict.items():
+            dt = datetime.datetime.fromisoformat(date_str)
+            files_per_date[dt] = file_list
 
         # 4) Loop over dates and files to download
         for dt, day_files in tqdm.tqdm(files_per_date.items()):
@@ -489,8 +513,7 @@ class Downloader:
             filenames_processed = []
 
             out_day_path = os.path.join(
-                rootdir, outdir,
-                f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
+                outdir, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
             )
 
             for f in day_files:
@@ -531,12 +554,28 @@ class Downloader:
 
                     # 4e) Save results
                     out_fname = f"{y4}_{dayy}_UTC_{hh}{mm}{ss}"
-                    if save_as_npy:
-                        np.save(os.path.join(out_day_path, out_fname + ".npy"), pr)
-                    else:
-                        pr_16u = (pr.astype(np.float32) * (2**16 - 1)).astype(np.uint16)
+                    os.makedirs(
+                        os.path.dirname(os.path.join(out_day_path, out_fname)),
+                        exist_ok=True,
+                    )
+                    if save_as == "npy":
+                        np.save(
+                            os.path.join(out_day_path, out_fname + ".npy"),
+                            pr.astype(np.float16),
+                        )
+                    elif save_as == "png16":
+                        pr_16u = (
+                            np.round(pr.astype(np.float32) * (2**16 - 1))
+                        ).astype(np.uint16)
                         Image.fromarray(pr_16u, mode="I;16").save(
-                            os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
+                            os.path.join(out_day_path, out_fname + "_L.png"),
+                            format="PNG",
+                        )
+                    elif save_as == "png8":
+                        pr_8u = np.round(pr * 255).astype(np.uint8)
+                        Image.fromarray(pr_8u, mode="L").save(
+                            os.path.join(out_day_path, out_fname + "_L.png"),
+                            format="PNG",
                         )
                     if save_only_first:
                         break
@@ -572,6 +611,7 @@ class GOES16CLI:
     2) listing -> get_S3_files_in_range(...)
     3) downloader -> download_files(...)
     """
+
     def __init__(self):
         self.metadata = Metadata()
         self.listing = Listing()
@@ -580,3 +620,8 @@ class GOES16CLI:
 
 if __name__ == "__main__":
     fire.Fire(GOES16CLI)
+
+# example, run commands as follows:
+# python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="datasets/metadata"
+# python goes16_script.py listing get_S3_files_in_range --start_date="2018-01-01" --end_date=None --output_path="datasets/to_download.json"
+# python goes16_script.py downloader download_files --metadata_path="datasets/metadata/FULL_DISK" --files_per_date_path="datasets/to_download.json" --outdir="salto1024" --lat=-31.390502 --lon=-57.954138 --size=1024 --skip_night=True --save_only_first=False --save_as_npy=True --verbose=True
