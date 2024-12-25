@@ -229,6 +229,235 @@ def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True)
 
 
 ########################################
+# 1) DOWNLOADING & PROCESSING MODULE (used at last)
+########################################
+class Downloader:
+    """
+    Handles the actual cropping, reading, solar angle checks, inpainting, saving, etc.
+    """
+
+    def __init__(self):
+        # If needed, you can initialize more things here
+        pass
+
+    def _read_crop_concurrent(self, f: str, x: int, y: int, size: int, verbose: bool):
+        """Concurrent version of read_crop, to fetch CMI & DQF in parallel."""
+
+        def read_data(product, max_tries=3):
+            num_tries = 0
+            while num_tries < max_tries:
+                try:
+                    with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
+                        c = ds.read(
+                            window=(
+                                (y - size // 2, y + size // 2),
+                                (x - size // 2, x + size // 2),
+                            )
+                        )[0].astype(np.float32)
+                        if product == "CMI":
+                            c[c == -1] = np.nan
+                            c /= CORRECTION_FACTOR
+                    return c
+                except Exception as e:
+                    num_tries += 1
+                    logger.error(f"Error {e} reading {product} from {f}. Retrying...")
+                    time.sleep(1)
+                    continue
+            raise ValueError(
+                f"Failed to read {product} from {f} after {max_tries} tries."
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as exe:
+            futs = {exe.submit(read_data, p): p for p in ["CMI", "DQF"]}
+            results = {}
+            for fu in as_completed(futs):
+                p = futs[fu]
+                results[p] = fu.result()
+        if verbose:
+            logger.info(f"Downloaded concurrent crop from {f}.")
+        return np.stack([results["CMI"], results["DQF"]], axis=0)
+
+    @timeit
+    def crop_processing(
+        self, CMI_DQF_crop: np.ndarray, cosangs: np.ndarray
+    ) -> np.ndarray:
+        """
+        1) Inpaint using DQF mask, 2) normalize, 3) clip to [0,1], 4) float16.
+        Returns (processed_image, inpaint_percent).
+        """
+        inpaint_mask = np.uint8(CMI_DQF_crop[1] != 0)
+        pct_inpaint = np.mean(inpaint_mask) * 100
+        logger.info(f"Pixels to inpaint: {pct_inpaint:.4f}%")
+
+        # Step 1: inpaint
+        CMI_DQF_crop[0] = cv2.inpaint(CMI_DQF_crop[0], inpaint_mask, 3, cv2.INPAINT_NS)
+
+        # Step 2: normalize
+        pr = normalize(CMI_DQF_crop[0], cosangs, 0.15)
+
+        # Step 3: remove nans and clip
+        pr[np.isnan(pr)] = 0
+        pr = np.clip(pr, 0, 1.0).astype(np.float16)
+
+        logger.info(f"PR range: {pr.min()} - {pr.max()}")
+        return pr, pct_inpaint
+
+    @timeit
+    def download_files(
+        self,
+        metadata_path: str,
+        files_per_date_path: str,
+        outdir: str = "salto1024",
+        lat: float = -31.390502,
+        lon: float = -57.954138,
+        size: int = 1024,
+        skip_night: bool = True,
+        save_only_first: bool = False,
+        save_as: str = "npy",
+        verbose: bool = True,
+    ):
+        """
+        Download and process GOES16 data for the given lat/lon region.
+        Assumes metadata (lat.npy/lon.npy) is already created at `metadata_path`,
+        and a JSON with date->files is present in `files_in_s3_per_date_path`.
+        """
+        st = time.time()
+        assert save_as in [
+            "npy",
+            "png16",
+            "png8",
+        ], "Invalid save_as option. Choose 'npy', 'png16', or 'png8'."
+        # 1) Load metadata from lat.npy / lon.npy in the provided `metadata_path`
+        lat_path = os.path.join(metadata_path, "lat.npy")
+        lon_path = os.path.join(metadata_path, "lon.npy")
+        if not os.path.exists(lat_path) or not os.path.exists(lon_path):
+            raise FileNotFoundError(
+                "lat.npy or lon.npy not found. Run metadata creation first!"
+            )
+
+        REF_LAT = np.load(lat_path)
+        lat_data = np.ma.masked_array(REF_LAT[0], mask=REF_LAT[1])
+        REF_LON = np.load(lon_path)
+        lon_data = np.ma.masked_array(REF_LON[0], mask=REF_LON[1])
+        del REF_LAT, REF_LON
+
+        # 2) Convert user lat/lon to pixel coords
+        c_lats, c_lons, x, y = convert_coordinates_to_pixel(
+            lat, lon, lat_data, lon_data, size, verbose
+        )
+        del lat_data, lon_data
+
+        # 3) Load the JSON containing {datetime-string: [list_of_files]} from the provided path
+        if not os.path.exists(files_per_date_path):
+            raise FileNotFoundError(
+                f"{files_per_date_path} not found. Run the listing step first!"
+            )
+        with open(files_per_date_path, "r") as f:
+            raw_dict = json.load(f)
+        # Convert string keys to datetime
+        files_per_date = {}
+        for date_str, file_list in raw_dict.items():
+            dt = datetime.datetime.fromisoformat(date_str)
+            files_per_date[dt] = file_list
+
+        # 4) Loop over dates and files to download
+        for dt, day_files in tqdm.tqdm(files_per_date.items()):
+            logger.info(f"Date={dt}, total={len(day_files)}")
+
+            is_day_list = []
+            inpaint_pct_list = []
+            filenames_processed = []
+
+            out_day_path = os.path.join(
+                outdir, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
+            )
+
+            for f in day_files:
+                filenames_processed.append(f)
+
+                # Parse time from filename
+                t_str = f.split("/")[-1].split("_")[3][1:]  # sYYYYDDDHHMMSSS
+                y4, dayy, hh, mm, ss = (
+                    t_str[0:4],
+                    t_str[4:7],
+                    t_str[7:9],
+                    t_str[9:11],
+                    t_str[11:13],
+                )
+                file_dt = datetime.datetime.strptime(
+                    f"{dayy}/{y4} {hh}:{mm}:{ss}", "%j/%Y %H:%M:%S"
+                )
+                # In some original code, you used dt.day/dt.month, but dayy is the day-of-year.
+                # We'll rely on the file's own DOY. Alternatively, you can do:
+                # file_dt = datetime.datetime.strptime(f"{dt.day}/{dt.month}/{y4} {hh}:{mm}:{ss}", "%d/%m/%Y %H:%M:%S")
+
+                # 4a) Compute solar angles for the entire sub-array
+                cosangs, _ = get_cosangs(file_dt, c_lats, c_lons)
+
+                # 4b) Optionally skip nighttime
+                if skip_night:
+                    download_img = is_a_full_day_crop(cosangs)
+                else:
+                    download_img = True
+                is_day_list.append(download_img)
+
+                if download_img:
+                    # 4c) Download the CMI+DQF crop
+                    cmi_dqf_crop = self._read_crop_concurrent(f, x, y, size, verbose)
+                    # 4d) Process (inpaint, normalize, clip)
+                    pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs)
+                    inpaint_pct_list.append(pct_inp)
+
+                    # 4e) Save results
+                    out_fname = f"{y4}_{dayy}_UTC_{hh}{mm}{ss}"
+                    os.makedirs(
+                        os.path.dirname(os.path.join(out_day_path, out_fname)),
+                        exist_ok=True,
+                    )
+                    if save_as == "npy":
+                        np.save(
+                            os.path.join(out_day_path, out_fname + ".npy"),
+                            pr.astype(np.float16),
+                        )
+                    elif save_as == "png16":
+                        pr_16u = (
+                            np.round(pr.astype(np.float32) * (2**16 - 1))
+                        ).astype(np.uint16)
+                        Image.fromarray(pr_16u, mode="I;16").save(
+                            os.path.join(out_day_path, out_fname + "_L.png"),
+                            format="PNG",
+                        )
+                    elif save_as == "png8":
+                        pr_8u = np.round(pr * 255).astype(np.uint8)
+                        Image.fromarray(pr_8u, mode="L").save(
+                            os.path.join(out_day_path, out_fname + "_L.png"),
+                            format="PNG",
+                        )
+                    if save_only_first:
+                        break
+                else:
+                    inpaint_pct_list.append(None)
+
+            # 4f) Summarize day
+            df = pd.DataFrame(
+                {
+                    "filenames": filenames_processed,
+                    "is_day": is_day_list,
+                    "inpaint_pct": inpaint_pct_list,
+                }
+            )
+            df.to_csv(
+                os.path.join(
+                    out_day_path,
+                    f"data_{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}.csv",
+                ),
+                index=False,
+            )
+        logger.info("All downloads completed.")
+        logger.info(f"Total time: {time.time() - st:.2f} sec")
+
+
+########################################
 # 2) METADATA MODULE
 ########################################
 class Metadata:
@@ -374,233 +603,6 @@ class Listing:
 
 
 ########################################
-# 4) DOWNLOADING & PROCESSING MODULE
-########################################
-class Downloader:
-    """
-    Handles the actual cropping, reading, solar angle checks, inpainting, saving, etc.
-    """
-
-    def __init__(self):
-        # If needed, you can initialize more things here
-        pass
-
-    def _read_crop_concurrent(self, f: str, x: int, y: int, size: int, verbose: bool):
-        """Concurrent version of read_crop, to fetch CMI & DQF in parallel."""
-
-        def read_data(product, max_tries=3):
-            num_tries = 0
-            while num_tries < max_tries:
-                try:
-                    with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
-                        c = ds.read(
-                            window=(
-                                (y - size // 2, y + size // 2),
-                                (x - size // 2, x + size // 2),
-                            )
-                        )[0].astype(np.float32)
-                        if product == "CMI":
-                            c[c == -1] = np.nan
-                            c /= CORRECTION_FACTOR
-                    return c
-                except Exception as e:
-                    num_tries += 1
-                    logger.error(f"Error {e} reading {product} from {f}. Retrying...")
-                    time.sleep(1)
-                    continue
-            raise ValueError(
-                f"Failed to read {product} from {f} after {max_tries} tries."
-            )
-
-        with ThreadPoolExecutor(max_workers=2) as exe:
-            futs = {exe.submit(read_data, p): p for p in ["CMI", "DQF"]}
-            results = {}
-            for fu in as_completed(futs):
-                p = futs[fu]
-                results[p] = fu.result()
-        if verbose:
-            logger.info(f"Downloaded concurrent crop from {f}.")
-        return np.stack([results["CMI"], results["DQF"]], axis=0)
-
-    @timeit
-    def crop_processing(
-        self, CMI_DQF_crop: np.ndarray, cosangs: np.ndarray
-    ) -> np.ndarray:
-        """
-        1) Inpaint using DQF mask, 2) normalize, 3) clip to [0,1], 4) float16.
-        Returns (processed_image, inpaint_percent).
-        """
-        inpaint_mask = np.uint8(CMI_DQF_crop[1] != 0)
-        pct_inpaint = np.mean(inpaint_mask) * 100
-        logger.info(f"Pixels to inpaint: {pct_inpaint:.4f}%")
-
-        # Step 1: inpaint
-        CMI_DQF_crop[0] = cv2.inpaint(CMI_DQF_crop[0], inpaint_mask, 3, cv2.INPAINT_NS)
-
-        # Step 2: normalize
-        pr = normalize(CMI_DQF_crop[0], cosangs, 0.15)
-
-        # Step 3: remove nans and clip
-        pr[np.isnan(pr)] = 0
-        pr = np.clip(pr, 0, 1.0).astype(np.float16)
-
-        logger.info(f"PR range: {pr.min()} - {pr.max()}")
-        return pr, pct_inpaint
-
-    @timeit
-    def download_files(
-        self,
-        metadata_path: str,
-        files_per_date_path: str,
-        outdir: str = "salto1024",
-        lat: float = -31.390502,
-        lon: float = -57.954138,
-        size: int = 1024,
-        skip_night: bool = True,
-        save_only_first: bool = False,
-        save_as: str = "npy",
-        verbose: bool = True,
-    ):
-        """
-        Download and process GOES16 data for the given lat/lon region.
-        Assumes metadata (lat.npy/lon.npy) is already created at `metadata_path`,
-        and a JSON with date->files is present in `files_in_s3_per_date_path`.
-        """
-        assert save_as in [
-            "npy",
-            "png16",
-            "png8",
-        ], "Invalid save_as option. Choose 'npy', 'png16', or 'png8'."
-        # 1) Load metadata from lat.npy / lon.npy in the provided `metadata_path`
-        lat_path = os.path.join(metadata_path, "lat.npy")
-        lon_path = os.path.join(metadata_path, "lon.npy")
-        if not os.path.exists(lat_path) or not os.path.exists(lon_path):
-            raise FileNotFoundError(
-                "lat.npy or lon.npy not found. Run metadata creation first!"
-            )
-
-        REF_LAT = np.load(lat_path)
-        lat_data = np.ma.masked_array(REF_LAT[0], mask=REF_LAT[1])
-        REF_LON = np.load(lon_path)
-        lon_data = np.ma.masked_array(REF_LON[0], mask=REF_LON[1])
-        del REF_LAT, REF_LON
-
-        # 2) Convert user lat/lon to pixel coords
-        c_lats, c_lons, x, y = convert_coordinates_to_pixel(
-            lat, lon, lat_data, lon_data, size, verbose
-        )
-        del lat_data, lon_data
-
-        # 3) Load the JSON containing {datetime-string: [list_of_files]} from the provided path
-        if not os.path.exists(files_per_date_path):
-            raise FileNotFoundError(
-                f"{files_per_date_path} not found. Run the listing step first!"
-            )
-        with open(files_per_date_path, "r") as f:
-            raw_dict = json.load(f)
-        # Convert string keys to datetime
-        files_per_date = {}
-        for date_str, file_list in raw_dict.items():
-            dt = datetime.datetime.fromisoformat(date_str)
-            files_per_date[dt] = file_list
-
-        # 4) Loop over dates and files to download
-        for dt, day_files in tqdm.tqdm(files_per_date.items()):
-            logger.info(f"Date={dt}, total={len(day_files)}")
-
-            is_day_list = []
-            inpaint_pct_list = []
-            filenames_processed = []
-
-            out_day_path = os.path.join(
-                outdir, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
-            )
-
-            for f in day_files:
-                filenames_processed.append(f)
-
-                # Parse time from filename
-                t_str = f.split("/")[-1].split("_")[3][1:]  # sYYYYDDDHHMMSSS
-                y4, dayy, hh, mm, ss = (
-                    t_str[0:4],
-                    t_str[4:7],
-                    t_str[7:9],
-                    t_str[9:11],
-                    t_str[11:13],
-                )
-                file_dt = datetime.datetime.strptime(
-                    f"{dayy}/{y4} {hh}:{mm}:{ss}", "%j/%Y %H:%M:%S"
-                )
-                # In some original code, you used dt.day/dt.month, but dayy is the day-of-year.
-                # We'll rely on the file's own DOY. Alternatively, you can do:
-                # file_dt = datetime.datetime.strptime(f"{dt.day}/{dt.month}/{y4} {hh}:{mm}:{ss}", "%d/%m/%Y %H:%M:%S")
-
-                # 4a) Compute solar angles for the entire sub-array
-                cosangs, _ = get_cosangs(file_dt, c_lats, c_lons)
-
-                # 4b) Optionally skip nighttime
-                if skip_night:
-                    download_img = is_a_full_day_crop(cosangs)
-                else:
-                    download_img = True
-                is_day_list.append(download_img)
-
-                if download_img:
-                    # 4c) Download the CMI+DQF crop
-                    cmi_dqf_crop = self._read_crop_concurrent(f, x, y, size, verbose)
-                    # 4d) Process (inpaint, normalize, clip)
-                    pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs)
-                    inpaint_pct_list.append(pct_inp)
-
-                    # 4e) Save results
-                    out_fname = f"{y4}_{dayy}_UTC_{hh}{mm}{ss}"
-                    os.makedirs(
-                        os.path.dirname(os.path.join(out_day_path, out_fname)),
-                        exist_ok=True,
-                    )
-                    if save_as == "npy":
-                        np.save(
-                            os.path.join(out_day_path, out_fname + ".npy"),
-                            pr.astype(np.float16),
-                        )
-                    elif save_as == "png16":
-                        pr_16u = (
-                            np.round(pr.astype(np.float32) * (2**16 - 1))
-                        ).astype(np.uint16)
-                        Image.fromarray(pr_16u, mode="I;16").save(
-                            os.path.join(out_day_path, out_fname + "_L.png"),
-                            format="PNG",
-                        )
-                    elif save_as == "png8":
-                        pr_8u = np.round(pr * 255).astype(np.uint8)
-                        Image.fromarray(pr_8u, mode="L").save(
-                            os.path.join(out_day_path, out_fname + "_L.png"),
-                            format="PNG",
-                        )
-                    if save_only_first:
-                        break
-                else:
-                    inpaint_pct_list.append(None)
-
-            # 4f) Summarize day
-            df = pd.DataFrame(
-                {
-                    "filenames": filenames_processed,
-                    "is_day": is_day_list,
-                    "inpaint_pct": inpaint_pct_list,
-                }
-            )
-            df.to_csv(
-                os.path.join(
-                    out_day_path,
-                    f"data_{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}.csv",
-                ),
-                index=False,
-            )
-        logger.info("All downloads completed.")
-
-
-########################################
 # 5) FIRE-BASED COMMAND LINE
 ########################################
 class GOES16CLI:
@@ -625,3 +627,5 @@ if __name__ == "__main__":
 # python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="datasets/metadata"
 # python goes16_script.py listing get_S3_files_in_range --start_date="2018-01-01" --end_date=None --output_path="datasets/to_download.json"
 # python goes16_script.py downloader download_files --metadata_path="datasets/metadata/FULL_DISK" --files_per_date_path="datasets/to_download.json" --outdir="salto1024" --lat=-31.390502 --lon=-57.954138 --size=1024 --skip_night=True --save_only_first=False --save_as_npy=True --verbose=True
+
+# last script takes 482 sec
