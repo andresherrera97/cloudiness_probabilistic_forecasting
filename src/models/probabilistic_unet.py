@@ -66,6 +66,7 @@ class UNetPipeline(ABC):
         self.model = None
         self.train_loader = None
         self.val_loader = None
+        self.test_loader = None
         self.optimizer = None
         self.scheduler = None
         self.best_model_dict = None
@@ -118,6 +119,7 @@ class UNetPipeline(ABC):
         binarization_method: Optional[str] = None,
         crop_or_downsample: Optional[str] = None,
         shuffle: bool = True,
+        create_test_loader: bool = False,
     ):
         self.batch_size = batch_size
         self.time_horizon = time_horizon
@@ -162,6 +164,19 @@ class UNetPipeline(ABC):
                 crop_or_downsample=crop_or_downsample,
             )
 
+            if create_test_loader:
+                test_dataset = GOES16Dataset(
+                    path=os.path.join(path, "test/"),
+                    num_in_images=self.in_frames,
+                    minutes_forward=time_horizon,
+                    spatial_context=self.spatial_context,
+                    num_bins=self.n_bins,
+                    binarization_method=binarization_method,
+                    expected_time_diff=10,
+                    inpaint_pct_threshold=1.0,
+                    crop_or_downsample=crop_or_downsample,
+                )
+
         else:
             raise ValueError(f"Dataset {dataset} not recognized.")
 
@@ -169,6 +184,8 @@ class UNetPipeline(ABC):
             train_dataset, batch_size=batch_size, shuffle=shuffle
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle)
+        if create_test_loader:
+            self.test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle)
 
         # Get one sample from train_loader and val_loader to check they have the same size
         train_input_sample, train_output_sample = next(iter(self.train_loader))
