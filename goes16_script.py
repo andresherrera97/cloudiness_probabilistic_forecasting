@@ -401,10 +401,10 @@ class Downloader:
         - `metadata_path`: path containing lat.npy and lon.npy
         - `files_per_date_path`: JSON file containing {datetime_string: [list_of_files]}
         - `outdir`: base folder to write outputs
-        - `batch_size`: number of files to process in parallel per batch
+        - `batch_size`: number of files to process per batch
         - `save_as`: 'npy', 'png16', or 'png8'
         - `skip_night`: if True, skip nighttime
-        - `save_only_first`: if True, save only the first file per day
+        - `save_only_first`: if True, save only the first file per day (if daytime)
         - etc.
         """
         t0 = time.time()
@@ -433,6 +433,7 @@ class Downloader:
             raise FileNotFoundError(f"{files_per_date_path} not found!")
         with open(files_per_date_path, "r") as f:
             raw_dict = json.load(f)
+
         # Convert string keys to datetime
         files_per_date = {}
         for date_str, file_list in raw_dict.items():
@@ -443,51 +444,41 @@ class Downloader:
         for dt, day_files in tqdm.tqdm(files_per_date.items()):
             logger.info(f"Date={dt}, total files={len(day_files)}")
 
-            is_day_list = []
-            inpaint_pct_list = []
-            filenames_processed = []
+            if not day_files:
+                continue
 
+            # Prepare output folder for this day
             out_day_path = os.path.join(
                 outdir, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
             )
+            os.makedirs(out_day_path, exist_ok=True)
 
-        # If user only wants the first file, just set batch_size=1 and break after
-        # or we can handle it in code below
-        index = 0
-        while index < len(day_files):
-            # 4a) Prepare a batch
-            batch = day_files[index : index + batch_size]
-            index += batch_size
+            # If user only wants the first (daytime) file,
+            # we can short-circuit if we find one quickly, but let's keep it consistent:
+            if save_only_first:
+                # We'll do the same approach with batches, but we'll stop on the first day file we get.
+                pass
 
-            results = []
+            # Split day_files into sub-batches
+            day_batches = [
+                day_files[i : i + batch_size]
+                for i in range(0, len(day_files), batch_size)
+            ]
 
-            if batch_size > 1:
-                # 4b) Download & process these files in parallel
-                with ProcessPoolExecutor(max_workers=batch_size) as executor:
-                    futs = [
-                        executor.submit(
-                            self._download_and_process_file,
-                            f,
-                            x,
-                            y,
-                            size,
-                            c_lats,
-                            c_lons,
-                            skip_night,
-                            verbose,
-                            out_day_path,
-                            save_as,
-                            save_only_first,
-                        )
-                        for f in batch
-                    ]
-                    for fu in as_completed(futs):
-                        results.append(fu.result())
-            else:
-                # 4b) Process files sequentially
-                for f in batch:
-                    result = self._download_and_process_file(
-                        f,
+            # We'll accumulate results from all batches here
+            filenames_processed = []
+            is_day_list = []
+            inpaint_pct_list = []
+
+            # 4a) Process each batch in parallel
+            #    Each worker processes the entire batch sequentially
+            #    so we only spawn as many workers as sub-batches (not files).
+            with ProcessPoolExecutor(max_workers=len(day_batches)) as executor:
+                future_to_batch_idx = {}
+                for b_idx, file_batch in enumerate(day_batches):
+                    future = executor.submit(
+                        _process_batch,
+                        file_batch,
                         x,
                         y,
                         size,
@@ -498,20 +489,29 @@ class Downloader:
                         out_day_path,
                         save_as,
                         save_only_first,
+                        self._download_and_process_file,  # Pass your method
                     )
-                    results.append(result)
+                    future_to_batch_idx[future] = b_idx
 
-            # 4c) Collect results
-            for filename, is_day, pct_inp in results:
-                filenames_processed.append(filename)
-                is_day_list.append(is_day)
-                inpaint_pct_list.append(pct_inp)
-                # If user wants only the first file, skip the rest
-                if save_only_first and is_day:
-                    # We'll break out of both loops:
-                    # first empty the day_files so the outer loop won't run
-                    day_files = []
-                    break
+                # 4b) Collect results
+                #     Remember that if save_only_first=True, a batch may stop early,
+                #     but other batches may still be running (unless you add extra logic to cancel them).
+                for future in as_completed(future_to_batch_idx):
+                    batch_results = (
+                        future.result()
+                    )  # list of (filename, is_day, inpaint_pct)
+                    for filename, is_day, pct_inp in batch_results:
+                        filenames_processed.append(filename)
+                        is_day_list.append(is_day)
+                        inpaint_pct_list.append(pct_inp)
+
+                        # If user wants only the first daytime file, and we found it,
+                        # you *could* break and try to cancel other futures, but that
+                        # requires more advanced logic. We'll keep it simple here.
+                        if save_only_first and is_day:
+                            # We found the first day file, so let's ignore the rest.
+                            # But note: the other futures are still running in the background.
+                            break
 
             # 5) Summarize each day
             if filenames_processed:
@@ -522,17 +522,59 @@ class Downloader:
                         "inpaint_pct": inpaint_pct_list,
                     }
                 )
-                os.makedirs(out_day_path, exist_ok=True)
-                df.to_csv(
-                    os.path.join(
-                        out_day_path,
-                        f"data_{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}.csv",
-                    ),
-                    index=False,
+                df_path = os.path.join(
+                    out_day_path,
+                    f"data_{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}.csv",
                 )
+                df.to_csv(df_path, index=False)
 
         logger.info("All downloads completed.")
         logger.info(f"Total time: {time.time() - t0:.2f} sec")
+
+
+def _process_batch(
+    file_batch,
+    x,
+    y,
+    size,
+    c_lats,
+    c_lons,
+    skip_night,
+    verbose,
+    out_day_path,
+    save_as,
+    save_only_first,
+    download_and_process_fn,
+):
+    """
+    Helper function that processes a *batch* of files sequentially (or in any custom manner).
+    Returns a list of (filename, is_day, inpaint_pct).
+    """
+    results = []
+    for f in file_batch:
+        result = download_and_process_fn(
+            f,
+            x,
+            y,
+            size,
+            c_lats,
+            c_lons,
+            skip_night,
+            verbose,
+            out_day_path,
+            save_as,
+            save_only_first,
+        )
+        if result is not None:
+            # result is a tuple (filename, is_day, pct_inp)
+            filename, is_day, pct_inp = result
+            results.append((filename, is_day, pct_inp))
+
+            # If user wants only the first daytime file, stop processing further in this batch
+            if save_only_first and is_day:
+                break
+
+    return results
 
 
 ########################################
@@ -702,9 +744,24 @@ if __name__ == "__main__":
     fire.Fire(GOES16CLI)
 
 # example, run commands as follows:
-# python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="datasets/metadata"
-# python goes16_script.py listing get_S3_files_in_range --start_date="2018-01-01" --end_date=None --output_path="datasets/to_download.json"
-# python goes16_script.py downloader download_files --metadata_path="datasets/metadata/FULL_DISK" --files_per_date_path="datasets/to_download.json" --outdir="datasets/salto1024_t2" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True
-# python goes16_script.py downloader download_files --metadata_path="datasets/metadata/FULL_DISK" --files_per_date_path="datasets/to_download.json" --outdir="datasets/salto1024_t3" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
 
-# last script takes 482 sec, 475 sec
+# python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="/export/home/projects/franchesoni/goes16/metadata"
+# python goes16_script.py listing get_S3_files_in_range --start_date="2018-05-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download.json"
+# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try1" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=1
+# INFO:GOES16 Modular Script:Total time: 2236.89 sec
+
+# python goes16_script.py listing get_S3_files_in_range --start_date="2018-05-02" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download2.json"
+# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download2.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try2" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
+# INFO:GOES16 Modular Script:Finished download_files in 340.52 sec
+
+#  python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download3.json"
+# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download3.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try3" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=24
+# INFO:GOES16 Modular Script:Finished download_files in 1625.03 sec
+
+# python goes16_script.py listing get_S3_files_in_range --start_date="2019-03-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download4.json"
+# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download4.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try4" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=12
+
+# final (we'll use 4)
+# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-01-01" --output_path="/export/home/projects/franchesoni/goes16/all.json"
+# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/all.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
+
