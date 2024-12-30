@@ -117,43 +117,9 @@ class DeterministicUNet(UNetPipeline):
                 train_loss_in_epoch_list
             )
 
-            self.model.eval()
-            val_loss_per_batch = []  # stores values for this validation run
-            self.deterministic_metrics.start_epoch()
-
-            with torch.no_grad():
-                for val_batch_idx, (in_frames, out_frames) in enumerate(
-                    self.val_loader
-                ):
-
-                    in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
-                    out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
-
-                    with torch.autocast(
-                        device_type=device_type, dtype=self.torch_dtype
-                    ):
-                        frames_pred = self.model(in_frames)
-                        frames_pred = self.remove_spatial_context(frames_pred)
-                        persistence_pred = self.remove_spatial_context(
-                            in_frames[:, self.in_frames - 1 :, :, :]
-                        )
-                        val_loss = self.calculate_loss(frames_pred, out_frames)
-
-                        self.deterministic_metrics.run_per_batch_metrics(
-                            y_true=out_frames,
-                            y_pred=frames_pred,
-                            y_persistence=persistence_pred,
-                            pixel_wise=False,
-                            eps=1e-5,
-                        )
-
-                    val_loss_per_batch.append(val_loss.detach().item())
-
-                    if num_val_samples is not None and val_batch_idx >= num_val_samples:
-                        break
-
-            val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
-            forecasting_metrics = self.deterministic_metrics.end_epoch()
+            val_loss_in_epoch, forecasting_metrics = self.run_validation(
+                device, device_type, num_val_samples
+            )
 
             if self.scheduler is not None and not isinstance(
                 self.scheduler, torch.optim.lr_scheduler.OneCycleLR
@@ -210,6 +176,47 @@ class DeterministicUNet(UNetPipeline):
                     )
 
         return train_loss_per_epoch, val_loss_per_epoch
+
+    def run_validation(self, device: str, device_type: str, num_val_samples: int, dataset: str = "val"):
+        self.model.eval()
+        val_loss_per_batch = []  # stores values for this validation run
+        self.deterministic_metrics.start_epoch()
+
+        if dataset == "val":
+            data_loader = self.val_loader
+        elif dataset == "test":
+            data_loader = self.test_loader
+
+        with torch.no_grad():
+            for val_batch_idx, (in_frames, out_frames) in enumerate(data_loader):
+
+                in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
+                out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+
+                with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
+                    frames_pred = self.model(in_frames)
+                    frames_pred = self.remove_spatial_context(frames_pred)
+                    persistence_pred = self.remove_spatial_context(
+                        in_frames[:, self.in_frames - 1 :, :, :]
+                    )
+                    val_loss = self.calculate_loss(frames_pred, out_frames)
+
+                    self.deterministic_metrics.run_per_batch_metrics(
+                        y_true=out_frames,
+                        y_pred=frames_pred,
+                        y_persistence=persistence_pred,
+                        pixel_wise=False,
+                        eps=1e-5,
+                    )
+
+                val_loss_per_batch.append(val_loss.detach().item())
+
+                if num_val_samples is not None and val_batch_idx >= num_val_samples:
+                    break
+
+        val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
+        forecasting_metrics = self.deterministic_metrics.end_epoch()
+        return val_loss_in_epoch, forecasting_metrics
 
     def predict(self, X: torch.Tensor):
         return self.model(X.float())

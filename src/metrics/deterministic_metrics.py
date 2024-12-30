@@ -161,8 +161,8 @@ class DeterministicMetrics:
                 "Width of y_true, y_pred and y_persistence must be equal. "
                 f"Got {y_true.shape[0]}, {y_pred.shape[0]} and {y_persistence.shape[0]}."
             )
-        numerator = torch.mean((y_true - y_pred) ** 2)
-        denominator = torch.mean((y_true - y_persistence) ** 2)
+        numerator = torch.sqrt(torch.mean((y_true - y_pred) ** 2))
+        denominator = torch.sqrt(torch.mean((y_true - y_persistence) ** 2))
 
         return 1 - numerator / denominator
 
