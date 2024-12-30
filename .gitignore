@@ -173,3 +173,4 @@ servidorjupyter-mac.sh
 sbatch_output/
 launch_scripts/*
 !launch_scripts/train_unet.sh
+src/plots*
