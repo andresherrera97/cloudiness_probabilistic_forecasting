@@ -34,9 +34,9 @@ s3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
 bucket = s3.Bucket(sat_cts.BUCKET)
 
 if sat_cts.REGION == "C":
-    METADATA_FOLDER = "datasets/ABI_L2_CMIP_M6C02_G16/CONUS"
+    METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/CONUS"  # need to be relative to provided root
 elif sat_cts.REGION == "F":
-    METADATA_FOLDER = "datasets/ABI_L2_CMIP_M6C02_G16/FULL_DISK"
+    METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/FULL_DISK"
 
 
 @timeit
@@ -100,18 +100,17 @@ def get_S3_files_in_range(
         )
     date_range = pd.date_range(start=start_date, end=end_date).tolist()
 
-    for date in date_range:
-        out_path = os.path.join(
-            output_folder, f"{date.year}_{str(date.timetuple().tm_yday).zfill(3)}"
-        )
-        os.makedirs(out_path, exist_ok=True)
     files_in_s3_per_date = {}
-    date_range = pd.date_range(start=start_date, end=end_date).tolist()
     for date in date_range:
         all_files_in_day = sat_functions.get_day_filenames(
             bucket, date.timetuple().tm_yday, date.year
         )
-        files_in_s3_per_date[date] = all_files_in_day
+        if len(all_files_in_day) > 0:
+            out_path = os.path.join(
+                output_folder, f"{date.year}_{str(date.timetuple().tm_yday).zfill(3)}"
+            )
+            os.makedirs(out_path, exist_ok=True)
+            files_in_s3_per_date[date] = all_files_in_day
     return files_in_s3_per_date
 
 
@@ -158,6 +157,7 @@ def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray
 
 @timeit
 def main(
+    metadata_root="datasets",
     start_date: str = "2024-01-05",
     end_date: Optional[str] = None,
     lat: float = -31.390502,
@@ -184,9 +184,9 @@ def main(
     """
 
     # Load lat-lon conversion files created with data_handlers/goes_16_metadata_generator.py
-    REF_LAT = np.load(os.path.join(METADATA_FOLDER, "lat.npy"))
+    REF_LAT = np.load(os.path.join(metadata_root, METADATA_FOLDER, "lat.npy"))
     REF_LAT = np.ma.masked_array(REF_LAT[0], mask=REF_LAT[1])
-    REF_LON = np.load(os.path.join(METADATA_FOLDER, "lon.npy"))
+    REF_LON = np.load(os.path.join(metadata_root, METADATA_FOLDER, "lon.npy"))
     REF_LON = np.ma.masked_array(REF_LON[0], mask=REF_LON[1])
 
     crop_lats, crop_lons, x, y = convert_coordinates_to_pixel(

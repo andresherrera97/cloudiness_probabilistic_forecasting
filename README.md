@@ -63,3 +63,7 @@ The images are saved in the output folder divided in folders for each day. The f
 ## Model Training [WIP]
 
 To train the model run the script `train.py` ... COMPLETE
+
+# Comments (franchesoni)
+- readme talks about dataset but not about the `download_dataset.sh` file
+- to download the dataset: `python src/goes16_dataset.py /mnt/ddisk/franchesoni/goes16/ --outdir="salto512" --start_date="2017-01-01" --end_date="2025-01-01" --size=512`
