@@ -51,9 +51,8 @@ def get_model_path(
             return "checkpoints/goes16/60min_crop_256_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E10_BVM0_06_D2024-12-03_00:52.pt"
         elif crop_or_downsample == "crop_256_down_2":
             return "checkpoints/goes16/60min_crop_256_down_2_w_bug/det/UNet_IN3_F32_SC0_BS_4_TH60_E23_BVM0_06_D2024-12-07_23:01.pt"
-        # check if correct results
         elif crop_or_downsample == "crop_256_down_4":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/60min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E13_BVM0_06_D2025-01-10_05:01.pt"
         elif crop_or_downsample == "crop_256_down_8":
             return "checkpoints/goes16/60min_crop_256_down_8/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_06_D2024-12-10_21:12.pt"
         elif crop_or_downsample == "crop_128":
@@ -70,6 +69,8 @@ def get_model_path(
             return "checkpoints/goes16/60min_crop_32_down_1/det/UNet_IN3_F32_SC0_BS_8_TH60_E16_BVM0_06_D2024-12-19_03:57.pt"
         else:
             raise ValueError("Invalid crop_or_downsample value")
+    elif time_horizon == 180:
+        raise ValueError("Model not trained")
     elif time_horizon == 300:
         if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
             return "checkpoints/goes16/det32_300min_CROP0_DOWN0/det/UNet_IN3_F32_SC0_BS_4_TH300_E13_BVM0_10_D2024-11-26_20:28.pt"
@@ -78,15 +79,15 @@ def get_model_path(
         elif crop_or_downsample == "down_4" or crop_or_downsample == "crop_1024_down_4":
             return "checkpoints/goes16/300min_crop_1014_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2024-12-16_03:46.pt"
         elif crop_or_downsample == "down_8" or crop_or_downsample == "crop_1024_down_8":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_1024_down_8/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2025-01-04_04:01.pt"
         elif (
             crop_or_downsample == "down_16" or crop_or_downsample == "crop_1024_down_16"
         ):
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_1024_down_16/det/UNet_IN3_F32_SC0_BS_4_TH300_E0_BVM0_10_D2025-01-03_17:08.pt"
         elif (
             crop_or_downsample == "down_32" or crop_or_downsample == "crop_1024_down_32"
         ):
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_1024_down_32/det/UNet_IN3_F32_SC0_BS_4_TH300_E16_BVM0_10_D2025-01-04_19:33.pt"
         elif (
             crop_or_downsample == "crop_512" or crop_or_downsample == "crop_512_down_1"
         ):
@@ -96,23 +97,23 @@ def get_model_path(
         elif crop_or_downsample == "crop_512_down_4":
             return "checkpoints/goes16/512min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2024-12-14_04:50.pt"
         elif crop_or_downsample == "crop_512_down_8":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2025-01-04_01:05.pt"
         elif crop_or_downsample == "crop_512_down_16":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_512_down_16/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2025-01-08_20:37.pt"
         elif (
             crop_or_downsample == "crop_256" or crop_or_downsample == "crop_256_down_1"
         ):
             return "checkpoints/goes16/300min_crop_256_down_1/det/UNet_IN3_F32_SC0_BS_4_TH300_E36_BVM0_10_D2024-12-15_08:24.pt"
         elif crop_or_downsample == "crop_256_down_2":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_256_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E7_BVM0_10_D2025-01-04_12:16.pt"
         elif crop_or_downsample == "crop_256_down_4":
             return "checkpoints/goes16/300min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2024-12-14_04:50.pt"
         elif crop_or_downsample == "crop_256_down_8":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_256_down_8/det/UNet_IN3_F32_SC0_BS_4_TH300_E6_BVM0_10_D2025-01-08_21:51.pt"
         elif crop_or_downsample == "crop_128":
             return "checkpoints/goes16/300min_crop_128_down_1/det/UNet_IN3_F32_SC0_BS_4_TH300_E15_BVM0_11_D2024-12-14_02:01.pt"
         elif crop_or_downsample == "crop_128_down_2":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/300min_crop_128_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2025-01-03_21:19.pt"
         elif crop_or_downsample == "crop_128_down_4":
             return "checkpoints/goes16/300min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2024-12-14_01:36.pt"
         elif crop_or_downsample == "crop_64":
@@ -143,26 +144,35 @@ def get_trained_models(time_horizon: int = 60):
             "crop_512_down_16",
             "crop_256",
             "crop_256_down_2",
+            "crop_256_down_4",
             "crop_256_down_8",
             "crop_128",
             "crop_128_down_2",
             "crop_128_down_4",
             "crop_64",
             "crop_64_down_2",
-            "persistence",
             "crop_32",
+            "persistence",
         ]
     elif time_horizon == 300:
         trained_models = [
             None,
             "down_2",
             "down_4",
+            "down_8",
+            "down_16",
+            "down_32",
             "crop_512",
             "crop_512_down_2",
             "crop_512_down_4",
+            "crop_512_down_8",
+            "crop_512_down_16",
             "crop_256",
+            "crop_256_down_2",
             "crop_256_down_4",
+            "crop_256_down_8",
             "crop_128",
+            "crop_128_down_2",
             "crop_128_down_4",
             "crop_64",
             "crop_64_down_2",
