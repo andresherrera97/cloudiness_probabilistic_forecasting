@@ -70,7 +70,58 @@ def get_model_path(
         else:
             raise ValueError("Invalid crop_or_downsample value")
     elif time_horizon == 180:
-        raise ValueError("Model not trained")
+        if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
+            raise ValueError("Model not trained")
+        elif crop_or_downsample == "down_2" or crop_or_downsample == "crop_1024_down_2":
+            return "checkpoints/goes16/180min_crop_1024_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E22_BVM0_08_D2025-01-10_12:13.pt"
+        elif crop_or_downsample == "down_4" or crop_or_downsample == "crop_1024_down_4":
+            return "checkpoints/goes16/180min_crop_1024_down_4/det/UNet_IN3_F32_SC0_BS_4_TH180_E8_BVM0_08_D2025-01-09_05:51.pt"
+        elif crop_or_downsample == "down_8" or crop_or_downsample == "crop_1024_down_8":
+            return "checkpoints/goes16/180min_crop_1024_down_8/det/UNet_IN3_F32_SC0_BS_4_TH180_E2_BVM0_08_D2025-01-12_05:25.pt"
+        elif (
+            crop_or_downsample == "down_16" or crop_or_downsample == "crop_1024_down_16"
+        ):
+            return "checkpoints/goes16/180min_crop_1024_down_16/det/UNet_IN3_F32_SC0_BS_4_TH180_E5_BVM0_08_D2025-01-14_22:57.pt"
+        elif (
+            crop_or_downsample == "down_32" or crop_or_downsample == "crop_1024_down_32"
+        ):
+            return "checkpoints/goes16/180min_crop_1024_down_32/det/UNet_IN3_F32_SC0_BS_4_TH180_E2_BVM0_08_D2025-01-14_04:16.pt"
+        elif (
+            crop_or_downsample == "crop_512" or crop_or_downsample == "crop_512_down_1"
+        ):
+            return "checkpoints/goes16/180min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-15_20:27.pt"
+        elif crop_or_downsample == "crop_512_down_2":
+            return "checkpoints/goes16/180min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-15_20:27.pt"
+        elif crop_or_downsample == "crop_512_down_4":
+            return "checkpoints/goes16/180min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH180_E3_BVM0_08_D2025-01-14_10:11.pt"
+        elif crop_or_downsample == "crop_512_down_8":
+            return "checkpoints/goes16/180min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH180_E5_BVM0_08_D2025-01-16_16:47.pt"
+        elif crop_or_downsample == "crop_512_down_16":
+            return "checkpoints/goes16/180min_crop_512_down_16/det/UNet_IN3_F32_SC0_BS_4_TH180_E2_BVM0_08_D2025-01-14_23:35.pt"
+        elif (
+            crop_or_downsample == "crop_256" or crop_or_downsample == "crop_256_down_1"
+        ):
+            return "checkpoints/goes16/180min_crop_256_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E22_BVM0_09_D2025-01-23_22:04.pt"
+        elif crop_or_downsample == "crop_256_down_2":
+            return "checkpoints/goes16/180min_crop_256_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E22_BVM0_09_D2025-01-23_22:04.pt"
+        elif crop_or_downsample == "crop_256_down_4":
+            return "checkpoints/goes16/180min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH180_E5_BVM0_09_D2025-01-22_03:59.pt"
+        elif crop_or_downsample == "crop_256_down_8":
+            return "checkpoints/goes16/180min_crop_256_down_8/det/UNet_IN3_F32_SC0_BS_4_TH180_E2_BVM0_09_D2025-01-18_18:40.pt"
+        elif crop_or_downsample == "crop_128":
+            return "checkpoints/goes16/180min_crop_128_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_09_D2025-01-22_18:20.pt"
+        elif crop_or_downsample == "crop_128_down_2":
+            return "checkpoints/goes16/180min_crop_128_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E9_BVM0_10_D2025-01-23_00:25.pt"
+        elif crop_or_downsample == "crop_128_down_4":
+            return "checkpoints/goes16/180min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH180_E13_BVM0_09_D2025-01-21_23:51.pt"
+        elif crop_or_downsample == "crop_64":
+            return "checkpoints/goes16/180min_crop_64_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_10_D2025-01-24_07:45.pt"
+        elif crop_or_downsample == "crop_64_down_2":
+            return "checkpoints/goes16/180min_crop_64_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E9_BVM0_10_D2025-01-24_18:18.pt"
+        elif crop_or_downsample == "crop_32":
+            return "checkpoints/goes16/180min_crop_32_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E2_BVM0_10_D2025-01-24_07:03.pt"
+        else:
+            raise ValueError("Invalid crop_or_downsample value")
     elif time_horizon == 300:
         if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
             return "checkpoints/goes16/det32_300min_CROP0_DOWN0/det/UNet_IN3_F32_SC0_BS_4_TH300_E13_BVM0_10_D2024-11-26_20:28.pt"
@@ -132,6 +183,30 @@ def get_trained_models(time_horizon: int = 60):
     if time_horizon == 60:
         trained_models = [
             None,
+            "down_2",
+            "down_4",
+            "down_8",
+            "down_16",
+            "down_32",
+            "crop_512",
+            "crop_512_down_2",
+            "crop_512_down_4",
+            "crop_512_down_8",
+            "crop_512_down_16",
+            "crop_256",
+            "crop_256_down_2",
+            "crop_256_down_4",
+            "crop_256_down_8",
+            "crop_128",
+            "crop_128_down_2",
+            "crop_128_down_4",
+            "crop_64",
+            "crop_64_down_2",
+            "crop_32",
+            "persistence",
+        ]
+    elif time_horizon == 180:
+        trained_models = [
             "down_2",
             "down_4",
             "down_8",
@@ -298,6 +373,7 @@ def evaluate_model(
     upsample_method: str = "nearest",
     return_average: bool = False,
     debug: bool = False,
+    eval_on_test: bool = False,
 ):
     scale_factor = get_upscale_factor(crop_or_downsample)
     upsample_function = torch.nn.Upsample(
@@ -313,8 +389,13 @@ def evaluate_model(
     mae_fs_per_batch = []
     rmse_persistence_per_batch = []
 
+    if eval_on_test:
+        dataloader = unet.test_loader
+    else:
+        dataloader = unet.val_loader
+
     with torch.no_grad():
-        for val_batch_idx, (in_frames, out_frames) in enumerate(unet.val_loader):
+        for val_batch_idx, (in_frames, out_frames) in enumerate(dataloader):
 
             in_frames = in_frames.to(
                 device=device, dtype=unet.torch_dtype
@@ -499,6 +580,7 @@ def main(
     run_id: str = "",
     return_average: bool = False,
     debug: bool = False,
+    eval_on_test: bool = False,
 ):
     if upsample_method not in ["nearest", "bilinear", "bicubic", "trilinear"]:
         raise ValueError("Invalid upsample method")
@@ -535,6 +617,7 @@ def main(
         binarization_method=None,  # needed for BinClassifierUNet
         crop_or_downsample=None,
         shuffle=False,
+        create_test_loader=eval_on_test,
     )
 
     if test_all_models:
@@ -597,6 +680,7 @@ def main(
                 upsample_method,
                 return_average=return_average,
                 debug=debug,
+                eval_on_test=eval_on_test,
             )
 
             if return_average:
