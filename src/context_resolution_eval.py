@@ -565,6 +565,21 @@ def evaluate_model(
     )
 
 
+def check_if_evaluation_possible(crop_or_downsample: str, eval_crop_size: int) -> bool:
+    if crop_or_downsample is None:
+        return True
+    if "crop" in crop_or_downsample and "down" not in crop_or_downsample:
+        crop_value = int(crop_or_downsample.split("_")[1])
+        if crop_value < eval_crop_size:
+            return False
+    elif "down" in crop_or_downsample:
+        crop_value = int(crop_or_downsample.split("_")[1])
+        down_value = int(crop_or_downsample.split("_")[-1])
+        if crop_value / down_value < eval_crop_size:
+            return False
+    return True
+
+
 def main(
     crop_or_downsample: Optional[str] = None,
     input_frames: int = 3,
@@ -626,7 +641,9 @@ def main(
         if not overwrite:
             try:
                 if return_average:
-                    logger.info(f"Trying to load previous results: evaluation_results{run_id}.csv")
+                    logger.info(
+                        f"Trying to load previous results: evaluation_results{run_id}.csv"
+                    )
                     df_previous_results = pd.read_csv(f"evaluation_results{run_id}.csv")
                     models_tested = df_previous_results["model"].values.tolist()
                     models_to_test = [
@@ -635,8 +652,12 @@ def main(
                     if models_to_test[0] is None:
                         models_to_test = models_to_test[1:]
                 else:
-                    logger.info(f"Trying to load previous results: evaluation_results_TH{time_horizon}_{run_id}.json")
-                    with open(f"evaluation_results_TH{time_horizon}_{run_id}.json", "r") as f:
+                    logger.info(
+                        f"Trying to load previous results: evaluation_results_TH{time_horizon}_{run_id}.json"
+                    )
+                    with open(
+                        f"evaluation_results_TH{time_horizon}_{run_id}.json", "r"
+                    ) as f:
                         results_json = json.load(f)
                     models_tested = list(results_json.keys())
                     models_to_test = [
@@ -660,6 +681,13 @@ def main(
 
         for crop_or_downsample in models_to_test:
             logger.info(f"===== Testing model: {crop_or_downsample} =====")
+
+            if not check_if_evaluation_possible(crop_or_downsample, eval_crop_size):
+                logger.warning(
+                    f"Skipping model {crop_or_downsample} as crop size is smaller than eval crop size"
+                )
+                continue
+
             if crop_or_downsample != "persistence":
                 checkpoint_path = get_model_path(crop_or_downsample, time_horizon)
                 unet.load_checkpoint(checkpoint_path=checkpoint_path, device=device)
@@ -710,7 +738,9 @@ def main(
                     f"Validation loss cropped: {torch.mean(torch.tensor(val_loss_cropped_in_epoch))}"
                 )
                 if crop_or_downsample == "persistence":
-                    logger.info(f"RMSE persistence: {torch.mean(torch.tensor(rmse_persistence))}")
+                    logger.info(
+                        f"RMSE persistence: {torch.mean(torch.tensor(rmse_persistence))}"
+                    )
                 else:
                     logger.info(
                         f"Reconstruction error: {torch.mean(torch.tensor(reconstruction_error))}"
@@ -733,7 +763,9 @@ def main(
                     **forecasting_metrics,
                 }
                 if crop_or_downsample == "persistence":
-                    results_json[crop_or_downsample]["rmse_persistence"] = rmse_persistence
+                    results_json[crop_or_downsample][
+                        "rmse_persistence"
+                    ] = rmse_persistence
 
         if return_average:
             df_results = pd.DataFrame(results)
