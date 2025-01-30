@@ -71,7 +71,7 @@ def get_model_path(
             raise ValueError("Invalid crop_or_downsample value")
     elif time_horizon == 180:
         if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
-            raise ValueError("Model not trained")
+            return "checkpoints/goes16/180min_crop_1024_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-29_15:28.pt"
         elif crop_or_downsample == "down_2" or crop_or_downsample == "crop_1024_down_2":
             return "checkpoints/goes16/180min_crop_1024_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E22_BVM0_08_D2025-01-10_12:13.pt"
         elif crop_or_downsample == "down_4" or crop_or_downsample == "crop_1024_down_4":
@@ -207,6 +207,7 @@ def get_trained_models(time_horizon: int = 60):
         ]
     elif time_horizon == 180:
         trained_models = [
+            None,
             "down_2",
             "down_4",
             "down_8",
@@ -572,7 +573,11 @@ def check_if_evaluation_possible(crop_or_downsample: str, eval_crop_size: int) -
         crop_value = int(crop_or_downsample.split("_")[1])
         if crop_value < eval_crop_size:
             return False
-    elif "down" in crop_or_downsample:
+    elif "down" in crop_or_downsample and "crop" not in crop_or_downsample:
+        down_value = int(crop_or_downsample.split("_")[-1])
+        if 1024 / down_value < eval_crop_size:
+            return False
+    elif "down" in crop_or_downsample and "crop" in crop_or_downsample:
         crop_value = int(crop_or_downsample.split("_")[1])
         down_value = int(crop_or_downsample.split("_")[-1])
         if crop_value / down_value < eval_crop_size:
