@@ -217,7 +217,7 @@ def get_model_path_first_epoch(
         ):
             return "checkpoints/goes16/60min_crop_256_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_07_D2024-12-02_02:01.pt"
         elif crop_or_downsample == "crop_256_down_2":
-            return "checkpoints/goes16/60min_crop_256_down_2_w_bug/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_07_D2024-12-07_16:26.pt"
+            return "checkpoints/goes16/60min_crop_256_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_06_D2024-12-04_00:29.pt"
         elif crop_or_downsample == "crop_256_down_4":
             return "checkpoints/goes16/60min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_07_D2025-01-08_15:36.pt"
         elif crop_or_downsample == "crop_256_down_8":
