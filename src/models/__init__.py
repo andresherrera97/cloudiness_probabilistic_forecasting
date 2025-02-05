@@ -13,3 +13,4 @@ from .probabilistic_unet import (
 from .probabilistic_persistence import PersistenceEnsemble
 from .deterministic_unet import DeterministicUNet
 from .iq_unet import IQUNetPipeline
+from .cmv import CloudMotionVector
