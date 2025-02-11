@@ -697,8 +697,8 @@ class Listing:
 
         files_in_s3_per_date = {}
         for dt in tqdm.tqdm(date_range):
-            # year 2017 has partial data; skip <2018 or beyond current
-            if dt.year < 2018 or dt.year > datetime.datetime.now().year:
+            # year 2019 has partial data; skip <2019 or beyond current
+            if dt.year < 2019 or dt.year > datetime.datetime.now().year:
                 logger.info(f"Skipping {dt.year}. Outside supported range.")
                 continue
 
