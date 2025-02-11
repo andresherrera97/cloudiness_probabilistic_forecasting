@@ -683,7 +683,7 @@ class Listing:
     ):
         """
         Return a dictionary mapping datetime -> list of S3 keys for that day.
-        Uses list_objects_v2 instead of bucket.objects.filter().
+        Uses list_objects_v2 instead of bucket.objects.filter(), now with parallelization.
         """
         if end_date is None:
             end_date = start_date
@@ -693,21 +693,34 @@ class Listing:
             raise ValueError("End date must be >= start date")
 
         date_range = pd.date_range(start=start_date, end=end_date).tolist()
-        s3_client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
+        s3_client = boto3.client(
+            "s3", config=Config(signature_version=UNSIGNED, max_pool_connections=32)
+        )
 
         files_in_s3_per_date = {}
-        for dt in tqdm.tqdm(date_range):
-            # year 2019 has partial data; skip <2019 or beyond current
-            if dt.year < 2019 or dt.year > datetime.datetime.now().year:
-                logger.info(f"Skipping {dt.year}. Outside supported range.")
-                continue
 
-            # Gather all C02 files using list_objects_v2
-            day_files = self._get_day_filenames(
-                s3_client, dt.timetuple().tm_yday, dt.year
-            )
-            if day_files:
-                files_in_s3_per_date[dt] = day_files
+        # Use ThreadPoolExecutor to parallelize listing
+        with ThreadPoolExecutor(max_workers=min(16, len(date_range))) as executor:
+            future_to_date = {
+                executor.submit(
+                    self._get_day_filenames, s3_client, dt.timetuple().tm_yday, dt.year
+                ): dt
+                for dt in date_range
+                if 2019
+                <= dt.year
+                <= datetime.datetime.now().year  # Skip out-of-range years
+            }
+
+            for future in tqdm.tqdm(
+                as_completed(future_to_date), total=len(future_to_date)
+            ):
+                dt = future_to_date[future]
+                try:
+                    day_files = future.result()
+                    if day_files:
+                        files_in_s3_per_date[dt] = day_files
+                except Exception as e:
+                    logger.error(f"Failed to list files for {dt}: {e}")
 
         # Save as JSON
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -715,7 +728,6 @@ class Listing:
             json.dump(
                 {str(k): v for k, v in files_in_s3_per_date.items()}, outfile, indent=4
             )
-
 
     def _get_day_filenames(self, s3_client, doy, year):
         """
