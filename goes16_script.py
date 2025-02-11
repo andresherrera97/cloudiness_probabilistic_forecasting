@@ -358,20 +358,27 @@ class Downloader:
             os.path.dirname(os.path.join(out_day_path, out_fname)), exist_ok=True
         )
 
-        if save_as == "npy":
-            np.save(
-                os.path.join(out_day_path, out_fname + ".npy"), pr.astype(np.float16)
-            )
-        elif save_as == "png16":
-            pr_16u = (np.round(pr.astype(np.float32) * (2**16 - 1))).astype(np.uint16)
-            Image.fromarray(pr_16u, mode="I;16").save(
-                os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
-            )
-        elif save_as == "png8":
-            pr_8u = np.round(pr * 255).astype(np.uint8)
-            Image.fromarray(pr_8u, mode="L").save(
-                os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
-            )
+        if save_as in ["npy16", "png16"]:
+            if save_as == "npy16":
+                np.save(
+                    os.path.join(out_day_path, out_fname + ".npy"),
+                    pr.astype(np.float16),
+                )
+            elif save_as == "png16":
+                pr_16u = (
+                    np.round(pr.astype(np.float32) * (2**16 - 1)).clip(0, 2**16 - 1)
+                ).astype(np.uint16)
+                Image.fromarray(pr_16u, mode="I;16").save(
+                    os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
+                )
+        else:
+            pr_8u = np.round(pr * 255).clip(0, 255).astype(np.uint8)
+            if save_as == "png8":
+                Image.fromarray(pr_8u, mode="L").save(
+                    os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
+                )
+            elif save_as == "npy8":
+                np.save(os.path.join(out_day_path, out_fname + ".npy"), pr_8u)
 
         # 6) If save_only_first is True, we can short-circuit here
         if save_only_first:
@@ -764,4 +771,3 @@ if __name__ == "__main__":
 # final (we'll use 4)
 # python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-01-01" --output_path="/export/home/projects/franchesoni/goes16/all.json"
 # python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/all.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
-
