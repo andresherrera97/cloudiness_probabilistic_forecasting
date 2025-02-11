@@ -683,6 +683,7 @@ class Listing:
     ):
         """
         Return a dictionary mapping datetime -> list of S3 keys for that day.
+        Uses list_objects_v2 instead of bucket.objects.filter().
         """
         if end_date is None:
             end_date = start_date
@@ -692,8 +693,7 @@ class Listing:
             raise ValueError("End date must be >= start date")
 
         date_range = pd.date_range(start=start_date, end=end_date).tolist()
-        s3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
-        bucket = s3.Bucket(BUCKET)
+        s3_client = boto3.client("s3", config=Config(signature_version=UNSIGNED))
 
         files_in_s3_per_date = {}
         for dt in tqdm.tqdm(date_range):
@@ -702,31 +702,38 @@ class Listing:
                 logger.info(f"Skipping {dt.year}. Outside supported range.")
                 continue
 
-            # Gather all C02 files
-            day_files = self._get_day_filenames(bucket, dt.timetuple().tm_yday, dt.year)
+            # Gather all C02 files using list_objects_v2
+            day_files = self._get_day_filenames(
+                s3_client, dt.timetuple().tm_yday, dt.year
+            )
             if day_files:
-                # out_path = os.path.join(
-                #     output_folder, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
-                # )
-                # os.makedirs(out_path, exist_ok=True)
                 files_in_s3_per_date[dt] = day_files
 
-        # save as json
+        # Save as JSON
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(os.path.join(output_path), "w") as outfile:
+        with open(output_path, "w") as outfile:
             json.dump(
-                {str(k): v for k, v in files_in_s3_per_date.items()},
-                outfile,
-                indent=4,
+                {str(k): v for k, v in files_in_s3_per_date.items()}, outfile, indent=4
             )
 
-        return files_in_s3_per_date
 
-    def _get_day_filenames(self, bucket, doy, year):
+    def _get_day_filenames(self, s3_client, doy, year):
+        """
+        Retrieves S3 file list for a specific day using list_objects_v2.
+        """
         prefix = PREFIX + f"/{year}/{doy:03}/"
-        return natsorted(
-            [f.key for f in bucket.objects.filter(Prefix=prefix) if CHANNEL in f.key]
-        )
+        files = []
+
+        paginator = s3_client.get_paginator("list_objects_v2")
+        operation_parameters = {"Bucket": BUCKET, "Prefix": prefix}
+
+        for page in paginator.paginate(**operation_parameters):
+            if "Contents" in page:
+                files.extend(
+                    [obj["Key"] for obj in page["Contents"] if CHANNEL in obj["Key"]]
+                )
+
+        return natsorted(files)
 
 
 ########################################
@@ -771,3 +778,6 @@ if __name__ == "__main__":
 # final (we'll use 4)
 # python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-01-01" --output_path="/export/home/projects/franchesoni/goes16/all.json"
 # python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/all.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
+
+
+# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2019-05-02" --output_path="data/goes16/2019_04_02__2019_05_02.json"
