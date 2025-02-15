@@ -552,9 +552,6 @@ def evaluate_model(
     val_loss_per_batch = []  # stores values for this validation run
     val_loss_cropped_per_batch = []  # stores values for this validation run
     unet.deterministic_metrics.start_epoch()
-    upsample_forecasting_error_per_batch = []
-    reconstruction_error_per_batch = []
-    mae_fs_per_batch = []
     rmse_persistence_per_batch = []
 
     if eval_on_test:
@@ -611,13 +608,6 @@ def evaluate_model(
                 ]
 
                 frames_pred_upsample = upsample_function(frames_pred)
-                persistence_pred_upsample = upsample_function(
-                    in_frames_processed[
-                        :,
-                        unet.in_frames - 1 :,
-                    ]
-                )
-                out_frames_processed_upsample = upsample_function(out_frames_processed)
                 original_crop_size = frames_pred_upsample.shape[-1]
                 if original_crop_size != expected_crop_size:
                     raise ValueError(
@@ -631,26 +621,9 @@ def evaluate_model(
                         crop_border_pred:-crop_border_pred,
                         crop_border_pred:-crop_border_pred,
                     ]
-                    persistence_pred_upsample_cropped = persistence_pred_upsample[
-                        :,
-                        :,
-                        crop_border_pred:-crop_border_pred,
-                        crop_border_pred:-crop_border_pred,
-                    ]
-                    out_frames_processed_upsample_cropped = (
-                        out_frames_processed_upsample[
-                            :,
-                            :,
-                            crop_border_pred:-crop_border_pred,
-                            crop_border_pred:-crop_border_pred,
-                        ]
-                    )
+
                 else:
                     frames_pred_upsample_cropped = frames_pred_upsample
-                    persistence_pred_upsample_cropped = persistence_pred_upsample
-                    out_frames_processed_upsample_cropped = (
-                        out_frames_processed_upsample
-                    )
 
                 if (
                     out_frames_cropped.shape[-1]
@@ -673,28 +646,6 @@ def evaluate_model(
                     eps=1e-5,
                 )
 
-                # MAE forecasting skill
-                mae_fs = 1 - torch.mean(
-                    abs(out_frames_cropped - frames_pred_upsample_cropped)
-                ) / torch.mean(abs(out_frames_cropped - persistence_pred_cropped))
-                mae_fs_per_batch.append(mae_fs.item())
-
-                upsample_forecasting_error = evaluate_persistence_sampling_error(
-                    unet,
-                    target=out_frames_cropped,
-                    persistence_pred=persistence_pred_cropped,
-                    persistence_upsample_pred=persistence_pred_upsample_cropped,
-                )
-                upsample_forecasting_error_per_batch.append(
-                    upsample_forecasting_error.item()
-                )
-
-                reconstruction_error_per_batch.append(
-                    calculate_reconstruction_error(
-                        unet, out_frames_cropped, out_frames_processed_upsample_cropped
-                    ).item()
-                )
-
             if debug and val_batch_idx == 5:
                 break
 
@@ -704,31 +655,15 @@ def evaluate_model(
             val_loss_cropped_per_batch
         )
         forecasting_metrics = unet.deterministic_metrics.end_epoch()
-        reconstruction_error = sum(reconstruction_error_per_batch) / len(
-            reconstruction_error_per_batch
-        )
-        reconstruction_error = reconstruction_error.item()
-        upsample_forecasting_error = sum(upsample_forecasting_error_per_batch) / len(
-            upsample_forecasting_error_per_batch
-        )
-        upsample_forecasting_error = upsample_forecasting_error.item()
-        mae_fs = sum(mae_fs_per_batch) / len(mae_fs_per_batch)
-        mae_fs = mae_fs.item()
     else:
         val_loss_in_epoch = val_loss_per_batch
         val_loss_cropped_in_epoch = val_loss_cropped_per_batch
         forecasting_metrics = unet.deterministic_metrics.return_per_batch_metrics()
-        reconstruction_error = reconstruction_error_per_batch
-        upsample_forecasting_error = upsample_forecasting_error_per_batch
-        mae_fs = mae_fs_per_batch
 
     return (
         val_loss_in_epoch,
         val_loss_cropped_in_epoch,
         forecasting_metrics,
-        reconstruction_error,
-        upsample_forecasting_error,
-        mae_fs,
         rmse_persistence_per_batch,
     )
 
@@ -873,9 +808,6 @@ def main(
                 val_loss_in_epoch,
                 val_loss_cropped_in_epoch,
                 forecasting_metrics,
-                reconstruction_error,
-                upsample_forecasting_error,
-                mae_fs,
                 rmse_persistence,
             ) = evaluate_model(
                 unet,
@@ -891,9 +823,6 @@ def main(
             if return_average:
                 logger.info(f"Validation loss: {val_loss_in_epoch}")
                 logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
-                logger.info(f"Reconstruction error: {reconstruction_error}")
-                logger.info(f"Upsample forecasting error: {upsample_forecasting_error}")
-                logger.info(f"MAE forecasting skill: {mae_fs}")
                 for key, value in forecasting_metrics.items():
                     logger.info(f"{key}: {value}")
 
@@ -901,9 +830,6 @@ def main(
                     "model": crop_or_downsample,
                     "val_loss": val_loss_in_epoch,
                     "val_loss_cropped": val_loss_cropped_in_epoch,
-                    "reconstruction_error": reconstruction_error,
-                    "upsample_forecasting_error": upsample_forecasting_error,
-                    "mae_fs": mae_fs,
                     **forecasting_metrics,
                 }
                 results.append(result)
@@ -919,24 +845,12 @@ def main(
                         f"RMSE persistence: {torch.mean(torch.tensor(rmse_persistence))}"
                     )
                 else:
-                    logger.info(
-                        f"Reconstruction error: {torch.mean(torch.tensor(reconstruction_error))}"
-                    )
-                    logger.info(
-                        f"Upsample forecasting error: {torch.mean(torch.tensor(upsample_forecasting_error))}"
-                    )
-                    logger.info(
-                        f"MAE forecasting skill: {torch.mean(torch.tensor(mae_fs))}"
-                    )
                     for key, value in forecasting_metrics.items():
                         logger.info(f"{key}: {torch.mean(torch.tensor(value))}")
 
                 results_json[crop_or_downsample] = {
                     "val_loss": val_loss_in_epoch,
                     "val_loss_cropped": val_loss_cropped_in_epoch,
-                    "reconstruction_error": reconstruction_error,
-                    "upsample_forecasting_error": upsample_forecasting_error,
-                    "mae_fs": mae_fs,
                     **forecasting_metrics,
                 }
                 if crop_or_downsample == "persistence":
@@ -964,9 +878,6 @@ def main(
             val_loss_in_epoch,
             val_loss_cropped_in_epoch,
             forecasting_metrics,
-            reconstruction_error,
-            upsample_forecasting_error,
-            mae_fs,
             rmse_persistence,
         ) = evaluate_model(
             unet,
@@ -980,9 +891,6 @@ def main(
 
         logger.info(f"Validation loss: {val_loss_in_epoch}")
         logger.info(f"Validation loss cropped: {val_loss_cropped_in_epoch}")
-        logger.info(f"Reconstruction error: {reconstruction_error}")
-        logger.info(f"Upsample forecasting error: {upsample_forecasting_error}")
-        logger.info(f"MAE forecasting skill: {mae_fs}")
         for key, value in forecasting_metrics.items():
             logger.info(f"{key}: {value}")
 
