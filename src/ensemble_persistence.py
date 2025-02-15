@@ -13,7 +13,6 @@ logger = logging.getLogger("Persistence Ensemble")
 
 def main(
     dataset: str,
-    # time_horizon: Optional[int] = None,
     time_horizon: Optional[List[int]] = None,
     num_quantiles: int = 9,
     batch_size: int = 1,
