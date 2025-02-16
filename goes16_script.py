@@ -27,12 +27,14 @@ from botocore.config import Config
 ########################################
 
 # Configure environment variables to optimize GDAL performance
-os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY"
+os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "YES"
 os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = "nc"
 os.environ["GDAL_HTTP_VERSION"] = "2"
 os.environ["GDAL_HTTP_MERGE_CONSECUTIVE_RANGES"] = "YES"
-os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] = "20000000"
-os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "10485760"
+os.environ["GDAL_HTTP_MULTIPLEX"] = "YES"
+os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] =     "500000"  # Read 0.5MB at open
+os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "104857"
+os.environ["CPL_VSIL_CURL_CACHE_SIZE"] = "200000000"  # 200MB cache to reduce re-reads
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
 
 logging.basicConfig(level=logging.INFO)
@@ -206,6 +208,17 @@ def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True)
     Return the sub-array of lat/lon plus the x,y pixel coordinates
     that correspond to the requested lat/lon center.
     """
+    logger.info("Preparing to crop (takes time)...")
+    # # the following is to debug and make the y, x computation below faster (to be continued)
+    # lat_min, lat_max = REF_LAT.min(), REF_LAT.max()
+    # lon_min, lon_max = REF_LON.min(), REF_LON.max()
+    # lat_u, lat_b = REF_LAT[0, 0], REF_LAT[-1, 0]
+    # lon_l, lon_r = REF_LON[0, 0], REF_LON[0, -1]
+    # print(f"Lat range: {lat_min:.2f} - {lat_max:.2f}")
+    # print(f"Lon range: {lon_min:.2f} - {lon_max:.2f}")
+    # print(f"Upper lat: {lat_u:.2f}, Bottom lat: {lat_b:.2f}")
+    # print(f"Left lon: {lon_l:.2f}, Right lon: {lon_r:.2f}")
+
     if not (np.min(REF_LAT) < lat < np.max(REF_LAT)):
         raise ValueError(
             f"Lat {lat} out of range: {np.min(REF_LAT)} - {np.max(REF_LAT)}"
@@ -223,11 +236,13 @@ def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True)
     if x + size // 2 >= REF_LAT.shape[1] or y + size // 2 >= REF_LAT.shape[0]:
         raise ValueError("Crop too large or outside coverage. Adjust.")
 
+    logger.info("Cropping...")
     c_lats = REF_LAT[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
     c_lons = REF_LON[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
 
     if verbose:
         print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON)
+    logger.info("Crop ready!")
     return c_lats, c_lons, x, y
 
 
@@ -255,13 +270,17 @@ class Downloader:
             num_tries = 0
             while num_tries < max_tries:
                 try:
+                    st = time.time()
                     with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
+                        print(f"Time to open: {time.time() - st:.2f}")
+                        st = time.time()
                         c = ds.read(
                             window=(
                                 (y - size // 2, y + size // 2),
                                 (x - size // 2, x + size // 2),
                             )
                         )[0].astype(np.float32)
+                        print(f"Time to read: {time.time() - st:.2f}")
                         if product == "CMI":
                             c[c == -1] = np.nan
                             c /= CORRECTION_FACTOR
@@ -400,7 +419,7 @@ class Downloader:
         save_only_first: bool = False,
         save_as: str = "npy",
         verbose: bool = True,
-        batch_size: int = 4,
+        num_workers: int = 4,
     ):
         """
         Download and process GOES16 data for the given lat/lon region in parallel batches.
@@ -415,7 +434,7 @@ class Downloader:
         - etc.
         """
         t0 = time.time()
-        assert save_as in ["npy", "png16", "png8"], "Invalid save_as option."
+        assert save_as in ["npy16", "npy8", "png16", "png8"], "Invalid save_as option."
 
         # 1) Load metadata
         lat_path = os.path.join(metadata_path, "lat.npy")
@@ -423,6 +442,7 @@ class Downloader:
         if not (os.path.exists(lat_path) and os.path.exists(lon_path)):
             raise FileNotFoundError("lat.npy or lon.npy not found in metadata_path!")
 
+        logger.info("Loading metadata...")
         REF_LAT = np.load(lat_path)
         lat_data = np.ma.masked_array(REF_LAT[0], mask=REF_LAT[1])
         REF_LON = np.load(lon_path)
@@ -430,12 +450,14 @@ class Downloader:
         del REF_LAT, REF_LON
 
         # 2) Convert user lat/lon to pixel coords
+        logger.info("Converting coordinates to pixel...")
         c_lats, c_lons, x, y = convert_coordinates_to_pixel(
             lat, lon, lat_data, lon_data, size, verbose
         )
         del lat_data, lon_data
 
         # 3) Load the JSON containing {datetime-string: [list_of_files]}
+        logger.info("Preparing list of files...")
         if not os.path.exists(files_per_date_path):
             raise FileNotFoundError(f"{files_per_date_path} not found!")
         with open(files_per_date_path, "r") as f:
@@ -448,6 +470,7 @@ class Downloader:
             files_per_date[dt] = file_list
 
         # 4) Process each day
+        logger.info("Processing each day...")
         for dt, day_files in tqdm.tqdm(files_per_date.items()):
             logger.info(f"Date={dt}, total files={len(day_files)}")
 
@@ -467,10 +490,9 @@ class Downloader:
                 pass
 
             # Split day_files into sub-batches
-            day_batches = [
-                day_files[i : i + batch_size]
-                for i in range(0, len(day_files), batch_size)
-            ]
+            day_batches = [list(chunk) for chunk in np.array_split(day_files, max(1, num_workers))]
+            assert num_workers == len(day_batches)
+
 
             # We'll accumulate results from all batches here
             filenames_processed = []
@@ -480,45 +502,61 @@ class Downloader:
             # 4a) Process each batch in parallel
             #    Each worker processes the entire batch sequentially
             #    so we only spawn as many workers as sub-batches (not files).
-            with ProcessPoolExecutor(max_workers=len(day_batches)) as executor:
-                future_to_batch_idx = {}
-                for b_idx, file_batch in enumerate(day_batches):
-                    future = executor.submit(
-                        _process_batch,
-                        file_batch,
-                        x,
-                        y,
-                        size,
-                        c_lats,
-                        c_lons,
-                        skip_night,
-                        verbose,
-                        out_day_path,
-                        save_as,
-                        save_only_first,
-                        self._download_and_process_file,  # Pass your method
-                    )
-                    future_to_batch_idx[future] = b_idx
+            if len(num_workers) > 0:
+                with ProcessPoolExecutor(max_workers=len(day_batches)) as executor:
+                    future_to_batch_idx = {}
+                    for b_idx, file_batch in enumerate(day_batches):
+                        future = executor.submit(
+                            _process_batch,
+                            file_batch,
+                            x,
+                            y,
+                            size,
+                            c_lats,
+                            c_lons,
+                            skip_night,
+                            verbose,
+                            out_day_path,
+                            save_as,
+                            save_only_first,
+                            self._download_and_process_file,  # Pass your method
+                        )
+                        future_to_batch_idx[future] = b_idx
 
-                # 4b) Collect results
-                #     Remember that if save_only_first=True, a batch may stop early,
-                #     but other batches may still be running (unless you add extra logic to cancel them).
-                for future in as_completed(future_to_batch_idx):
-                    batch_results = (
-                        future.result()
-                    )  # list of (filename, is_day, inpaint_pct)
-                    for filename, is_day, pct_inp in batch_results:
-                        filenames_processed.append(filename)
-                        is_day_list.append(is_day)
-                        inpaint_pct_list.append(pct_inp)
+                    # 4b) Collect results
+                    #     Remember that if save_only_first=True, a batch may stop early,
+                    #     but other batches may still be running (unless you add extra logic to cancel them).
+                    for future in as_completed(future_to_batch_idx):
+                        batch_results = (
+                            future.result()
+                        )  # list of (filename, is_day, inpaint_pct)
+                        for filename, is_day, pct_inp in batch_results:
+                            filenames_processed.append(filename)
+                            is_day_list.append(is_day)
+                            inpaint_pct_list.append(pct_inp)
 
-                        # If user wants only the first daytime file, and we found it,
-                        # you *could* break and try to cancel other futures, but that
-                        # requires more advanced logic. We'll keep it simple here.
-                        if save_only_first and is_day:
-                            # We found the first day file, so let's ignore the rest.
-                            # But note: the other futures are still running in the background.
-                            break
+                            # If user wants only the first daytime file, and we found it,
+                            # you *could* break and try to cancel other futures, but that
+                            # requires more advanced logic. We'll keep it simple here.
+                            if save_only_first and is_day:
+                                # We found the first day file, so let's ignore the rest.
+                                # But note: the other futures are still running in the background.
+                                break
+            else:  # no need for parallelization
+                _process_batch(
+                    day_files,
+                    x,
+                    y,
+                    size,
+                    c_lats,
+                    c_lons,
+                    skip_night,
+                    verbose,
+                    out_day_path,
+                    save_as,
+                    save_only_first,
+                    self._download_and_process_file,  # Pass your method
+                )
 
             # 5) Summarize each day
             if filenames_processed:
@@ -771,25 +809,7 @@ if __name__ == "__main__":
 
 # example, run commands as follows:
 
-# python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="/export/home/projects/franchesoni/goes16/metadata"
-# python goes16_script.py listing get_S3_files_in_range --start_date="2018-05-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try1" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=1
-# INFO:GOES16 Modular Script:Total time: 2236.89 sec
+# python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="data/goes16/metadata"
+# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-02-01" --output_path="/export/home/projects/franchesoni/goes16/all.json"
+# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/all.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --num_workers=8
 
-# python goes16_script.py listing get_S3_files_in_range --start_date="2018-05-02" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download2.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download2.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try2" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
-# INFO:GOES16 Modular Script:Finished download_files in 340.52 sec
-
-#  python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download3.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download3.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try3" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=24
-# INFO:GOES16 Modular Script:Finished download_files in 1625.03 sec
-
-# python goes16_script.py listing get_S3_files_in_range --start_date="2019-03-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download4.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download4.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try4" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=12
-
-# final (we'll use 4)
-# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-01-01" --output_path="/export/home/projects/franchesoni/goes16/all.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/all.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
-
-
-# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2019-05-02" --output_path="data/goes16/2019_04_02__2019_05_02.json"
