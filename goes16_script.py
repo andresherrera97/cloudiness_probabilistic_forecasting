@@ -718,6 +718,7 @@ class Listing:
         start_date: str,
         end_date: Optional[str] = None,
         output_path: str = "dataset/to_download.json",
+        num_workers: int = 8,
     ):
         """
         Return a dictionary mapping datetime -> list of S3 keys for that day.
@@ -738,7 +739,7 @@ class Listing:
         files_in_s3_per_date = {}
 
         # Use ThreadPoolExecutor to parallelize listing
-        with ThreadPoolExecutor(max_workers=min(16, len(date_range))) as executor:
+        with ThreadPoolExecutor(max_workers=min(num_workers, len(date_range))) as executor:
             future_to_date = {
                 executor.submit(
                     self._get_day_filenames, s3_client, dt.timetuple().tm_yday, dt.year
@@ -810,6 +811,6 @@ if __name__ == "__main__":
 # example, run commands as follows:
 
 # python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="data/goes16/metadata"
-# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-02-01" --output_path="/export/home/projects/franchesoni/goes16/all.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/all.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --num_workers=8
+# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-02-01" --output_path="data/goes16/all.json" --num_workers=32
+# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="data/goes16/all.json" --outdir="data/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='npy8' --verbose=True --num_workers=8
 
