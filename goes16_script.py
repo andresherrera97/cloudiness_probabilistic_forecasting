@@ -502,7 +502,7 @@ class Downloader:
             # 4a) Process each batch in parallel
             #    Each worker processes the entire batch sequentially
             #    so we only spawn as many workers as sub-batches (not files).
-            if len(num_workers) > 0:
+            if num_workers > 0:
                 with ProcessPoolExecutor(max_workers=len(day_batches)) as executor:
                     future_to_batch_idx = {}
                     for b_idx, file_batch in enumerate(day_batches):
@@ -812,5 +812,5 @@ if __name__ == "__main__":
 
 # python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="data/goes16/metadata"
 # python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-02-01" --output_path="data/goes16/all.json" --num_workers=32
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="data/goes16/all.json" --outdir="data/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='npy8' --verbose=True --num_workers=8
+# python goes16_script.py downloader download_files --metadata_path="data/goes16/metadata/FULL_DISK" --files_per_date_path="data/goes16/all.json" --outdir="data/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='npy8' --verbose=True --num_workers=8
 
