@@ -22,6 +22,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from botocore import UNSIGNED
 from botocore.config import Config
 
+import warnings
+from rasterio.errors import NotGeoreferencedWarning
+
+warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+
 ########################################
 # 1) SHARED CONSTANTS & FUNCTIONS
 ########################################
@@ -37,7 +42,7 @@ os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "104857"
 os.environ["CPL_VSIL_CURL_CACHE_SIZE"] = "200000000"  # 200MB cache to reduce re-reads
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("GOES16 Modular Script")
 
 # Some constants
@@ -272,7 +277,7 @@ class Downloader:
                 try:
                     st = time.time()
                     with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
-                        print(f"Time to open: {time.time() - st:.2f}")
+                        logger.info(f"Time to open: {time.time() - st:.2f}")
                         st = time.time()
                         c = ds.read(
                             window=(
@@ -280,7 +285,7 @@ class Downloader:
                                 (x - size // 2, x + size // 2),
                             )
                         )[0].astype(np.float32)
-                        print(f"Time to read: {time.time() - st:.2f}")
+                        logger.info(f"Time to read: {time.time() - st:.2f}")
                         if product == "CMI":
                             c[c == -1] = np.nan
                             c /= CORRECTION_FACTOR
