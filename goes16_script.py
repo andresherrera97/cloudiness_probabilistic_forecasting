@@ -298,7 +298,7 @@ class Downloader:
 
         CMI = read_data("CMI")
         DQF = read_data("DQF")
-        if (CMI == "error") or (DQF == "error"):
+        if (isinstance(CMI, str) and (CMI == "error")) or (isinstance(DQF,str) and (DQF == "error")):
             return "error"
         if verbose:
             logger.info(f"Downloaded crop from {f}")
@@ -372,7 +372,7 @@ class Downloader:
 
         # 3) Download the CMI+DQF crop
         cmi_dqf_crop = self._read_crop(f, x, y, size, verbose)
-        if cmi_dqf_crop == "error":
+        if isinstance(cmi_dqf_crop, str) and (cmi_dqf_crop == "error"):
             return f, True, None  # error -> skip (with inpainting_pct = None)
         # 4) Process (inpaint, normalize, clip)
         pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs)
