@@ -1,5 +1,4 @@
 import os
-import math
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 import time
 import json
@@ -37,7 +36,7 @@ os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = "nc"
 os.environ["GDAL_HTTP_VERSION"] = "2"
 os.environ["GDAL_HTTP_MERGE_CONSECUTIVE_RANGES"] = "YES"
 os.environ["GDAL_HTTP_MULTIPLEX"] = "YES"
-os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] =     "500000"  # Read 0.5MB at open
+os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] = "500000"  # Read 0.5MB at open
 os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "104857"
 os.environ["CPL_VSIL_CURL_CACHE_SIZE"] = "200000000"  # 200MB cache to reduce re-reads
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
@@ -208,32 +207,37 @@ def print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON):
     )
 
 
+def find_nearest_pixel(REF_LAT, REF_LON, target_lat, target_lon):
+    rows, cols = REF_LAT.shape
+    y, x = rows // 2, cols // 2
+    step = max(rows, cols) // 2
+
+    def manhattan(i, j):
+        return abs(REF_LAT[i, j] - target_lat) + abs(REF_LON[i, j] - target_lon)
+
+    best = manhattan(y, x)
+    while step:
+        improved = False
+        for dy in (-step, 0, step):
+            for dx in (-step, 0, step):
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < rows and 0 <= nx < cols:
+                    d = manhattan(ny, nx)
+                    if d < best:
+                        best, y, x = d, ny, nx
+                        improved = True
+        if not improved:
+            step //= 2
+    return y, x
+
+
 def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True):
     """
     Return the sub-array of lat/lon plus the x,y pixel coordinates
     that correspond to the requested lat/lon center.
     """
-    logger.info("Preparing to crop (takes time)...")
-    # # the following is to debug and make the y, x computation below faster (to be continued)
-    # lat_min, lat_max = REF_LAT.min(), REF_LAT.max()
-    # lon_min, lon_max = REF_LON.min(), REF_LON.max()
-    # lat_u, lat_b = REF_LAT[0, 0], REF_LAT[-1, 0]
-    # lon_l, lon_r = REF_LON[0, 0], REF_LON[0, -1]
-    # print(f"Lat range: {lat_min:.2f} - {lat_max:.2f}")
-    # print(f"Lon range: {lon_min:.2f} - {lon_max:.2f}")
-    # print(f"Upper lat: {lat_u:.2f}, Bottom lat: {lat_b:.2f}")
-    # print(f"Left lon: {lon_l:.2f}, Right lon: {lon_r:.2f}")
-
-    if not (np.min(REF_LAT) < lat < np.max(REF_LAT)):
-        raise ValueError(
-            f"Lat {lat} out of range: {np.min(REF_LAT)} - {np.max(REF_LAT)}"
-        )
-    if not (np.min(REF_LON) < lon < np.max(REF_LON)):
-        raise ValueError(
-            f"Lon {lon} out of range: {np.min(REF_LON)} - {np.max(REF_LON)}"
-        )
-    distances = abs(REF_LAT - lat) + abs(REF_LON - lon)
-    y, x = np.unravel_index(np.nanargmin(distances), distances.shape)
+    logger.info("Preparing to crop...")
+    y, x = find_nearest_pixel(REF_LAT, REF_LON, lat, lon)
 
     # check coverage
     if x - size // 2 < 0 or y - size // 2 < 0:
@@ -271,36 +275,31 @@ class Downloader:
         Fetches CMI & DQF sequentially.
         """
 
-        def read_data(product, max_tries=3):
-            num_tries = 0
-            while num_tries < max_tries:
-                try:
+        def read_data(product):
+            try:
+                st = time.time()
+                with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
+                    logger.info(f"Time to open: {time.time() - st:.2f}")
                     st = time.time()
-                    with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
-                        logger.info(f"Time to open: {time.time() - st:.2f}")
-                        st = time.time()
-                        c = ds.read(
-                            window=(
-                                (y - size // 2, y + size // 2),
-                                (x - size // 2, x + size // 2),
-                            )
-                        )[0].astype(np.float32)
-                        logger.info(f"Time to read: {time.time() - st:.2f}")
-                        if product == "CMI":
-                            c[c == -1] = np.nan
-                            c /= CORRECTION_FACTOR
-                    return c
-                except Exception as e:
-                    num_tries += 1
-                    logger.error(f"Error {e} reading {product} from {f}. Retrying...")
-                    time.sleep(1)
-                    continue
-            raise ValueError(
-                f"Failed to read {product} from {f} after {max_tries} tries."
-            )
+                    c = ds.read(
+                        window=(
+                            (y - size // 2, y + size // 2),
+                            (x - size // 2, x + size // 2),
+                        )
+                    )[0].astype(np.float32)
+                    logger.info(f"Time to read: {time.time() - st:.2f}")
+                    if product == "CMI":
+                        c[c == -1] = np.nan
+                        c /= CORRECTION_FACTOR
+                return c
+            except Exception as e:
+                logger.error(f"Error {e} reading {product} from {f}. Skipping...")
+                return "error"
 
         CMI = read_data("CMI")
         DQF = read_data("DQF")
+        if (CMI == "error") or (DQF == "error"):
+            return "error"
         if verbose:
             logger.info(f"Downloaded crop from {f}")
         return np.stack([CMI, DQF], axis=0)
@@ -373,6 +372,8 @@ class Downloader:
 
         # 3) Download the CMI+DQF crop
         cmi_dqf_crop = self._read_crop(f, x, y, size, verbose)
+        if cmi_dqf_crop == "error":
+            return f, True, None  # error -> skip (with inpainting_pct = None)
         # 4) Process (inpaint, normalize, clip)
         pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs)
 
@@ -488,6 +489,24 @@ class Downloader:
             )
             os.makedirs(out_day_path, exist_ok=True)
 
+            summary_csv_path = os.path.join(
+                out_day_path,
+                f"data_{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}.csv",
+            )
+            if os.path.exists(summary_csv_path):
+                df = pd.read_csv(summary_csv_path)
+                if len(df) >= len(
+                    day_files
+                ):  # If all files are accounted for, skip processing
+                    logger.info(
+                        f"Skipping {dt} - Already processed with {len(df)} entries."
+                    )
+                    continue
+                else:
+                    logger.warning(
+                        f"{dt} wasn't complete ({len(df)} / {len(day_files)})"
+                    )
+
             # If user only wants the first (daytime) file,
             # we can short-circuit if we find one quickly, but let's keep it consistent:
             if save_only_first:
@@ -495,9 +514,10 @@ class Downloader:
                 pass
 
             # Split day_files into sub-batches
-            day_batches = [list(chunk) for chunk in np.array_split(day_files, max(1, num_workers))]
-            assert num_workers == len(day_batches)
-
+            day_batches = [
+                list(chunk) for chunk in np.array_split(day_files, max(1, num_workers))
+            ]
+            assert num_workers == 0 or num_workers == len(day_batches)
 
             # We'll accumulate results from all batches here
             filenames_processed = []
@@ -744,7 +764,9 @@ class Listing:
         files_in_s3_per_date = {}
 
         # Use ThreadPoolExecutor to parallelize listing
-        with ThreadPoolExecutor(max_workers=min(num_workers, len(date_range))) as executor:
+        with ThreadPoolExecutor(
+            max_workers=min(num_workers, len(date_range))
+        ) as executor:
             future_to_date = {
                 executor.submit(
                     self._get_day_filenames, s3_client, dt.timetuple().tm_yday, dt.year
@@ -818,4 +840,3 @@ if __name__ == "__main__":
 # python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="data/goes16/metadata"
 # python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-02-01" --output_path="data/goes16/all.json" --num_workers=32
 # python goes16_script.py downloader download_files --metadata_path="data/goes16/metadata/FULL_DISK" --files_per_date_path="data/goes16/all.json" --outdir="data/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='npy8' --verbose=True --num_workers=8
-
