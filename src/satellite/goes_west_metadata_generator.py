@@ -1,8 +1,8 @@
 """
-This file downloads a nc file from the goes-16 AWS S3 bucket, and extracts the
+This file downloads a nc file from the goes-17 AWS S3 bucket, and extracts the
 metadata from it. The metadata is constant for all the other files, saving this
 data saves processing when using other files.
-NOAA goes-16 Amazon S3 Bucket: https://noaa-goes16.s3.amazonaws.com/index.html
+NOAA goes-17 Amazon S3 Bucket: https://noaa-goes17.s3.amazonaws.com/index.html
 
 GOES Imager projection code is extracted from:
 https://www.star.nesdis.noaa.gov/atmospheric-composition-training/python_abi_lat_lon.php
@@ -23,15 +23,15 @@ import constants as sat_cts
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("GOES16 Metadata Generator")
+logger = logging.getLogger("GOES17 Metadata Generator")
 
 # Path to nc files if they are stored locally
-PATH_TO_LOCAL_CONUS_FILE = "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G16_s20241110601171_e20241110603544_c20241110604037.nc"
-PATH_TO_LOCAL_FULL_DISK_FILE = "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G16_s20220120310204_e20220120319512_c20220120319587.nc"
+PATH_TO_LOCAL_CONUS_FILE = "datasets/CONUS_nc_files/OR_ABI-L2-CMIPC-M6C02_G17_s20220152021177_e20220152023550_c20220152024051.nc"
+PATH_TO_LOCAL_FULL_DISK_FILE = "datasets/full_disk_nc_files/OR_ABI-L2-CMIPF-M6C02_G17_s20200371650321_e20200371659388_c20200371659448.nc"
 # Path to nc files in the AWS S3 bucket to download them
 # these images where chosen randomly
-S3_PATH_TO_CONUS_FILE = "ABI-L2-CMIPC/2024/111/10/OR_ABI-L2-CMIPC-M6C02_G16_s20241111011171_e20241111013544_c20241111014046.nc"
-S3_PATH_TO_FULL_DISK_FILE = "ABI-L2-CMIPF/2024/111/10/OR_ABI-L2-CMIPF-M6C02_G16_s20241111050205_e20241111059513_c20241111059581.nc"
+S3_PATH_TO_CONUS_FILE = "ABI-L2-CMIPC/2022/015/20/OR_ABI-L2-CMIPC-M6C02_G17_s20220152021177_e20220152023550_c20220152024051.nc"
+S3_PATH_TO_FULL_DISK_FILE = "ABI-L2-CMIPF/2020/037/16/OR_ABI-L2-CMIPF-M6C02_G17_s20200371650321_e20200371659388_c20200371659448.nc"
 
 
 s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
@@ -39,7 +39,7 @@ s3 = boto3.client("s3", config=Config(signature_version=UNSIGNED))
 
 def calculate_degrees(file_id):
     logger.info(
-        "Calculating latitude and longitude from the ABI fixed grid projection.."
+        "Calculating latitude and longitude from the ABI fixed grid projection."
     )
     # Read in GOES ABI fixed grid projection variables and constants
     x_coordinate_1d = file_id.variables["x"][:]  # E/W scanning angle in radians
@@ -88,11 +88,11 @@ def calculate_degrees(file_id):
 
 def main(
     region: str = "full_disk",
-    output_folder: str = "datasets/ABI_L2_CMIP_M6C02_G16/",
+    output_folder: str = "datasets/ABI_L2_CMIP_M6C02_G17/",
     download_reference: bool = True,
 ):
     """
-    Use a nc file from the goes-16 AWS S3 bucket to extract the metadata from it.
+    Use a nc file from the goes-17 AWS S3 bucket to extract the metadata from it.
     The metadata is saved in a JSON file and the latitude and longitude are saved in numpy files.
     Args:
         region: The region of the nc file to download. Options are "conus" or "full_disk".
@@ -110,7 +110,7 @@ def main(
             data_folder = "FULL_DISK"
         with tempfile.NamedTemporaryFile(delete=False, suffix=".nc") as temp_file:
             # Download the file from S3
-            s3.download_fileobj(sat_cts.BUCKET, file_key, temp_file)
+            s3.download_fileobj("noaa-goes17", file_key, temp_file)
             temp_filename = temp_file.name
         nc_dataset = Dataset(temp_filename)
 

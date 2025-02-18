@@ -72,11 +72,11 @@ def read_crop(f: str, x: int, y: int, size: int, verbose: bool = True):
     return CMI_DQF_crop
 
 
-def read_crop_concurrent(f: str, x: int, y: int, size: int, verbose: bool = True):
+def read_crop_concurrent(bucket_name, f: str, x: int, y: int, size: int, verbose: bool = True):
     timing_start = time.time()
 
     def read_data(product):
-        with rasterio.open(f"HDF5:/vsis3/{sat_cts.BUCKET}/{f}://{product}") as ds:
+        with rasterio.open(f"HDF5:/vsis3/{bucket_name}/{f}://{product}") as ds:
             crop = ds.read(
                 window=((y - size // 2, y + size // 2), (x - size // 2, x + size // 2))
             )[0, ...]

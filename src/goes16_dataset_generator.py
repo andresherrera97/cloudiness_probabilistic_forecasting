@@ -22,21 +22,41 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("GOES16 Dataset Generator")
 
 # Define environment variable to speed up gdal
-os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY"
+# os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY"
+os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "YES"
 os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = "nc"
 os.environ["GDAL_HTTP_VERSION"] = "2"
 os.environ["GDAL_HTTP_MERGE_CONSECUTIVE_RANGES"] = "YES"
-os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] = "2000000"  # 2MB
-os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "5000000"  # 5MB
+os.environ["GDAL_HTTP_MULTIPLEX"] = "YES"
+# os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] = "2000000"  # 2MB
+os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] = "500000"  # 0.5MB
+# os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "5000000"  # 5MB
+os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "104857"
+os.environ["CPL_VSIL_CURL_CACHE_SIZE"] = "200000000"  # 200MB cache to reduce re-reads
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
 
 s3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
-bucket = s3.Bucket(sat_cts.BUCKET)
 
-if sat_cts.REGION == "C":
-    METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/CONUS"  # need to be relative to provided root
-elif sat_cts.REGION == "F":
-    METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/FULL_DISK"
+
+def get_bucket_name(use_goes_16: bool = True):
+    if use_goes_16:
+        return "noaa-goes16"
+    else:
+        return "noaa-goes17"
+
+
+def get_metadata_folder(use_goes_16: bool = True):
+    if use_goes_16:
+        if sat_cts.REGION == "C":
+            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/CONUS"  # need to be relative to provided root
+        elif sat_cts.REGION == "F":
+            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/FULL_DISK"
+    else:
+        if sat_cts.REGION == "C":
+            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G17/CONUS"  # need to be relative to provided root
+        elif sat_cts.REGION == "F":
+            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G17/FULL_DISK"
+    return METADATA_FOLDER
 
 
 @timeit
@@ -88,7 +108,7 @@ def convert_coordinates_to_pixel(
 
 @timeit
 def get_S3_files_in_range(
-    start_date: str, end_date: Optional[str], output_folder: str
+    bucket, start_date: str, end_date: Optional[str], output_folder: str
 ) -> Dict[datetime.datetime, List[str]]:
     if end_date is None:
         end_date = start_date
@@ -142,7 +162,7 @@ def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray
     pixel_pct_to_inpaint = np.mean(inpaint_mask) * 100
     logger.info(f"Percentage of pixels to inpaint: {pixel_pct_to_inpaint:.6f}%")
     CMI_DQF_crop[0] = cv2.inpaint(CMI_DQF_crop[0], inpaint_mask, 3, cv2.INPAINT_NS)
-    # normalizar
+    # normalize
     planetary_reflectance = sat_functions.normalize(CMI_DQF_crop[0], cosangs, 0.15)
     planetary_reflectance[np.isnan(planetary_reflectance)] = 0
     planetary_reflectance = np.clip(planetary_reflectance, 0, 1.0)
@@ -167,6 +187,7 @@ def main(
     skip_night: bool = True,
     save_only_first: bool = False,
     save_as_npy: bool = True,
+    use_goes_16: bool = True,
     verbose: bool = True,
 ):
     """Download/load images and perform a background substraction.
@@ -182,11 +203,12 @@ def main(
         save_only_first_img: Save only the first image of the day.
         verbose: print extra info
     """
+    metadata_folder = get_metadata_folder(use_goes_16)
 
     # Load lat-lon conversion files created with data_handlers/goes_16_metadata_generator.py
-    REF_LAT = np.load(os.path.join(metadata_root, METADATA_FOLDER, "lat.npy"))
+    REF_LAT = np.load(os.path.join(metadata_root, metadata_folder, "lat.npy"))
     REF_LAT = np.ma.masked_array(REF_LAT[0], mask=REF_LAT[1])
-    REF_LON = np.load(os.path.join(metadata_root, METADATA_FOLDER, "lon.npy"))
+    REF_LON = np.load(os.path.join(metadata_root, metadata_folder, "lon.npy"))
     REF_LON = np.ma.masked_array(REF_LON[0], mask=REF_LON[1])
 
     crop_lats, crop_lons, x, y = convert_coordinates_to_pixel(
@@ -196,7 +218,9 @@ def main(
     del REF_LAT
     del REF_LON
 
-    files_in_s3_per_date = get_S3_files_in_range(start_date, end_date, output_folder)
+    bucket_name = get_bucket_name(use_goes_16)
+    bucket = s3.Bucket(bucket_name)
+    files_in_s3_per_date = get_S3_files_in_range(bucket, start_date, end_date, output_folder)
 
     for date, all_files_in_s3 in files_in_s3_per_date.items():
         logger.info(
@@ -236,7 +260,7 @@ def main(
             if download_img:
                 # check if there is an improvement in the download time
                 CMI_DQF_crop = sat_functions.read_crop_concurrent(
-                    filename, x, y, size, verbose
+                    bucket_name, filename, x, y, size, verbose
                 )  # shape: (2, size, size)
 
                 planetary_reflectance, pixel_pct_to_inpaint = crop_processing(
