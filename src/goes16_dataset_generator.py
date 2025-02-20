@@ -36,6 +36,9 @@ os.environ["CPL_VSIL_CURL_CACHE_SIZE"] = "200000000"  # 200MB cache to reduce re
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
 
 s3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
+s3_client = boto3.client(
+    "s3", config=Config(signature_version=UNSIGNED, max_pool_connections=32)
+)
 
 
 def get_bucket_name(use_goes_16: bool = True):
@@ -48,15 +51,14 @@ def get_bucket_name(use_goes_16: bool = True):
 def get_metadata_folder(use_goes_16: bool = True):
     if use_goes_16:
         if sat_cts.REGION == "C":
-            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/CONUS"  # need to be relative to provided root
+            return "ABI_L2_CMIP_M6C02_G16/CONUS"  # need to be relative to provided root
         elif sat_cts.REGION == "F":
-            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G16/FULL_DISK"
+            return "ABI_L2_CMIP_M6C02_G16/FULL_DISK"
     else:
         if sat_cts.REGION == "C":
-            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G17/CONUS"  # need to be relative to provided root
+            return "ABI_L2_CMIP_M6C02_G17/CONUS"  # need to be relative to provided root
         elif sat_cts.REGION == "F":
-            METADATA_FOLDER = "ABI_L2_CMIP_M6C02_G17/FULL_DISK"
-    return METADATA_FOLDER
+            return "ABI_L2_CMIP_M6C02_G17/FULL_DISK"
 
 
 @timeit
@@ -108,7 +110,7 @@ def convert_coordinates_to_pixel(
 
 @timeit
 def get_S3_files_in_range(
-    bucket, start_date: str, end_date: Optional[str], output_folder: str
+    bucket_name, start_date: str, end_date: Optional[str], output_folder: str
 ) -> Dict[datetime.datetime, List[str]]:
     if end_date is None:
         end_date = start_date
@@ -123,7 +125,8 @@ def get_S3_files_in_range(
     files_in_s3_per_date = {}
     for date in date_range:
         all_files_in_day = sat_functions.get_day_filenames(
-            bucket, date.timetuple().tm_yday, date.year
+            # bucket, date.timetuple().tm_yday, date.year
+            bucket_name, s3_client, date.timetuple().tm_yday, date.year
         )
         if len(all_files_in_day) > 0:
             out_path = os.path.join(
@@ -135,7 +138,7 @@ def get_S3_files_in_range(
 
 
 @timeit
-def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray:
+def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray, calculate_pr: bool = True) -> np.ndarray:
     """
     Process a crop of satellite imagery data.
 
@@ -162,17 +165,23 @@ def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray) -> np.ndarray
     pixel_pct_to_inpaint = np.mean(inpaint_mask) * 100
     logger.info(f"Percentage of pixels to inpaint: {pixel_pct_to_inpaint:.6f}%")
     CMI_DQF_crop[0] = cv2.inpaint(CMI_DQF_crop[0], inpaint_mask, 3, cv2.INPAINT_NS)
-    # normalize
-    planetary_reflectance = sat_functions.normalize(CMI_DQF_crop[0], cosangs, 0.15)
-    planetary_reflectance[np.isnan(planetary_reflectance)] = 0
-    planetary_reflectance = np.clip(planetary_reflectance, 0, 1.0)
-    # reduce precision
-    planetary_reflectance = planetary_reflectance.astype(np.float16)
-    logger.info(
-        f"    - min-max values for PR: {np.min(planetary_reflectance)} "
-        f"- {np.max(planetary_reflectance)}"
-    )
-    return planetary_reflectance, pixel_pct_to_inpaint
+    if calculate_pr:
+        # return Planetary Reflectance (PR) crop
+        processed_crop = sat_functions.normalize(CMI_DQF_crop[0], cosangs, 0.15)
+        processed_crop[np.isnan(processed_crop)] = 0
+        processed_crop = np.clip(processed_crop, 0, 1.0)
+        # reduce precision
+        processed_crop = processed_crop.astype(np.float16)
+        logger.info(
+            f"    - min-max values for PR: {np.min(processed_crop)} "
+            f"- {np.max(processed_crop)}"
+        )
+    else:
+        # return Cloud and Moisture Imagery (CMI) crop
+        processed_crop = CMI_DQF_crop[0].astype(np.float16)
+        print(f"cmi dtype: {processed_crop.dtype}")
+        print(f"cmi min-max: {np.min(processed_crop)} - {np.max(processed_crop)}")
+    return processed_crop, pixel_pct_to_inpaint
 
 
 @timeit
@@ -187,6 +196,7 @@ def main(
     skip_night: bool = True,
     save_only_first: bool = False,
     save_as_npy: bool = True,
+    calculate_pr: bool = True,
     use_goes_16: bool = True,
     verbose: bool = True,
 ):
@@ -220,7 +230,7 @@ def main(
 
     bucket_name = get_bucket_name(use_goes_16)
     bucket = s3.Bucket(bucket_name)
-    files_in_s3_per_date = get_S3_files_in_range(bucket, start_date, end_date, output_folder)
+    files_in_s3_per_date = get_S3_files_in_range(bucket_name, start_date, end_date, output_folder)
 
     for date, all_files_in_s3 in files_in_s3_per_date.items():
         logger.info(
@@ -263,21 +273,21 @@ def main(
                     bucket_name, filename, x, y, size, verbose
                 )  # shape: (2, size, size)
 
-                planetary_reflectance, pixel_pct_to_inpaint = crop_processing(
-                    CMI_DQF_crop, cosangs
+                processed_crop, pixel_pct_to_inpaint = crop_processing(
+                    CMI_DQF_crop, cosangs, calculate_pr
                 )
                 inpaint_pct.append(pixel_pct_to_inpaint)
                 crop_filename = f"{yl}_{day_of_year}_UTC_{hh}{mm}{ss}"
 
                 if save_as_npy:
                     # Save image as npy array with float16 precision
-                    np.save(out_path + f"/{crop_filename}.npy", planetary_reflectance)
+                    np.save(out_path + f"/{crop_filename}.npy", processed_crop)
                 else:
-                    planetary_reflectance = planetary_reflectance.astype(np.float32)
-                    planetary_reflectance = (
-                        planetary_reflectance * 2**16 - 1
+                    processed_crop = processed_crop.astype(np.float32)
+                    processed_crop = (
+                        processed_crop * 2**16 - 1
                     ).astype(np.uint16)
-                    Image.fromarray(planetary_reflectance, mode="I;16").save(
+                    Image.fromarray(processed_crop, mode="I;16").save(
                         out_path + f"/{crop_filename}_L.png", fromat="PNG"
                     )
 
