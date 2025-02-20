@@ -126,21 +126,40 @@ def print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON):
     )
 
 
-def get_day_filenames(bucket, date, year):
-    logging.info(f"Extracting all available images for {date} in NOAA S3 ...")
-    all_files_in_day = []
-    for hour in range(0, 24):
-        filter_prefix = sat_cts.PREFIX + f"/{year}/{date:03}/{str(hour).zfill(2)}/"
-        objects = [o.key for o in bucket.objects.filter(Prefix=filter_prefix)]
-        # objects: List[str]
+# def get_day_filenames(bucket, date, year):
+#     logging.info(f"Extracting all available images for {date} in NOAA S3 ...")
+#     all_files_in_day = []
+#     for hour in range(0, 24):
+#         filter_prefix = sat_cts.PREFIX + f"/{year}/{date:03}/{str(hour).zfill(2)}/"
+#         objects = [o.key for o in bucket.objects.filter(Prefix=filter_prefix)]
+#         # objects: List[str]
 
-        # Filter C02 files from the objects list
-        hour_channel_files = [f for f in objects if sat_cts.CHANNEL in f]
-        all_files_in_day += hour_channel_files
+#         # Filter C02 files from the objects list
+#         hour_channel_files = [f for f in objects if sat_cts.CHANNEL in f]
+#         all_files_in_day += hour_channel_files
 
-    all_files_in_day = natsorted(all_files_in_day)
-    logging.info("Done.")
-    return all_files_in_day
+#     all_files_in_day = natsorted(all_files_in_day)
+#     logging.info("Done.")
+#     return all_files_in_day
+
+
+def get_day_filenames(bucket, s3_client, doy, year):
+    """
+    Retrieves S3 file list for a specific day using list_objects_v2.
+    """
+    prefix = sat_cts.PREFIX + f"/{year}/{doy:03}/"
+    files = []
+
+    paginator = s3_client.get_paginator("list_objects_v2")
+    operation_parameters = {"Bucket": bucket, "Prefix": prefix}
+
+    for page in paginator.paginate(**operation_parameters):
+        if "Contents" in page:
+            files.extend(
+                [obj["Key"] for obj in page["Contents"] if sat_cts.CHANNEL in obj["Key"]]
+            )
+
+    return natsorted(files)
 
 
 def daily_solar_angles(year: int, doy: int):
