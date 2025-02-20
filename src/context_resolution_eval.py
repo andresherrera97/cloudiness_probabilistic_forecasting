@@ -40,7 +40,8 @@ def get_model_path(
         elif crop_or_downsample == "crop_512_down_2":
             return "checkpoints/goes16/60min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-03_09:15.pt"
         elif crop_or_downsample == "crop_512_down_4":
-            return "checkpoints/goes16/60min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-03_09:15.pt"
+            # return "checkpoints/goes16/60min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-03_09:15.pt"
+            return "checkpoints/goes16/60min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E10_BVM0_05_D2025-02-16_21:03.pt"
         elif crop_or_downsample == "crop_512_down_8":
             return "checkpoints/goes16/60min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH60_E15_BVM0_05_D2024-12-03_18:25.pt"
         elif crop_or_downsample == "crop_512_down_16":
@@ -71,7 +72,8 @@ def get_model_path(
             raise ValueError("Invalid crop_or_downsample value")
     elif time_horizon == 180:
         if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
-            return "checkpoints/goes16/180min_crop_1024_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-29_15:28.pt"
+            # return "checkpoints/goes16/180min_crop_1024_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-29_15:28.pt"
+            return "checkpoints/goes16/180min_crop_1024_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-02-17_01:59.pt"
         elif crop_or_downsample == "down_2" or crop_or_downsample == "crop_1024_down_2":
             return "checkpoints/goes16/180min_crop_1024_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E22_BVM0_08_D2025-01-10_12:13.pt"
         elif crop_or_downsample == "down_4" or crop_or_downsample == "crop_1024_down_4":
@@ -89,13 +91,15 @@ def get_model_path(
         elif (
             crop_or_downsample == "crop_512" or crop_or_downsample == "crop_512_down_1"
         ):
-            return "checkpoints/goes16/180min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-15_20:27.pt"
+            # return "checkpoints/goes16/180min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-15_20:27.pt"
+            return "checkpoints/goes16/180min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E20_BVM0_08_D2025-02-17_07:36.pt"
         elif crop_or_downsample == "crop_512_down_2":
             return "checkpoints/goes16/180min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH180_E11_BVM0_08_D2025-01-15_20:27.pt"
         elif crop_or_downsample == "crop_512_down_4":
             return "checkpoints/goes16/180min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH180_E3_BVM0_08_D2025-01-14_10:11.pt"
         elif crop_or_downsample == "crop_512_down_8":
-            return "checkpoints/goes16/180min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH180_E5_BVM0_08_D2025-01-16_16:47.pt"
+            # return "checkpoints/goes16/180min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH180_E5_BVM0_08_D2025-01-16_16:47.pt"
+            return "checkpoints/goes16/180min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH180_E2_BVM0_08_D2025-02-15_16:46.pt"
         elif crop_or_downsample == "crop_512_down_16":
             return "checkpoints/goes16/180min_crop_512_down_16/det/UNet_IN3_F32_SC0_BS_4_TH180_E2_BVM0_08_D2025-01-14_23:35.pt"
         elif (
@@ -146,7 +150,8 @@ def get_model_path(
         elif crop_or_downsample == "crop_512_down_2":
             return "checkpoints/goes16/300min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E29_BVM0_09_D2024-12-18_23:47.pt"
         elif crop_or_downsample == "crop_512_down_4":
-            return "checkpoints/goes16/512min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2024-12-14_04:50.pt"
+            # return "checkpoints/goes16/512min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2024-12-14_04:50.pt"
+            return "checkpoints/goes16/30min_crop_512_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E13_BVM0_09_D2025-02-16_07:43.pt"
         elif crop_or_downsample == "crop_512_down_8":
             return "checkpoints/goes16/300min_crop_512_down_8/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_09_D2025-01-04_01:05.pt"
         elif crop_or_downsample == "crop_512_down_16":
@@ -164,7 +169,8 @@ def get_model_path(
         elif crop_or_downsample == "crop_128":
             return "checkpoints/goes16/300min_crop_128_down_1/det/UNet_IN3_F32_SC0_BS_4_TH300_E15_BVM0_11_D2024-12-14_02:01.pt"
         elif crop_or_downsample == "crop_128_down_2":
-            return "checkpoints/goes16/300min_crop_128_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2025-01-03_21:19.pt"
+            # return "checkpoints/goes16/300min_crop_128_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2025-01-03_21:19.pt"
+            return "checkpoints/goes16/30min_crop_128_down_2/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2025-02-15_20:02.pt"
         elif crop_or_downsample == "crop_128_down_4":
             return "checkpoints/goes16/300min_crop_128_down_4/det/UNet_IN3_F32_SC0_BS_4_TH300_E5_BVM0_10_D2024-12-14_01:36.pt"
         elif crop_or_downsample == "crop_64":
