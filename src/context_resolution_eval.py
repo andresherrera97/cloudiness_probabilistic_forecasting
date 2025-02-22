@@ -51,7 +51,8 @@ def get_model_path(
         ):
             return "checkpoints/goes16/60min_crop_256_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E10_BVM0_06_D2024-12-03_00:52.pt"
         elif crop_or_downsample == "crop_256_down_2":
-            return "checkpoints/goes16/60min_crop_256_down_2_w_bug/det/UNet_IN3_F32_SC0_BS_4_TH60_E23_BVM0_06_D2024-12-07_23:01.pt"
+            # return "checkpoints/goes16/60min_crop_256_down_2_w_bug/det/UNet_IN3_F32_SC0_BS_4_TH60_E23_BVM0_06_D2024-12-07_23:01.pt"
+            return "checkpoints/goes16/60min_crop_256_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E4_BVM0_06_D2024-12-04_11:14.pt"
         elif crop_or_downsample == "crop_256_down_4":
             return "checkpoints/goes16/60min_crop_256_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E13_BVM0_06_D2025-01-10_05:01.pt"
         elif crop_or_downsample == "crop_256_down_8":
