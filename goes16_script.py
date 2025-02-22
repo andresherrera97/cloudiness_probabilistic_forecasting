@@ -1,5 +1,4 @@
 import os
-import math
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 import time
 import json
@@ -22,20 +21,27 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from botocore import UNSIGNED
 from botocore.config import Config
 
+import warnings
+from rasterio.errors import NotGeoreferencedWarning
+
+warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+
 ########################################
 # 1) SHARED CONSTANTS & FUNCTIONS
 ########################################
 
 # Configure environment variables to optimize GDAL performance
-os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "EMPTY"
+os.environ["GDAL_DISABLE_READDIR_ON_OPEN"] = "YES"
 os.environ["CPL_VSIL_CURL_ALLOWED_EXTENSIONS"] = "nc"
 os.environ["GDAL_HTTP_VERSION"] = "2"
 os.environ["GDAL_HTTP_MERGE_CONSECUTIVE_RANGES"] = "YES"
-os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] = "20000000"
-os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "10485760"
+os.environ["GDAL_HTTP_MULTIPLEX"] = "YES"
+os.environ["GDAL_INGESTED_BYTES_AT_OPEN"] = "500000"  # Read 0.5MB at open
+os.environ["CPL_VSIL_CURL_CHUNK_SIZE"] = "104857"
+os.environ["CPL_VSIL_CURL_CACHE_SIZE"] = "200000000"  # 200MB cache to reduce re-reads
 os.environ["AWS_NO_SIGN_REQUEST"] = "YES"
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("GOES16 Modular Script")
 
 # Some constants
@@ -201,21 +207,37 @@ def print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON):
     )
 
 
+def find_nearest_pixel(REF_LAT, REF_LON, target_lat, target_lon):
+    rows, cols = REF_LAT.shape
+    y, x = rows // 2, cols // 2
+    step = max(rows, cols) // 2
+
+    def manhattan(i, j):
+        return abs(REF_LAT[i, j] - target_lat) + abs(REF_LON[i, j] - target_lon)
+
+    best = manhattan(y, x)
+    while step:
+        improved = False
+        for dy in (-step, 0, step):
+            for dx in (-step, 0, step):
+                ny, nx = y + dy, x + dx
+                if 0 <= ny < rows and 0 <= nx < cols:
+                    d = manhattan(ny, nx)
+                    if d < best:
+                        best, y, x = d, ny, nx
+                        improved = True
+        if not improved:
+            step //= 2
+    return y, x
+
+
 def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True):
     """
     Return the sub-array of lat/lon plus the x,y pixel coordinates
     that correspond to the requested lat/lon center.
     """
-    if not (np.min(REF_LAT) < lat < np.max(REF_LAT)):
-        raise ValueError(
-            f"Lat {lat} out of range: {np.min(REF_LAT)} - {np.max(REF_LAT)}"
-        )
-    if not (np.min(REF_LON) < lon < np.max(REF_LON)):
-        raise ValueError(
-            f"Lon {lon} out of range: {np.min(REF_LON)} - {np.max(REF_LON)}"
-        )
-    distances = abs(REF_LAT - lat) + abs(REF_LON - lon)
-    y, x = np.unravel_index(np.nanargmin(distances), distances.shape)
+    logger.info("Preparing to crop...")
+    y, x = find_nearest_pixel(REF_LAT, REF_LON, lat, lon)
 
     # check coverage
     if x - size // 2 < 0 or y - size // 2 < 0:
@@ -223,11 +245,13 @@ def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True)
     if x + size // 2 >= REF_LAT.shape[1] or y + size // 2 >= REF_LAT.shape[0]:
         raise ValueError("Crop too large or outside coverage. Adjust.")
 
+    logger.info("Cropping...")
     c_lats = REF_LAT[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
     c_lons = REF_LON[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
 
     if verbose:
         print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON)
+    logger.info("Crop ready!")
     return c_lats, c_lons, x, y
 
 
@@ -251,32 +275,31 @@ class Downloader:
         Fetches CMI & DQF sequentially.
         """
 
-        def read_data(product, max_tries=3):
-            num_tries = 0
-            while num_tries < max_tries:
-                try:
-                    with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
-                        c = ds.read(
-                            window=(
-                                (y - size // 2, y + size // 2),
-                                (x - size // 2, x + size // 2),
-                            )
-                        )[0].astype(np.float32)
-                        if product == "CMI":
-                            c[c == -1] = np.nan
-                            c /= CORRECTION_FACTOR
-                    return c
-                except Exception as e:
-                    num_tries += 1
-                    logger.error(f"Error {e} reading {product} from {f}. Retrying...")
-                    time.sleep(1)
-                    continue
-            raise ValueError(
-                f"Failed to read {product} from {f} after {max_tries} tries."
-            )
+        def read_data(product):
+            try:
+                st = time.time()
+                with rasterio.open(f"HDF5:/vsis3/{BUCKET}/{f}://{product}") as ds:
+                    logger.info(f"Time to open: {time.time() - st:.2f}")
+                    st = time.time()
+                    c = ds.read(
+                        window=(
+                            (y - size // 2, y + size // 2),
+                            (x - size // 2, x + size // 2),
+                        )
+                    )[0].astype(np.float32)
+                    logger.info(f"Time to read: {time.time() - st:.2f}")
+                    if product == "CMI":
+                        c[c == -1] = np.nan
+                        c /= CORRECTION_FACTOR
+                return c
+            except Exception as e:
+                logger.error(f"Error {e} reading {product} from {f}. Skipping...")
+                return "error"
 
         CMI = read_data("CMI")
         DQF = read_data("DQF")
+        if (isinstance(CMI, str) and (CMI == "error")) or (isinstance(DQF,str) and (DQF == "error")):
+            return "error"
         if verbose:
             logger.info(f"Downloaded crop from {f}")
         return np.stack([CMI, DQF], axis=0)
@@ -349,6 +372,8 @@ class Downloader:
 
         # 3) Download the CMI+DQF crop
         cmi_dqf_crop = self._read_crop(f, x, y, size, verbose)
+        if isinstance(cmi_dqf_crop, str) and (cmi_dqf_crop == "error"):
+            return f, True, None  # error -> skip (with inpainting_pct = None)
         # 4) Process (inpaint, normalize, clip)
         pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs)
 
@@ -358,20 +383,27 @@ class Downloader:
             os.path.dirname(os.path.join(out_day_path, out_fname)), exist_ok=True
         )
 
-        if save_as == "npy":
-            np.save(
-                os.path.join(out_day_path, out_fname + ".npy"), pr.astype(np.float16)
-            )
-        elif save_as == "png16":
-            pr_16u = (np.round(pr.astype(np.float32) * (2**16 - 1))).astype(np.uint16)
-            Image.fromarray(pr_16u, mode="I;16").save(
-                os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
-            )
-        elif save_as == "png8":
-            pr_8u = np.round(pr * 255).astype(np.uint8)
-            Image.fromarray(pr_8u, mode="L").save(
-                os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
-            )
+        if save_as in ["npy16", "png16"]:
+            if save_as == "npy16":
+                np.save(
+                    os.path.join(out_day_path, out_fname + ".npy"),
+                    pr.astype(np.float16),
+                )
+            elif save_as == "png16":
+                pr_16u = (
+                    np.round(pr.astype(np.float32) * (2**16 - 1)).clip(0, 2**16 - 1)
+                ).astype(np.uint16)
+                Image.fromarray(pr_16u, mode="I;16").save(
+                    os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
+                )
+        else:
+            pr_8u = np.round(pr * 255).clip(0, 255).astype(np.uint8)
+            if save_as == "png8":
+                Image.fromarray(pr_8u, mode="L").save(
+                    os.path.join(out_day_path, out_fname + "_L.png"), format="PNG"
+                )
+            elif save_as == "npy8":
+                np.save(os.path.join(out_day_path, out_fname + ".npy"), pr_8u)
 
         # 6) If save_only_first is True, we can short-circuit here
         if save_only_first:
@@ -393,7 +425,7 @@ class Downloader:
         save_only_first: bool = False,
         save_as: str = "npy",
         verbose: bool = True,
-        batch_size: int = 4,
+        num_workers: int = 4,
     ):
         """
         Download and process GOES16 data for the given lat/lon region in parallel batches.
@@ -408,7 +440,7 @@ class Downloader:
         - etc.
         """
         t0 = time.time()
-        assert save_as in ["npy", "png16", "png8"], "Invalid save_as option."
+        assert save_as in ["npy16", "npy8", "png16", "png8"], "Invalid save_as option."
 
         # 1) Load metadata
         lat_path = os.path.join(metadata_path, "lat.npy")
@@ -416,6 +448,7 @@ class Downloader:
         if not (os.path.exists(lat_path) and os.path.exists(lon_path)):
             raise FileNotFoundError("lat.npy or lon.npy not found in metadata_path!")
 
+        logger.info("Loading metadata...")
         REF_LAT = np.load(lat_path)
         lat_data = np.ma.masked_array(REF_LAT[0], mask=REF_LAT[1])
         REF_LON = np.load(lon_path)
@@ -423,12 +456,14 @@ class Downloader:
         del REF_LAT, REF_LON
 
         # 2) Convert user lat/lon to pixel coords
+        logger.info("Converting coordinates to pixel...")
         c_lats, c_lons, x, y = convert_coordinates_to_pixel(
             lat, lon, lat_data, lon_data, size, verbose
         )
         del lat_data, lon_data
 
         # 3) Load the JSON containing {datetime-string: [list_of_files]}
+        logger.info("Preparing list of files...")
         if not os.path.exists(files_per_date_path):
             raise FileNotFoundError(f"{files_per_date_path} not found!")
         with open(files_per_date_path, "r") as f:
@@ -441,6 +476,7 @@ class Downloader:
             files_per_date[dt] = file_list
 
         # 4) Process each day
+        logger.info("Processing each day...")
         for dt, day_files in tqdm.tqdm(files_per_date.items()):
             logger.info(f"Date={dt}, total files={len(day_files)}")
 
@@ -453,6 +489,24 @@ class Downloader:
             )
             os.makedirs(out_day_path, exist_ok=True)
 
+            summary_csv_path = os.path.join(
+                out_day_path,
+                f"data_{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}.csv",
+            )
+            if os.path.exists(summary_csv_path):
+                df = pd.read_csv(summary_csv_path)
+                if len(df) >= len(
+                    day_files
+                ):  # If all files are accounted for, skip processing
+                    logger.info(
+                        f"Skipping {dt} - Already processed with {len(df)} entries."
+                    )
+                    continue
+                else:
+                    logger.warning(
+                        f"{dt} wasn't complete ({len(df)} / {len(day_files)})"
+                    )
+
             # If user only wants the first (daytime) file,
             # we can short-circuit if we find one quickly, but let's keep it consistent:
             if save_only_first:
@@ -461,9 +515,9 @@ class Downloader:
 
             # Split day_files into sub-batches
             day_batches = [
-                day_files[i : i + batch_size]
-                for i in range(0, len(day_files), batch_size)
+                list(chunk) for chunk in np.array_split(day_files, max(1, num_workers))
             ]
+            assert num_workers == 0 or num_workers == len(day_batches)
 
             # We'll accumulate results from all batches here
             filenames_processed = []
@@ -473,45 +527,61 @@ class Downloader:
             # 4a) Process each batch in parallel
             #    Each worker processes the entire batch sequentially
             #    so we only spawn as many workers as sub-batches (not files).
-            with ProcessPoolExecutor(max_workers=len(day_batches)) as executor:
-                future_to_batch_idx = {}
-                for b_idx, file_batch in enumerate(day_batches):
-                    future = executor.submit(
-                        _process_batch,
-                        file_batch,
-                        x,
-                        y,
-                        size,
-                        c_lats,
-                        c_lons,
-                        skip_night,
-                        verbose,
-                        out_day_path,
-                        save_as,
-                        save_only_first,
-                        self._download_and_process_file,  # Pass your method
-                    )
-                    future_to_batch_idx[future] = b_idx
+            if num_workers > 0:
+                with ProcessPoolExecutor(max_workers=len(day_batches)) as executor:
+                    future_to_batch_idx = {}
+                    for b_idx, file_batch in enumerate(day_batches):
+                        future = executor.submit(
+                            _process_batch,
+                            file_batch,
+                            x,
+                            y,
+                            size,
+                            c_lats,
+                            c_lons,
+                            skip_night,
+                            verbose,
+                            out_day_path,
+                            save_as,
+                            save_only_first,
+                            self._download_and_process_file,  # Pass your method
+                        )
+                        future_to_batch_idx[future] = b_idx
 
-                # 4b) Collect results
-                #     Remember that if save_only_first=True, a batch may stop early,
-                #     but other batches may still be running (unless you add extra logic to cancel them).
-                for future in as_completed(future_to_batch_idx):
-                    batch_results = (
-                        future.result()
-                    )  # list of (filename, is_day, inpaint_pct)
-                    for filename, is_day, pct_inp in batch_results:
-                        filenames_processed.append(filename)
-                        is_day_list.append(is_day)
-                        inpaint_pct_list.append(pct_inp)
+                    # 4b) Collect results
+                    #     Remember that if save_only_first=True, a batch may stop early,
+                    #     but other batches may still be running (unless you add extra logic to cancel them).
+                    for future in as_completed(future_to_batch_idx):
+                        batch_results = (
+                            future.result()
+                        )  # list of (filename, is_day, inpaint_pct)
+                        for filename, is_day, pct_inp in batch_results:
+                            filenames_processed.append(filename)
+                            is_day_list.append(is_day)
+                            inpaint_pct_list.append(pct_inp)
 
-                        # If user wants only the first daytime file, and we found it,
-                        # you *could* break and try to cancel other futures, but that
-                        # requires more advanced logic. We'll keep it simple here.
-                        if save_only_first and is_day:
-                            # We found the first day file, so let's ignore the rest.
-                            # But note: the other futures are still running in the background.
-                            break
+                            # If user wants only the first daytime file, and we found it,
+                            # you *could* break and try to cancel other futures, but that
+                            # requires more advanced logic. We'll keep it simple here.
+                            if save_only_first and is_day:
+                                # We found the first day file, so let's ignore the rest.
+                                # But note: the other futures are still running in the background.
+                                break
+            else:  # no need for parallelization
+                _process_batch(
+                    day_files,
+                    x,
+                    y,
+                    size,
+                    c_lats,
+                    c_lons,
+                    skip_night,
+                    verbose,
+                    out_day_path,
+                    save_as,
+                    save_only_first,
+                    self._download_and_process_file,  # Pass your method
+                )
 
             # 5) Summarize each day
             if filenames_processed:
@@ -673,9 +743,11 @@ class Listing:
         start_date: str,
         end_date: Optional[str] = None,
         output_path: str = "dataset/to_download.json",
+        num_workers: int = 8,
     ):
         """
         Return a dictionary mapping datetime -> list of S3 keys for that day.
+        Uses list_objects_v2 instead of bucket.objects.filter(), now with parallelization.
         """
         if end_date is None:
             end_date = start_date
@@ -685,41 +757,61 @@ class Listing:
             raise ValueError("End date must be >= start date")
 
         date_range = pd.date_range(start=start_date, end=end_date).tolist()
-        s3 = boto3.resource("s3", config=Config(signature_version=UNSIGNED))
-        bucket = s3.Bucket(BUCKET)
+        s3_client = boto3.client(
+            "s3", config=Config(signature_version=UNSIGNED, max_pool_connections=32)
+        )
 
         files_in_s3_per_date = {}
-        for dt in tqdm.tqdm(date_range):
-            # year 2017 has partial data; skip <2018 or beyond current
-            if dt.year < 2018 or dt.year > datetime.datetime.now().year:
-                logger.info(f"Skipping {dt.year}. Outside supported range.")
-                continue
 
-            # Gather all C02 files
-            day_files = self._get_day_filenames(bucket, dt.timetuple().tm_yday, dt.year)
-            if day_files:
-                # out_path = os.path.join(
-                #     output_folder, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
-                # )
-                # os.makedirs(out_path, exist_ok=True)
-                files_in_s3_per_date[dt] = day_files
+        # Use ThreadPoolExecutor to parallelize listing
+        with ThreadPoolExecutor(
+            max_workers=min(num_workers, len(date_range))
+        ) as executor:
+            future_to_date = {
+                executor.submit(
+                    self._get_day_filenames, s3_client, dt.timetuple().tm_yday, dt.year
+                ): dt
+                for dt in date_range
+                if 2019
+                <= dt.year
+                <= datetime.datetime.now().year  # Skip out-of-range years
+            }
 
-        # save as json
+            for future in tqdm.tqdm(
+                as_completed(future_to_date), total=len(future_to_date)
+            ):
+                dt = future_to_date[future]
+                try:
+                    day_files = future.result()
+                    if day_files:
+                        files_in_s3_per_date[dt] = day_files
+                except Exception as e:
+                    logger.error(f"Failed to list files for {dt}: {e}")
+
+        # Save as JSON
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(os.path.join(output_path), "w") as outfile:
+        with open(output_path, "w") as outfile:
             json.dump(
-                {str(k): v for k, v in files_in_s3_per_date.items()},
-                outfile,
-                indent=4,
+                {str(k): v for k, v in files_in_s3_per_date.items()}, outfile, indent=4
             )
 
-        return files_in_s3_per_date
-
-    def _get_day_filenames(self, bucket, doy, year):
+    def _get_day_filenames(self, s3_client, doy, year):
+        """
+        Retrieves S3 file list for a specific day using list_objects_v2.
+        """
         prefix = PREFIX + f"/{year}/{doy:03}/"
-        return natsorted(
-            [f.key for f in bucket.objects.filter(Prefix=prefix) if CHANNEL in f.key]
-        )
+        files = []
+
+        paginator = s3_client.get_paginator("list_objects_v2")
+        operation_parameters = {"Bucket": BUCKET, "Prefix": prefix}
+
+        for page in paginator.paginate(**operation_parameters):
+            if "Contents" in page:
+                files.extend(
+                    [obj["Key"] for obj in page["Contents"] if CHANNEL in obj["Key"]]
+                )
+
+        return natsorted(files)
 
 
 ########################################
@@ -745,23 +837,6 @@ if __name__ == "__main__":
 
 # example, run commands as follows:
 
-# python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="/export/home/projects/franchesoni/goes16/metadata"
-# python goes16_script.py listing get_S3_files_in_range --start_date="2018-05-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try1" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=1
-# INFO:GOES16 Modular Script:Total time: 2236.89 sec
-
-# python goes16_script.py listing get_S3_files_in_range --start_date="2018-05-02" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download2.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download2.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try2" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
-# INFO:GOES16 Modular Script:Finished download_files in 340.52 sec
-
-#  python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download3.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download3.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try3" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=24
-# INFO:GOES16 Modular Script:Finished download_files in 1625.03 sec
-
-# python goes16_script.py listing get_S3_files_in_range --start_date="2019-03-01" --end_date=None --output_path="/export/home/projects/franchesoni/goes16/tmp/to_download4.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/tmp/to_download4.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_try4" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=12
-
-# final (we'll use 4)
-# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-01-01" --output_path="/export/home/projects/franchesoni/goes16/all.json"
-# python goes16_script.py downloader download_files --metadata_path="/export/home/projects/franchesoni/goes16/metadata/FULL_DISK" --files_per_date_path="/export/home/projects/franchesoni/goes16/all.json" --outdir="/export/home/projects/franchesoni/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='png8' --verbose=True --batch_size=4
-
+# python goes16_script.py metadata create_metadata --region="full_disk" --output_folder="data/goes16/metadata"
+# python goes16_script.py listing get_S3_files_in_range --start_date="2019-04-02" --end_date="2025-02-01" --output_path="data/goes16/all.json" --num_workers=32
+# python goes16_script.py downloader download_files --metadata_path="data/goes16/metadata/FULL_DISK" --files_per_date_path="data/goes16/all.json" --outdir="data/goes16/tmp/salto1024_all" --size=1024 --skip_night=True --save_only_first=False --save_as='npy8' --verbose=True --num_workers=8
