@@ -1,4 +1,5 @@
 import time
+import itertools
 import timm
 import tqdm
 from pathlib import Path
@@ -182,7 +183,7 @@ class PrefetchLoader:
         return self.loader.dataset
 
 
-def main(
+def train(  # best default hyperparameters (for given h, batch_size, num_workers, and epochs=1)
     dataset_path="data/goes16/downloads/salto1024_all",
     h=60,
     # Ensure we use GPU if available
@@ -190,8 +191,13 @@ def main(
     batch_size=32,
     num_workers=32,
     epochs=1,
-    lr=1e-2,
+    lr=1e-3,
+    model="unet",
+    activation=None,
+    residual=True,
+    writer=None,
 ):
+
     # Initialize dataset and dataloader
     dataset = GOES16Dataset(dataset_path, h=h)
     dataloader = PrefetchLoader(
@@ -206,7 +212,14 @@ def main(
     )
 
     # Model setup
-    model = I2IViT().to(device)
+    if model == "unet":
+        from src.models.unet import UNet
+
+        model = UNet(output_activation=None).to(device)
+    elif model == "vit":
+        model = I2IViT().to(device)
+    else:
+        raise ValueError(f"Model {model} not found")
 
     # optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     # optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr)
@@ -216,9 +229,10 @@ def main(
     )
     criterion = torch.nn.L1Loss()  # MAE Loss
 
-    # TensorBoard logger
-    writer = SummaryWriter()
     model.train()
+    # TensorBoard logger
+    if writer is None:
+        writer = SummaryWriter()
     # optimizer.train()
     st = time.time()
     for epoch in range(epochs):
@@ -226,6 +240,10 @@ def main(
             x, y = sample[:, :3], sample[:, 3:]
             optimizer.zero_grad()
             preds = model(x)
+            if activation == "tanh":
+                preds = torch.tanh(preds)
+            if residual:
+                preds = preds + x[:, 2:3]
             loss = criterion(preds, y)
             loss.backward()
             optimizer.step()
@@ -240,4 +258,75 @@ def main(
     print("Training complete!")
 
 
-main()
+def hyperparameter_search(
+    dataset_path="data/goes16/downloads/salto1024_all",
+    device=torch.device("cuda:1" if torch.cuda.is_available() else "cpu"),
+    batch_size_options=[32],
+    num_workers_options=[32],
+    epochs_options=[1],
+    lr_options=[1e-2, 1e-3],
+    model_options=["vit", "unet"],
+    activation_options=[None, "tanh"],
+    residual_options=[False, True],
+    h_options=[60],
+):
+
+    param_combinations = list(
+        itertools.product(
+            batch_size_options,
+            num_workers_options,
+            epochs_options,
+            lr_options,
+            model_options,
+            activation_options,
+            residual_options,
+            h_options,
+        )
+    )
+
+    for i, (
+        batch_size,
+        num_workers,
+        epochs,
+        lr,
+        model,
+        activation,
+        residual,
+        h,
+    ) in enumerate(param_combinations):
+        print(f"\nRunning experiment {i+1}/{len(param_combinations)} with parameters:")
+        print(
+            f"batch_size={batch_size}, num_workers={num_workers}, epochs={epochs}, lr={lr}, model={model}, activation={activation}, residual={residual}, h={h}"
+        )
+
+        # Set up logging
+        log_dir = (
+            f"runs/experiment_{i+1}_bs{batch_size}_nw{num_workers}_ep{epochs}_lr{lr}_{model}_{activation}_{residual}_h{h}".replace(
+                "None", "none"
+            )
+            .replace("True", "true")
+            .replace("False", "false")
+        )
+        writer = SummaryWriter(log_dir=log_dir)
+
+        train(
+            dataset_path=dataset_path,
+            h=h,
+            device=device,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            epochs=epochs,
+            lr=lr,
+            model=model,
+            activation=activation,
+            residual=residual,
+            writer=writer,
+        )
+
+        writer.close()
+        print("\nExperiment complete!")
+
+
+if __name__ == "__main__":
+    # hyperparameter_search()
+    train()
