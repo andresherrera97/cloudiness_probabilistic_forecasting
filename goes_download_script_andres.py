@@ -596,6 +596,7 @@ class Downloader:
                     out_day_path,
                     save_as,
                     save_only_first,
+                    calculate_pr,
                     bucket,
                     self._download_and_process_file,  # Pass your method
                 )
@@ -631,6 +632,7 @@ def _process_batch(
     out_day_path,
     save_as,
     save_only_first,
+    calculate_pr,
     bucket,
     download_and_process_fn,
 ):
@@ -652,6 +654,7 @@ def _process_batch(
             out_day_path,
             save_as,
             save_only_first,
+            calculate_pr,
             bucket,
         )
         if result is not None:
