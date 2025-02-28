@@ -172,15 +172,13 @@ def crop_processing(CMI_DQF_crop: np.ndarray, cosangs: np.ndarray, calculate_pr:
         processed_crop = np.clip(processed_crop, 0, 1.0)
         # reduce precision
         processed_crop = processed_crop.astype(np.float16)
-        logger.info(
-            f"    - min-max values for PR: {np.min(processed_crop)} "
-            f"- {np.max(processed_crop)}"
-        )
     else:
         # return Cloud and Moisture Imagery (CMI) crop
         processed_crop = CMI_DQF_crop[0].astype(np.float16)
-        print(f"cmi dtype: {processed_crop.dtype}")
-        print(f"cmi min-max: {np.min(processed_crop)} - {np.max(processed_crop)}")
+    logger.info(
+        f"    - min-max values for processed crop: {np.min(processed_crop)} "
+        f"- {np.max(processed_crop)}"
+    )
     return processed_crop, pixel_pct_to_inpaint
 
 
