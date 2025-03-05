@@ -107,11 +107,11 @@ def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True)
 
 
 if __name__ == "__main__":
-    DATASET_PATH = "../data/salto1024_all/"
-    OUTPUT_PATH = "../data/salto_crop/"
+    DATASET_PATH = "data/salto1024_all/"
+    OUTPUT_PATH = "data/salto_crop/"
 
     # load lats and lons info
-    metadata_path = "../data/goes16/metadata/FULL_DISK/"
+    metadata_path = "data/goes16/metadata/FULL_DISK/"
     lat = -31.390502
     lon = -57.954138
     size = 32
