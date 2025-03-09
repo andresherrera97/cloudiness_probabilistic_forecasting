@@ -201,6 +201,15 @@ class GOES16Dataset(Dataset):
             else:
                 raise ValueError("Invalid crop_or_downsample value")
 
+        # check if images are uint8
+        if in_frames.dtype == np.uint8:
+            in_frames = in_frames.astype(np.float32)
+            in_frames /= 255.0
+            in_frames = in_frames.astype(np.float16)
+            out_frames = out_frames.astype(np.float32)
+            out_frames /= 255.0
+            out_frames = out_frames.astype(np.float16)
+
         # pixel encoding for bin classification
         if (
             self.binarization_method is not None
