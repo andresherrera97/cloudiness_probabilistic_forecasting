@@ -185,7 +185,7 @@ def main(
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
     elif dataset.lower() in ["goes16", "satellite", "sat"]:
-        dataset_path = "datasets/goes16/salto/"
+        dataset_path = "datasets/salto/"
     else:
         raise ValueError(f"Wrong dataset! {dataset} not recognized")
 

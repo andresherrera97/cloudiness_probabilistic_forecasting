@@ -251,7 +251,7 @@ def main(
     unet = DeterministicUNet(config=unet_config)
     unet.model.to(device)
     dataset = "goes16"
-    dataset_path = "datasets/goes16/salto/"
+    dataset_path = "datasets/salto/"
 
     results_json = {
         60: {

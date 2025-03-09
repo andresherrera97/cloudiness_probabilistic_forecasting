@@ -175,7 +175,7 @@ def main(
     # initialize dataloaders
 
     dataset = "goes16"
-    dataset_path = "datasets/goes16/salto/"
+    dataset_path = "datasets/salto/"
 
     logger.info(f"Dataset path: {dataset_path}")
     logger.info(f"Time horizon: {time_horizon}")

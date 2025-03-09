@@ -736,7 +736,7 @@ def main(
 
     unet.model.to(device)
     dataset = "goes16"
-    dataset_path = "datasets/goes16/salto/"
+    dataset_path = "datasets/salto/"
 
     # The crop_downsample parameter is not used in this evaluation as this is
     # done during evaluation to keep original images
