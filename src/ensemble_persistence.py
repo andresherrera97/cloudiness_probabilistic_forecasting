@@ -42,23 +42,23 @@ def main(
             batch_size=batch_size,
             time_horizon=th,
         )
-    
+
         in_frames, out_frames, predictions, crps = peen.random_example()
         logging.info(f"CRPS in random example: {crps}")
-    
+
         if create_plots:
             viz.show_image_list(
                 images_list=in_frames[0].tolist(),
                 fig_name=f"figures/peen_input_{dataset}_{th}.jpg",
                 save_fig=True,
             )
-    
+
             viz.show_image_list(
                 images_list=predictions[0].tolist(),
                 fig_name=f"figures/peen_quantiles_pred_{dataset}_{th}.jpg",
                 save_fig=True,
             )
-    
+
             viz.plot_quantile_predictions(
                 input_images=in_frames[0],
                 pred_quantiles=predictions[0],
@@ -66,10 +66,10 @@ def main(
                 target_img=out_frames[0],
                 pixel_coords=[32, 32],
             )
-    
+
         # train_crps = peen.predict_on_dataset(dataset="train")
         # logging.info(f"Train CRPS: {train_crps}")
-    
+
         val_crps = peen.predict_on_dataset(dataset="validation")
         logging.info(f"Validation CRPS: {val_crps}")
 
