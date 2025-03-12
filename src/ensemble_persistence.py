@@ -28,6 +28,8 @@ def main(
         dataset_path = "datasets/moving_mnist_dataset/"
     elif dataset.lower() in ["goes16", "satellite", "sat"]:
         dataset_path = "datasets/salto/"
+    elif dataset.lower() in ["debug", "debug_salto"]:
+        dataset_path = "datasets/debug_salto/"
     else:
         raise ValueError(f"Wrong dataset! {dataset} not recognized")
 

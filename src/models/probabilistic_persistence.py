@@ -1,10 +1,12 @@
 # Standard library imports
 import os
+
 # Related third-party imports
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
 import logging
+
 # Local application/library specific imports
 from metrics import CRPSLoss
 from data_handlers import MovingMnistDataset, GOES16Dataset
@@ -37,11 +39,10 @@ class PersistenceEnsemble:
                 input_frames=self.n_quantiles,
             )
             val_dataset = MovingMnistDataset(
-                path=os.path.join(path, "validation/"),
-                input_frames=self.n_quantiles
+                path=os.path.join(path, "validation/"), input_frames=self.n_quantiles
             )
 
-        elif dataset.lower() in ["goes16", "satellite", "sat"]:
+        elif dataset.lower() in ["goes16", "satellite", "sat", "debug_salto", "debug"]:
             train_dataset = GOES16Dataset(
                 path=os.path.join(path, "train/"),
                 num_in_images=self.n_quantiles,
