@@ -221,9 +221,14 @@ def train(  # best default hyperparameters (for given h, batch_size, num_workers
     else:
         raise ValueError(f"Model {model} not found")
 
+    background = torch.zeros((1, 1, 224, 224)).to(device).requires_grad_(True)
+
     # optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
     # optimizer = schedulefree.AdamWScheduleFree(model.parameters(), lr=lr)
-    optimizer = AdamW(model.parameters(), lr=lr)
+    optimizer = AdamW([
+        {'params': model.parameters()}, 
+        {'params': background}
+    ], lr=lr)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer, max_lr=lr, total_steps=epochs * len(dataloader), pct_start=0.05
     )
@@ -244,6 +249,7 @@ def train(  # best default hyperparameters (for given h, batch_size, num_workers
                 preds = torch.tanh(preds)
             if residual:
                 preds = preds + x[:, 2:3]
+            preds = torch.maximum(preds, background)
             loss = criterion(preds, y)
             loss.backward()
             optimizer.step()
