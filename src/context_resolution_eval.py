@@ -193,9 +193,9 @@ def get_model_path_first_epoch(
 ):
     if time_horizon == 60:
         if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
-            return "checkpoints/goes16/det32_60min_CROP0_DOWN0/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_06_D2024-11-26_02:34.pt"
+            return "checkpoints/goes16/60min_crop_1024_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E3_BVM0_05_D2025-03-10_08:02.pt"
         elif crop_or_downsample == "down_2" or crop_or_downsample == "crop_1024_down_2":
-            return "checkpoints/goes16/60min_crop_1024_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_06_D2024-11-28_22:28.pt"
+            return "checkpoints/goes16/60min_crop_1024_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E3_BVM0_05_D2025-03-10_16:01.pt"
         elif crop_or_downsample == "down_4" or crop_or_downsample == "crop_1024_down_4":
             return "checkpoints/goes16/60min_crop_1024_down_4/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_06_D2024-11-28_22:28.pt"
         elif crop_or_downsample == "down_8" or crop_or_downsample == "crop_1024_down_8":
@@ -211,7 +211,7 @@ def get_model_path_first_epoch(
         elif (
             crop_or_downsample == "crop_512" or crop_or_downsample == "crop_512_down_1"
         ):
-            return "checkpoints/goes16/60min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_06_D2024-12-30_05:02.pt"
+            return "checkpoints/goes16/60min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH60_E2_BVM0_06_D2025-03-11_19:43.pt"
         elif crop_or_downsample == "crop_512_down_2":
             return "checkpoints/goes16/60min_crop_512_down_2/det/UNet_IN3_F32_SC0_BS_4_TH60_E0_BVM0_06_D2024-12-30_05:02.pt"
         elif crop_or_downsample == "crop_512_down_4":
@@ -244,6 +244,15 @@ def get_model_path_first_epoch(
             return "checkpoints/goes16/60min_crop_32_down_1/det/UNet_IN3_F32_SC0_BS_8_TH60_E0_BVM0_07_D2024-12-17_01:36.pt"
         else:
             raise ValueError("Invalid crop_or_downsample value")
+    elif time_horizon == 120:
+        if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
+            return "checkpoints/goes16/120min_crop_1024_down_1/det/UNet_IN3_F32_SC0_BS_4_TH120_E1_BVM0_07_D2025-03-11_08:50.pt"
+        elif crop_or_downsample == "down_2" or crop_or_downsample == "crop_1024_down_2":
+            return "checkpoints/goes16/120min_crop_1024_down_2/det/UNet_IN3_F32_SC0_BS_4_TH120_E5_BVM0_06_D2025-03-11_11:41.pt"
+        elif (
+            crop_or_downsample == "crop_512" or crop_or_downsample == "crop_512_down_1"
+        ):
+            return "checkpoints/goes16/120min_crop_512_down_1/det/UNet_IN3_F32_SC0_BS_4_TH120_E4_BVM0_07_D2025-03-11_00:54.pt"
     elif time_horizon == 180:
         if crop_or_downsample is None or crop_or_downsample == "crop_1024_down_1":
             return "checkpoints/goes16/180min_crop_1024_down_1/det/UNet_IN3_F32_SC0_BS_4_TH180_E0_BVM0_09_D2025-01-27_18:12.pt"
@@ -359,25 +368,32 @@ def get_trained_models(time_horizon: int = 60):
         trained_models = [
             None,
             "down_2",
-            "down_4",
-            "down_8",
-            "down_16",
-            "down_32",
+            # "down_4",
+            # "down_8",
+            # "down_16",
+            # "down_32",
             "crop_512",
-            "crop_512_down_2",
-            "crop_512_down_4",
-            "crop_512_down_8",
-            "crop_512_down_16",
-            "crop_256",
-            "crop_256_down_2",
-            "crop_256_down_4",
-            "crop_256_down_8",
-            "crop_128",
-            "crop_128_down_2",
-            "crop_128_down_4",
-            "crop_64",
-            "crop_64_down_2",
-            "crop_32",
+            # "crop_512_down_2",
+            # "crop_512_down_4",
+            # "crop_512_down_8",
+            # "crop_512_down_16",
+            # "crop_256",
+            # "crop_256_down_2",
+            # "crop_256_down_4",
+            # "crop_256_down_8",
+            # "crop_128",
+            # "crop_128_down_2",
+            # "crop_128_down_4",
+            # "crop_64",
+            # "crop_64_down_2",
+            # "crop_32",
+            "persistence",
+        ]
+    elif time_horizon == 120:
+        trained_models = [
+            None,
+            "down_2",
+            "crop_512",
             "persistence",
         ]
     elif time_horizon == 180:
