@@ -5,6 +5,7 @@ import os
 import random
 import fire
 import logging
+import multiprocessing
 from models import (
     MeanStdUNet,
     MedianScaleUNet,
@@ -35,7 +36,7 @@ def set_all_seeds(seed=0):
     np.random.seed(seed)
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
-    os.environ['PYTHONHASHSEED'] = str(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
 
 
 def main(
@@ -70,11 +71,15 @@ def main(
     crop_or_downsample: Optional[str] = None,
     project: str = "cloud_probabilistic_forecasting",
     warmup_start: float = 0.3,
+    num_workers: int = 0,
+    prefetch_loader: bool = False,
 ):
     set_all_seeds(0)
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
+    n_cores = multiprocessing.cpu_count()
+    logger.info(f"Number of cores: {n_cores}")
 
     unet_config = UNetConfig(
         in_frames=input_frames,
@@ -184,8 +189,12 @@ def main(
     # initialize dataloaders
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
-    elif dataset.lower() in ["goes16", "satellite", "sat"]:
+    elif dataset.lower() in ["goes16", "satellite", "sat", "salto", "salto_1024"]:
         dataset_path = "datasets/salto/"
+    elif dataset.lower() in ["downsample", "salto_down", "salto_512"]:
+        dataset_path = "datasets/salto_downsample/"
+    elif dataset.lower() in ["debug", "debug_salto"]:
+        dataset_path = "datasets/debug_salto/"
     else:
         raise ValueError(f"Wrong dataset! {dataset} not recognized")
 
@@ -199,6 +208,8 @@ def main(
         time_horizon=time_horizon,
         binarization_method=binarization_method,  # needed for BinClassifierUNet
         crop_or_downsample=crop_or_downsample,
+        prefetch_loader=prefetch_loader,
+        num_workers=num_workers,
     )
 
     if scheduler is not None:

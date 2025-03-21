@@ -28,7 +28,7 @@ from metrics import (
     CRPSLoss,
     MixtureDensityLoss,
 )
-from data_handlers import MovingMnistDataset, GOES16Dataset
+from data_handlers import MovingMnistDataset, GOES16Dataset, PrefetchLoader
 from .unet import UNet
 from .model_initialization import weights_init, optimizer_init, scheduler_init
 import logging
@@ -120,6 +120,10 @@ class UNetPipeline(ABC):
         crop_or_downsample: Optional[str] = None,
         shuffle: bool = True,
         create_test_loader: bool = False,
+        prefetch_loader: bool = False,
+        num_workers: int = 0,
+        pin_memory: bool = True,
+        drop_last: bool = True,
     ):
         self.batch_size = batch_size
         self.time_horizon = time_horizon
@@ -139,7 +143,17 @@ class UNetPipeline(ABC):
                 binarization_method=binarization_method,
             )
 
-        elif dataset.lower() in ["goes16", "satellite", "sat"]:
+        elif dataset.lower() in [
+            "goes16",
+            "satellite",
+            "sat",
+            "salto",
+            "downsample",
+            "salto_down",
+            "salto_512",
+            "debug",
+            "debug_salto",
+        ]:
             train_dataset = GOES16Dataset(
                 path=os.path.join(path, "train/"),
                 num_in_images=self.in_frames,
@@ -181,11 +195,34 @@ class UNetPipeline(ABC):
             raise ValueError(f"Dataset {dataset} not recognized.")
 
         self.train_loader = DataLoader(
-            train_dataset, batch_size=batch_size, shuffle=shuffle
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+            drop_last=drop_last,
         )
-        self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=shuffle)
+        self.val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
+            pin_memory=pin_memory,
+        )
         if create_test_loader:
-            self.test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=shuffle)
+            self.test_loader = DataLoader(
+                test_dataset,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                pin_memory=pin_memory,
+            )
+
+        if prefetch_loader:
+            self.train_loader = PrefetchLoader(self.train_loader, self.device)
+            self.val_loader = PrefetchLoader(self.val_loader, self.device)
+            if create_test_loader:
+                self.test_loader = PrefetchLoader(self.test_loader, self.device)
 
         # Get one sample from train_loader and val_loader to check they have the same size
         train_input_sample, train_output_sample = next(iter(self.train_loader))
