@@ -23,17 +23,50 @@ class PrefetchLoader:
         else:
             stream = None
             stream_context = suppress
-        for next_input in self.loader:
+
+        for next_batch in self.loader:
             with stream_context():
-                next_input = next_input.to(device=self.device, non_blocking=True)
-                next_input = next_input.to(self.img_dtype)
+                # Handle different types of batch data
+                if isinstance(next_batch, list):
+                    # Handle list of tensors (input, target pairs)
+                    next_input = [
+                        (
+                            item.to(device=self.device, non_blocking=True).to(
+                                self.img_dtype
+                            )
+                            if isinstance(item, torch.Tensor)
+                            else item
+                        )
+                        for item in next_batch
+                    ]
+                elif isinstance(next_batch, tuple):
+                    # Handle tuple of tensors
+                    next_input = tuple(
+                        (
+                            item.to(device=self.device, non_blocking=True).to(
+                                self.img_dtype
+                            )
+                            if isinstance(item, torch.Tensor)
+                            else item
+                        )
+                        for item in next_batch
+                    )
+                else:
+                    # Handle single tensor
+                    next_input = next_batch.to(
+                        device=self.device, non_blocking=True
+                    ).to(self.img_dtype)
+
             if not first:
                 yield input
             else:
                 first = False
+
             if stream is not None:
                 torch.cuda.current_stream().wait_stream(stream)
+
             input = next_input
+
         yield input
 
     def __len__(self):
