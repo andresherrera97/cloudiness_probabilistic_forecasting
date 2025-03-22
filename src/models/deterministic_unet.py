@@ -73,7 +73,7 @@ class DeterministicUNet(UNetPipeline):
                 torch.zeros(
                     (1, 1, self.height, self.width),
                     device=device,
-                    dtype=self.torch_dtype,
+                    dtype=torch.float32,
                 ),
                 requires_grad=True,
             )
@@ -96,6 +96,9 @@ class DeterministicUNet(UNetPipeline):
                 # Use float16 for mixed precision
                 in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 # forward
                 with torch.autocast(
@@ -121,9 +124,6 @@ class DeterministicUNet(UNetPipeline):
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
                 scaler.update()
-                self.optimizer.zero_grad(
-                    set_to_none=True
-                )  # More efficient than zero_grad()
                 if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
                     self.scheduler.step()
 
