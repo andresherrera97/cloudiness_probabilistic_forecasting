@@ -78,7 +78,18 @@ class DeterministicUNet(UNetPipeline):
                 requires_grad=True,
             )
             # Add to optimizer
-            self.optimizer.add_param_group({"params": [self.background]})
+            
+            # Add to optimizer with the same learning rate as other parameters
+            # Get the learning rate from the first parameter group
+            initial_lr = self.optimizer.param_groups[0]['lr']
+            
+            # Copy all optimizer settings from the first group to ensure compatibility with scheduler
+            param_group = {'params': [self.background]}
+            for key in self.optimizer.param_groups[0]:
+                if key != 'params':
+                    param_group[key] = self.optimizer.param_groups[0][key]
+            
+            self.optimizer.add_param_group(param_group)
             self._logger.info("Single-channel background prediction enabled")
 
         scaler = torch.amp.GradScaler(device)  # For mixed precision training
