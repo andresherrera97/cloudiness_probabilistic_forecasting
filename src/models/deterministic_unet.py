@@ -1,9 +1,11 @@
 # Standard library imports
+import wandb
 import time
 import copy
 import datetime
 from typing import List, Optional, Tuple
 from pathlib import Path
+import matplotlib.pyplot as plt
 
 # Related third-party imports
 import torch
@@ -47,6 +49,7 @@ class DeterministicUNet(UNetPipeline):
         train_metric: Optional[str] = None,
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
+        predict_background: bool = True,  # Changed default to True
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
@@ -61,6 +64,22 @@ class DeterministicUNet(UNetPipeline):
 
         device_type = "cpu" if device == torch.device("cpu") else "cuda"
         self._logger.info(f"device type: {device_type}")
+
+        # Initialize background tensor if prediction is enabled
+        if predict_background:
+            # Start with zeros - during training this will learn the background pattern
+            # Single channel background
+            self.background = torch.nn.Parameter(
+                torch.zeros(
+                    (1, 1, self.model.height, self.model.width),
+                    device=device,
+                    dtype=self.torch_dtype,
+                ),
+                requires_grad=True,
+            )
+            # Add to optimizer
+            self.optimizer.add_param_group({"params": [self.background]})
+            self._logger.info("Single-channel background prediction enabled")
 
         scaler = torch.amp.GradScaler(device)  # For mixed precision training
 
@@ -84,6 +103,18 @@ class DeterministicUNet(UNetPipeline):
                 ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
                     frames_pred = self.remove_spatial_context(frames_pred)
+
+                    # Apply background prediction if enabled
+                    if predict_background:
+                        # Expand background to match batch size
+                        batch_size = frames_pred.shape[0]
+                        expanded_background = self.background.expand(
+                            batch_size, -1, -1, -1
+                        )
+
+                        # Take maximum between prediction and background
+                        frames_pred = torch.maximum(frames_pred, expanded_background)
+
                     loss = self.calculate_loss(frames_pred, out_frames)
 
                 # backward
@@ -118,7 +149,7 @@ class DeterministicUNet(UNetPipeline):
             )
 
             val_loss_in_epoch, forecasting_metrics = self.run_validation(
-                device, device_type, num_val_samples
+                device, device_type, num_val_samples, predict_background
             )
 
             if self.scheduler is not None and not isinstance(
@@ -127,13 +158,57 @@ class DeterministicUNet(UNetPipeline):
                 self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
-
                 run.log({"train_loss": train_loss_in_epoch}, step=epoch)
                 run.log({"val_loss": val_loss_in_epoch}, step=epoch)
                 run.log(
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
                     step=epoch,
                 )
+
+                # Log background tensor to wandb if enabled
+                if predict_background:
+                    # Log background stats
+                    background_cpu = self.background.detach().cpu()
+                    run.log(
+                        {"background_mean": float(background_cpu.mean())}, step=epoch
+                    )
+                    run.log({"background_max": float(background_cpu.max())}, step=epoch)
+                    run.log({"background_min": float(background_cpu.min())}, step=epoch)
+
+                    # Log background as image - single channel
+                    try:
+                        # Get the background data
+                        bg_data = background_cpu[
+                            0, 0
+                        ].numpy()  # Remove batch and channel dimensions
+
+                        # Normalize to [0, 1] for visualization
+                        bg_min, bg_max = bg_data.min(), bg_data.max()
+                        if bg_max > bg_min:  # Avoid division by zero
+                            bg_normalized = (bg_data - bg_min) / (bg_max - bg_min)
+                        else:
+                            bg_normalized = bg_data
+
+                        # Create figure with colorbar
+                        fig, ax = plt.subplots(figsize=(8, 6))
+                        im = ax.imshow(bg_normalized, cmap="viridis")
+                        ax.set_title(f"Background - Epoch {epoch+1}")
+                        plt.colorbar(im, ax=ax, label="Normalized Value")
+
+                        # Log to wandb
+                        run.log({"background_heatmap": wandb.Image(fig)}, step=epoch)
+                        plt.close(fig)
+
+                        # Also log as a simple image
+                        run.log(
+                            {"background_raw": wandb.Image(bg_normalized)}, step=epoch
+                        )
+
+                    except Exception as e:
+                        self._logger.warning(
+                            f"Failed to log background visualization: {e}"
+                        )
+
                 for key, value in forecasting_metrics.items():
                     run.log({key: value}, step=epoch)
 
@@ -144,6 +219,12 @@ class DeterministicUNet(UNetPipeline):
                     f"Val_loss({val_loss_in_epoch:.4f}) | "
                     f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
+                if predict_background:
+                    self._logger.info(
+                        f"Background stats - Mean: {self.background.detach().mean():.4f}, "
+                        f"Min: {self.background.detach().min():.4f}, "
+                        f"Max: {self.background.detach().max():.4f}"
+                    )
 
             # epoch end
             train_loss_per_epoch.append(train_loss_in_epoch)
@@ -169,15 +250,49 @@ class DeterministicUNet(UNetPipeline):
                     "train_loss_per_epoch": train_loss_per_epoch,
                     "val_loss_per_epoch": val_loss_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
+                    "predict_background": predict_background,
                 }
+
+                # Save background tensor if using background prediction
+                if predict_background:
+                    self.best_model_dict["background"] = copy.deepcopy(
+                        self.background.data
+                    )
+
                 if checkpoint_path is not None:
                     self.save_checkpoint(
                         model_name, best_epoch, best_val_loss, checkpoint_path
                     )
 
+        # At the end of training, log background evolution
+        if run is not None and predict_background:
+            try:
+                # Create a more detailed final visualization
+
+                # Get the final background
+                final_bg = self.background.detach().cpu().numpy()[0, 0]  # [H, W]
+
+                # Create a figure with detailed visualization
+                fig, ax = plt.subplots(figsize=(10, 8))
+                im = ax.imshow(final_bg, cmap="viridis")
+                ax.set_title("Final Learned Background")
+                cbar = plt.colorbar(im, ax=ax)
+                cbar.set_label("Value")
+
+                plt.tight_layout()
+                run.log({"final_background_analysis": wandb.Image(fig)})
+                plt.close(fig)
+
+            except Exception as e:
+                self._logger.warning(
+                    f"Failed to log final background visualization: {e}"
+                )
+
         return train_loss_per_epoch, val_loss_per_epoch
 
-    def run_validation(self, device: str, device_type: str, num_val_samples: int, dataset: str = "val"):
+    def run_validation(
+        self, device: str, device_type: str, num_val_samples: int, dataset: str = "val"
+    ):
         self.model.eval()
         val_loss_per_batch = []  # stores values for this validation run
         self.deterministic_metrics.start_epoch()
