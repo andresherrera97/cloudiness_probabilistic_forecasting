@@ -71,7 +71,7 @@ class DeterministicUNet(UNetPipeline):
             # Single channel background
             self.background = torch.nn.Parameter(
                 torch.zeros(
-                    (1, 1, self.model.height, self.model.width),
+                    (1, 1, self.height, self.width),
                     device=device,
                     dtype=self.torch_dtype,
                 ),
