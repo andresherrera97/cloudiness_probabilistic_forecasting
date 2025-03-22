@@ -302,7 +302,7 @@ class DeterministicUNet(UNetPipeline):
         return train_loss_per_epoch, val_loss_per_epoch
 
     def run_validation(
-        self, device: str, device_type: str, num_val_samples: int, dataset: str = "val"
+        self, device: str, device_type: str, num_val_samples: int, predict_background: bool = False, dataset: str = "val"
     ):
         self.model.eval()
         val_loss_per_batch = []  # stores values for this validation run
@@ -312,6 +312,8 @@ class DeterministicUNet(UNetPipeline):
             data_loader = self.val_loader
         elif dataset == "test":
             data_loader = self.test_loader
+        else:
+            raise ValueError("Invalid dataset. Must be 'val' or 'test'.")
 
         with torch.no_grad():
             for val_batch_idx, (in_frames, out_frames) in enumerate(data_loader):
@@ -321,6 +323,13 @@ class DeterministicUNet(UNetPipeline):
 
                 with torch.autocast(device_type=device_type, dtype=self.torch_dtype):
                     frames_pred = self.model(in_frames)
+
+                    # Apply background prediction if enabled
+                    if predict_background:
+                        batch_size = frames_pred.shape[0]
+                        expanded_background = self.background.expand(batch_size, -1, -1, -1)
+                        frames_pred = torch.maximum(frames_pred, expanded_background)
+                    
                     frames_pred = self.remove_spatial_context(frames_pred)
                     persistence_pred = self.remove_spatial_context(
                         in_frames[:, self.in_frames - 1 :, :, :]
