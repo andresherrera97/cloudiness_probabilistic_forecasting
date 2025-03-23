@@ -70,7 +70,8 @@ class DeterministicUNet(UNetPipeline):
             # Start with zeros - during training this will learn the background pattern
             # Single channel background
             self.background = torch.nn.Parameter(
-                torch.zeros(
+                # torch.zeros(
+                torch.ones(
                     (1, 1, self.height, self.width),
                     device=device,
                     dtype=torch.float32,
