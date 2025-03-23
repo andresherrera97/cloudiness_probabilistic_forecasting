@@ -75,21 +75,20 @@ class DeterministicUNet(UNetPipeline):
                     (1, 1, self.height, self.width),
                     device=device,
                     dtype=torch.float32,
-                ),
+                )
+                * 0.3,
                 requires_grad=True,
-            ) * 0.1
-            # Add to optimizer
-            
+            )
+
             # Add to optimizer with the same learning rate as other parameters
             # Get the learning rate from the first parameter group
-            initial_lr = self.optimizer.param_groups[0]['lr']
-            
+
             # Copy all optimizer settings from the first group to ensure compatibility with scheduler
-            param_group = {'params': [self.background]}
+            param_group = {"params": [self.background]}
             for key in self.optimizer.param_groups[0]:
-                if key != 'params':
+                if key != "params":
                     param_group[key] = self.optimizer.param_groups[0][key]
-            
+
             self.optimizer.add_param_group(param_group)
             self._logger.info("Single-channel background prediction enabled")
 
@@ -303,7 +302,12 @@ class DeterministicUNet(UNetPipeline):
         return train_loss_per_epoch, val_loss_per_epoch
 
     def run_validation(
-        self, device: str, device_type: str, num_val_samples: int, predict_background: bool = False, dataset: str = "val"
+        self,
+        device: str,
+        device_type: str,
+        num_val_samples: int,
+        predict_background: bool = False,
+        dataset: str = "val",
     ):
         self.model.eval()
         val_loss_per_batch = []  # stores values for this validation run
@@ -328,9 +332,11 @@ class DeterministicUNet(UNetPipeline):
                     # Apply background prediction if enabled
                     if predict_background:
                         batch_size = frames_pred.shape[0]
-                        expanded_background = self.background.expand(batch_size, -1, -1, -1)
+                        expanded_background = self.background.expand(
+                            batch_size, -1, -1, -1
+                        )
                         frames_pred = torch.maximum(frames_pred, expanded_background)
-                    
+
                     frames_pred = self.remove_spatial_context(frames_pred)
                     persistence_pred = self.remove_spatial_context(
                         in_frames[:, self.in_frames - 1 :, :, :]
