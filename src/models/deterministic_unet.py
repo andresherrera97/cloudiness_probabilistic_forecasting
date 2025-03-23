@@ -77,7 +77,7 @@ class DeterministicUNet(UNetPipeline):
                     dtype=torch.float32,
                 ),
                 requires_grad=True,
-            )
+            ) * 0.1
             # Add to optimizer
             
             # Add to optimizer with the same learning rate as other parameters
