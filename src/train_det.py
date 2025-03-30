@@ -178,6 +178,7 @@ def main(
         checkpoint_path=checkpoint_path,
         predict_background=predict_background,
         use_data_augmentation=use_data_augmentation,
+        initialize_background=True
     )
     logger.info("Training done.")
     logger.info(f"    - Train loss: {train_loss[-1]}")

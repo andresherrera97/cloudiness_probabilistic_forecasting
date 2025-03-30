@@ -66,9 +66,11 @@ class DeterministicUNet(UNetPipeline):
 
         device_type = "cpu" if device == torch.device("cpu") else "cuda"
         self._logger.info(f"device type: {device_type}")
+        data_augmentation_enabled = False
 
         # Initialize background tensor if prediction is enabled
         if predict_background:
+            self.background_frozen = False
             if initialize_background:
                 background_samples = []
                 max_samples = 10  # Increased number of batches for better statistics
@@ -76,17 +78,25 @@ class DeterministicUNet(UNetPipeline):
                     for val_batch_idx, (in_frames, _) in enumerate(self.val_loader):
                         if val_batch_idx >= max_samples:
                             break
-                        in_frames = in_frames.to(device=device, dtype=self.torch_dtype)  # B, 3, H, W
-                        in_frames_median = torch.median(in_frames, dim=1, keepdim=True)  # B, 1, H, W
-                        background_samples.append(torch.median(in_frames_median, dim=0, keepdim=True)[0, 0])
+                        in_frames = in_frames.to(
+                            device=device, dtype=self.torch_dtype
+                        )  # B, 3, H, W
+                        in_frames_median = torch.median(
+                            in_frames, dim=1, keepdim=True
+                        )[0]  # B, 1, H, W
+                        background_samples.append(
+                            torch.median(in_frames_median, dim=0, keepdim=True)[0][0]
+                        )
 
                     # Stack all samples along a new batch dimension
-                    all_samples = torch.cat(background_samples, dim=0)  # Shape: (num_samples, H, W)
-    
+                    all_samples = torch.cat(
+                        background_samples, dim=0
+                    )  # Shape: (num_samples, H, W)
+
                     # Calculate median across batch dimension
                     # torch.median returns a tuple (values, indices)
-                    initial_background = torch.median(all_samples, dim=0, keepdim=True)
-                        
+                    initial_background = torch.median(all_samples, dim=0, keepdim=True)[0]
+
                 self.background = torch.nn.Parameter(
                     initial_background.unsqueeze(0),
                     requires_grad=True,
@@ -125,6 +135,13 @@ class DeterministicUNet(UNetPipeline):
             val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
+            if epoch == 3:
+                self.freeze_background()
+                self._logger.info("Freezing background after 3 epochs")
+                if use_data_augmentation:
+                    self._logger.info("Data augmentation enabled")
+                    data_augmentation_enabled = True
+
             for batch_idx, (in_frames, out_frames) in enumerate(self.train_loader):
 
                 start_batch = time.time()
@@ -132,6 +149,10 @@ class DeterministicUNet(UNetPipeline):
                 # Use float16 for mixed precision
                 in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+                if data_augmentation_enabled:
+                    in_frames, out_frames, self.background = self.data_augmentation(
+                        in_frames, out_frames, self.background
+                    )
                 self.optimizer.zero_grad(
                     set_to_none=True
                 )  # More efficient than zero_grad()
@@ -325,6 +346,34 @@ class DeterministicUNet(UNetPipeline):
                 )
 
         return train_loss_per_epoch, val_loss_per_epoch
+
+    def data_augmentation(
+        self,
+        in_frames: torch.Tensor,
+        out_frames: torch.Tensor,
+        background: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Apply data augmentation techniques to the input and output frames.
+        This method can be overridden in subclasses for custom augmentations.
+        """
+        # Randomly rotate the frames
+        angle = torch.randint(0, 360, (1,)).item()
+        in_frames = torch.rot90(in_frames, angle // 90, dims=(2, 3))
+        out_frames = torch.rot90(out_frames, angle // 90, dims=(2, 3))
+        background = torch.rot90(background, angle // 90, dims=(2, 3))
+        return in_frames, out_frames, background
+
+    def freeze_background(self):
+        """Freeze the background by removing it from the optimizer and disabling gradients"""
+        self.background_frozen = True
+        self.background.requires_grad_(False)
+
+        # Remove background from optimizer if it's in a separate parameter group
+        if len(self.optimizer.param_groups) > 1:
+            self.optimizer.param_groups.pop()
+
+        self._logger.info("Background frozen - will no longer be updated")
 
     def run_validation(
         self,
