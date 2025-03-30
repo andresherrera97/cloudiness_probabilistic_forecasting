@@ -98,7 +98,7 @@ class DeterministicUNet(UNetPipeline):
                     initial_background = torch.median(all_samples, dim=0, keepdim=True)[0]
 
                 self.background = torch.nn.Parameter(
-                    initial_background.unsqueeze(0),
+                    initial_background.unsqueeze(0).to(dtype=torch.float32),
                     requires_grad=True,
                 )
             else:
