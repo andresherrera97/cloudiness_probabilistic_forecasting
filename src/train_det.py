@@ -56,6 +56,7 @@ def main(
     num_workers: int = 0,
     prefetch_loader: bool = False,
     predict_background: bool = False,
+    use_data_augmentation: bool = False,
 ):
     set_all_seeds(0)
 
@@ -145,6 +146,7 @@ def main(
                 "num_filters": num_filters,
                 "crop_or_downsample": crop_or_downsample,
                 "spatial_context": spatial_context,
+                "use_data_augmentation": use_data_augmentation,
             },
         )
 
@@ -175,6 +177,7 @@ def main(
         val_metric=val_metric,
         checkpoint_path=checkpoint_path,
         predict_background=predict_background,
+        use_data_augmentation=use_data_augmentation,
     )
     logger.info("Training done.")
     logger.info(f"    - Train loss: {train_loss[-1]}")

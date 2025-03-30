@@ -50,6 +50,8 @@ class DeterministicUNet(UNetPipeline):
         val_metric: Optional[str] = None,
         checkpoint_path: Optional[str] = None,
         predict_background: bool = True,  # Changed default to True
+        use_data_augmentation: bool = False,
+        initialize_background: bool = True,
     ) -> Tuple[List[float], List[float]]:
 
         # create checkpoint directory if it does not exist
@@ -67,18 +69,41 @@ class DeterministicUNet(UNetPipeline):
 
         # Initialize background tensor if prediction is enabled
         if predict_background:
-            # Start with zeros - during training this will learn the background pattern
-            # Single channel background
-            self.background = torch.nn.Parameter(
-                # torch.zeros(
-                torch.ones(
-                    (1, 1, self.height, self.width),
-                    device=device,
-                    dtype=torch.float32,
+            if initialize_background:
+                background_samples = []
+                max_samples = 10  # Increased number of batches for better statistics
+                with torch.no_grad():
+                    for val_batch_idx, (in_frames, _) in enumerate(self.val_loader):
+                        if val_batch_idx >= max_samples:
+                            break
+                        in_frames = in_frames.to(device=device, dtype=self.torch_dtype)  # B, 3, H, W
+                        in_frames_median = torch.median(in_frames, dim=1, keepdim=True)  # B, 1, H, W
+                        background_samples.append(torch.median(in_frames_median, dim=0, keepdim=True)[0, 0])
+
+                    # Stack all samples along a new batch dimension
+                    all_samples = torch.cat(background_samples, dim=0)  # Shape: (num_samples, H, W)
+    
+                    # Calculate median across batch dimension
+                    # torch.median returns a tuple (values, indices)
+                    initial_background = torch.median(all_samples, dim=0, keepdim=True)
+                        
+                self.background = torch.nn.Parameter(
+                    initial_background.unsqueeze(0),
+                    requires_grad=True,
                 )
-                * 0.3,
-                requires_grad=True,
-            )
+            else:
+                # Start with zeros - during training this will learn the background pattern
+                # Single channel background
+                self.background = torch.nn.Parameter(
+                    # torch.zeros(
+                    torch.ones(
+                        (1, 1, self.height, self.width),
+                        device=device,
+                        dtype=torch.float32,
+                    )
+                    * 0.3,
+                    requires_grad=True,
+                )
 
             # Add to optimizer with the same learning rate as other parameters
             # Get the learning rate from the first parameter group
