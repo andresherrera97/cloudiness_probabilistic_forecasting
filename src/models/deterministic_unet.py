@@ -81,9 +81,9 @@ class DeterministicUNet(UNetPipeline):
                         in_frames = in_frames.to(
                             device=device, dtype=self.torch_dtype
                         )  # B, 3, H, W
-                        in_frames_median = torch.median(
-                            in_frames, dim=1, keepdim=True
-                        )[0]  # B, 1, H, W
+                        in_frames_median = torch.median(in_frames, dim=1, keepdim=True)[
+                            0
+                        ]  # B, 1, H, W
                         background_samples.append(
                             torch.median(in_frames_median, dim=0, keepdim=True)[0][0]
                         )
@@ -95,7 +95,9 @@ class DeterministicUNet(UNetPipeline):
 
                     # Calculate median across batch dimension
                     # torch.median returns a tuple (values, indices)
-                    initial_background = torch.median(all_samples, dim=0, keepdim=True)[0]
+                    initial_background = torch.median(all_samples, dim=0, keepdim=True)[
+                        0
+                    ]
 
                 self.background = torch.nn.Parameter(
                     initial_background.unsqueeze(0).to(dtype=torch.float32),
@@ -137,7 +139,7 @@ class DeterministicUNet(UNetPipeline):
 
             if epoch == 3:
                 self.freeze_background()
-                self._logger.info("Freezing background after 3 epochs")
+                self._logger.info(f"Freezing background after {epoch} epochs")
                 if use_data_augmentation:
                     self._logger.info("Data augmentation enabled")
                     data_augmentation_enabled = True
@@ -371,7 +373,20 @@ class DeterministicUNet(UNetPipeline):
 
         # Remove background from optimizer if it's in a separate parameter group
         if len(self.optimizer.param_groups) > 1:
+            # Remove the parameter group
             self.optimizer.param_groups.pop()
+
+            # Create a new optimizer state dict with only the remaining parameters
+            # This is crucial for avoiding the KeyError when calling state_dict()
+            param_ids = {
+                id(p) for group in self.optimizer.param_groups for p in group["params"]
+            }
+
+            # Filter the state dict to only include current parameters
+            filtered_state = {
+                k: v for k, v in self.optimizer.state.items() if k in param_ids
+            }
+            self.optimizer.state = filtered_state
 
         self._logger.info("Background frozen - will no longer be updated")
 
