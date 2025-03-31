@@ -103,6 +103,10 @@ class DeterministicUNet(UNetPipeline):
                     initial_background.unsqueeze(0).to(dtype=torch.float32),
                     requires_grad=True,
                 )
+                del background_samples
+                del all_samples
+                del initial_background
+                torch.cuda.empty_cache()  # Free up memory
             else:
                 # Start with zeros - during training this will learn the background pattern
                 # Single channel background
