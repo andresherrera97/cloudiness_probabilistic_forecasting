@@ -145,7 +145,7 @@ class DeterministicUNet(UNetPipeline):
             val_loss_in_epoch = []  # stores values inside the current epoch
             self.model.train()
 
-            if epoch == 3:
+            if epoch == 5:
                 self.freeze_background()
                 self._logger.info(f"Freezing background after {epoch} epochs")
                 if use_data_augmentation:
