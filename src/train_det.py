@@ -57,6 +57,7 @@ def main(
     prefetch_loader: bool = False,
     predict_background: bool = False,
     use_data_augmentation: bool = False,
+    init_background: bool = False,
 ):
     set_all_seeds(0)
 
@@ -178,7 +179,7 @@ def main(
         checkpoint_path=checkpoint_path,
         predict_background=predict_background,
         use_data_augmentation=use_data_augmentation,
-        initialize_background=True
+        initialize_background=init_background
     )
     logger.info("Training done.")
     logger.info(f"    - Train loss: {train_loss[-1]}")
