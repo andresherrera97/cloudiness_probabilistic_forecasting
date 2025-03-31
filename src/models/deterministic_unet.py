@@ -384,17 +384,22 @@ class DeterministicUNet(UNetPipeline):
             # Remove the parameter group
             self.optimizer.param_groups.pop()
 
-            # Create a new optimizer state dict with only the remaining parameters
-            # This is crucial for avoiding the KeyError when calling state_dict()
-            param_ids = {
-                id(p) for group in self.optimizer.param_groups for p in group["params"]
-            }
+            # Create a new state dictionary for the optimizer
+            new_state = {}
 
-            # Filter the state dict to only include current parameters
-            filtered_state = {
-                k: v for k, v in self.optimizer.state.items() if k in param_ids
-            }
-            self.optimizer.state = filtered_state
+            # Get all parameters still in the optimizer
+            current_params = []
+            for group in self.optimizer.param_groups:
+                current_params.extend(group["params"])
+
+            # Keep only the state for parameters still in the optimizer
+            for param in current_params:
+                param_id = id(param)
+                if param_id in self.optimizer.state:
+                    new_state[param_id] = self.optimizer.state[param_id]
+
+            # Replace the optimizer's state with our filtered version
+            self.optimizer.state = new_state
 
         self._logger.info("Background frozen - will no longer be updated")
 
