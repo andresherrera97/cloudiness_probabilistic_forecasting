@@ -379,29 +379,27 @@ class DeterministicUNet(UNetPipeline):
         self.background_frozen = True
         self.background.requires_grad_(False)
 
-        # Remove background from optimizer if it's in a separate parameter group
+        # If we have multiple parameter groups, we need to recreate the optimizer
+        # without the background parameters
         if len(self.optimizer.param_groups) > 1:
-            # Remove the parameter group
-            self.optimizer.param_groups.pop()
-
-            # Create a new state dictionary for the optimizer
-            new_state = {}
-
-            # Get all parameters still in the optimizer
-            current_params = []
-            for group in self.optimizer.param_groups:
-                current_params.extend(group["params"])
-
-            # Keep only the state for parameters still in the optimizer
-            for param in current_params:
-                param_id = id(param)
-                if param_id in self.optimizer.state:
-                    new_state[param_id] = self.optimizer.state[param_id]
-
-            # Replace the optimizer's state with our filtered version
-            self.optimizer.state = new_state
-
-        self._logger.info("Background frozen - will no longer be updated")
+            # Save the current learning rate and other hyperparameters
+            learning_rate = self.optimizer.param_groups[0]['lr']
+            weight_decay = self.optimizer.param_groups[0].get('weight_decay', 0)
+            
+            # Get the optimizer type (assuming it's something like Adam, SGD, etc.)
+            optimizer_type = type(self.optimizer)
+            
+            # Keep only the parameters that need gradients and are not the background
+            # This creates a new optimizer with only the model parameters, not the background
+            self.optimizer = optimizer_type(
+                filter(lambda p: p.requires_grad, self.model.parameters()),
+                lr=learning_rate,
+                weight_decay=weight_decay
+            )
+            
+            self._logger.info("Background frozen - recreated optimizer without background parameters")
+        else:
+            self._logger.info("Background frozen - will no longer be updated")
 
     def run_validation(
         self,
