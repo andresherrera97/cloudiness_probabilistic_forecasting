@@ -73,7 +73,7 @@ class DeterministicUNet(UNetPipeline):
             self.background_frozen = False
             if initialize_background:
                 background_samples = []
-                max_samples = 10  # Increased number of batches for better statistics
+                max_samples = 5  # Increased number of batches for better statistics
                 with torch.no_grad():
                     for val_batch_idx, (in_frames, _) in enumerate(self.val_loader):
                         if val_batch_idx >= max_samples:
