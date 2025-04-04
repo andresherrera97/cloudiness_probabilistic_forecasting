@@ -42,7 +42,10 @@ class PersistenceEnsemble:
                 path=os.path.join(path, "validation/"), input_frames=self.n_quantiles
             )
 
-        elif dataset.lower() in ["goes16", "satellite", "sat", "debug_salto", "debug"]:
+        elif dataset.lower() in [
+            "goes16", "satellite", "sat", "debug_salto", "debug", "downsample",
+            "salto_down", "salto_512"
+        ]:
             train_dataset = GOES16Dataset(
                 path=os.path.join(path, "train/"),
                 num_in_images=self.n_quantiles,
