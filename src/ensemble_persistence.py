@@ -13,6 +13,7 @@ logger = logging.getLogger("Persistence Ensemble")
 
 def main(
     dataset: str,
+    subset: str = "val",
     time_horizon: Optional[List[int]] = None,
     num_quantiles: int = 9,
     batch_size: int = 1,
@@ -26,8 +27,10 @@ def main(
 
     if dataset.lower() in ["moving_mnist", "mnist", "mmnist"]:
         dataset_path = "datasets/moving_mnist_dataset/"
-    elif dataset.lower() in ["goes16", "satellite", "sat"]:
+    elif dataset.lower() in ["goes16", "satellite", "sat", "salto", "salto_1024"]:
         dataset_path = "datasets/salto/"
+    elif dataset.lower() in ["downsample", "salto_down", "salto_512"]:
+        dataset_path = "datasets/salto_downsample/"
     elif dataset.lower() in ["debug", "debug_salto"]:
         dataset_path = "datasets/debug_salto/"
     else:
@@ -72,13 +75,8 @@ def main(
         # train_crps = peen.predict_on_dataset(dataset="train")
         # logging.info(f"Train CRPS: {train_crps}")
 
-        val_crps = peen.predict_on_dataset(dataset="validation")
+        val_crps = peen.predict_on_dataset(dataset=subset)
         logging.info(f"Validation CRPS: {val_crps}")
-
-    # MMNIST
-    # num_quantiles = 9
-    # INFO:root:Train CRPS: 0.04892459054737005
-    # INFO:root:Validation CRPS: 0.0485657579833995
 
 
 if __name__ == "__main__":
