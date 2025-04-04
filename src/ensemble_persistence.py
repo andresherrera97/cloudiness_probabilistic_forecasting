@@ -48,10 +48,10 @@ def main(
             time_horizon=th,
         )
 
-        in_frames, out_frames, predictions, crps = peen.random_example()
-        logging.info(f"CRPS in random example: {crps}")
-
         if create_plots:
+            in_frames, out_frames, predictions, crps = peen.random_example()
+            logging.info(f"CRPS in random example: {crps}")
+
             viz.show_image_list(
                 images_list=in_frames[0].tolist(),
                 fig_name=f"figures/peen_input_{dataset}_{th}.jpg",
@@ -72,11 +72,8 @@ def main(
                 pixel_coords=[32, 32],
             )
 
-        # train_crps = peen.predict_on_dataset(dataset="train")
-        # logging.info(f"Train CRPS: {train_crps}")
-
-        val_crps = peen.predict_on_dataset(dataset=subset)
-        logging.info(f"Validation CRPS: {val_crps}")
+        subset_crps = peen.predict_on_dataset(dataset=subset)
+        logging.info(f"{subset} CRPS: {subset_crps}")
 
 
 if __name__ == "__main__":
