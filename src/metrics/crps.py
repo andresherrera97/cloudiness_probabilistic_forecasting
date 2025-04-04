@@ -34,7 +34,9 @@ def crps_laplace(
     preds: torch.Tensor,
 ) -> float:
     mus, bs = preds[:, 0:1], preds[:, 1:]
-    crps = bs * (torch.abs(target - mus)/bs + torch.exp(-torch.abs(target - mus)/bs) - 3/4)
+    crps = bs * (
+        torch.abs(target - mus) / bs + torch.exp(-torch.abs(target - mus) / bs) - 3 / 4
+    )
     crps = torch.mean(crps)
     return crps
 
@@ -121,7 +123,9 @@ class CRPSLoss:
             raise ValueError("One of num_bins or quantiles should be provided.")
         self.num_bins = num_bins
         if self.num_bins is not None:
-            self.bin_borders = torch.linspace(lower_bound, upper_bound, self.num_bins).to(device)
+            self.bin_borders = torch.linspace(
+                lower_bound, upper_bound, self.num_bins
+            ).to(device)
             self._logger.info(f"Bin borders: {self.bin_borders}")
         else:
             self.bin_borders = None
@@ -338,9 +342,9 @@ class CRPSLoss:
         ]
         # add epsilon to avoid division by zero
         bin_borders_diff = (bin_borders_k_next - bin_borders_k) + eps
-        cdf_at_y = cdf_values_arange + (y - bin_borders_k) / (
-            bin_borders_diff
-        ) * (cdf_next_values_arange - cdf_values_arange)
+        cdf_at_y = cdf_values_arange + (y - bin_borders_k) / (bin_borders_diff) * (
+            cdf_next_values_arange - cdf_values_arange
+        )
 
         p3 = ((cdf_at_y + cdf_next_values_arange) / 2 * (bin_borders_k_next - y)) * (
             (bin_borders[:, :1, :, :] - y < 0) * (y < bin_borders[:, -1:, :, :])
@@ -351,9 +355,7 @@ class CRPSLoss:
         ) > purek.view(N, 1, H, W)
 
         p4 = torch.sum(parts * mask, dim=1).unsqueeze(1) * (
-            (y - bin_borders[:, -1:, :, :] < 0)
-            .float()
-            .sum(dim=1)
+            (y - bin_borders[:, -1:, :, :] < 0).float().sum(dim=1)
         ).unsqueeze(1)
 
         crps = (
@@ -368,6 +370,7 @@ class CRPSLoss:
         self,
         pred: torch.Tensor,
         y: torch.Tensor,
+        nan_mask: torch.Tensor = None,
     ):
         if self.num_bins is not None:
             return torch.mean(
@@ -382,14 +385,13 @@ class CRPSLoss:
                 for n in range(self.pdf_array_qr.shape[1]):
                     self.pdf_array_qr[:, n, :, :] = self.pdf_qr[n]
 
-            return torch.mean(
-                self._crps_loss_variable_bins_array(
-                    predicted_pdf=self.pdf_array_qr[:pred.shape[0]],
-                    y=y,
-                    bin_borders=pred,
-                    device=self.device,
-                )
+            crps_array = self._crps_loss_variable_bins_array(
+                predicted_pdf=self.pdf_array_qr[: pred.shape[0]],
+                y=y,
+                bin_borders=pred,
+                device=self.device,
             )
+            return torch.mean(crps_array[~nan_mask])
 
 
 if __name__ == "__main__":
@@ -439,7 +441,7 @@ if __name__ == "__main__":
     NUM_BINS = 5
 
     BIN_BORDERS = cached_linspace(LOWER_BOUND, UPPER_BOUND, NUM_BINS + 1, DEVICE)
-    
+
     crps_loss_1 = CRPSLoss(
         num_bins=5,
         device=DEVICE,
@@ -462,8 +464,10 @@ if __name__ == "__main__":
     crps_1d = crps_loss_fixed_bins(predicted_pdf_1d, y_1d, BIN_BORDERS)
     print(f"crps_1d uniform: {crps_1d}\n")
 
-
-    crps_loss_1 = CRPSLoss(num_bins=NUM_BINS, device=DEVICE,)
+    crps_loss_1 = CRPSLoss(
+        num_bins=NUM_BINS,
+        device=DEVICE,
+    )
     # predicted_pdf: tensor of shape (N, B, H, W)
     # y: tensor of shape (N, H, W)
     predicted_pdf_array = torch.ones((3, 5, 32, 32))
@@ -501,17 +505,17 @@ if __name__ == "__main__":
     print(f" -> crps_array uniform: {torch.mean(crps_array)}\n")
 
     # CRPS loss for Quantile Regressor
-    
+
     quantiles = [0.1, 0.25, 0.5, 0.75, 0.90]
     # quantiles = [0] + quantiles + [1]  # Add 0 and 1 to the quantiles
     # bin_prob = [quantiles[i] - quantiles[i - 1] for i in range(1, len(quantiles))]
-    
+
     crps_loss_qr_1 = CRPSLoss(quantiles=quantiles, device=DEVICE)
-    
+
     predicted_pdf_array_qr = torch.ones((3, len(crps_loss_qr_1.quantiles) - 1, 32, 32))
     for n in range(predicted_pdf_array_qr.shape[1]):
         predicted_pdf_array_qr[:, n, :, :] = crps_loss_qr_1.pdf_qr[n]
-    
+
     bin_borders_qr = torch.ones((3, len(crps_loss_qr_1.quantiles), 32, 32))
     bin_borders_qr[:, 0, :, :] = 0.0
     bin_borders_qr[:, 1, :, :] = 0.12

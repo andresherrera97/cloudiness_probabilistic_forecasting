@@ -3,10 +3,18 @@ import torch
 import yaml
 import datetime as datetime
 import numpy as np
+from metrics import CRPSLoss
 
 
 class CloudMotionVector:
-    def __init__(self, dcfg=None):
+    def __init__(
+        self,
+        dcfg=None,
+        device: str = "cpu",
+        n_quantiles: int = 9,
+        angle_noise_std: int = 15,
+        magnitude_noise_std: float = 4 / (60 * 60),
+    ):
         # Load configuration
         if dcfg is None:
             stream = open("src/les-prono/admin_scripts/config.yaml", "r")
@@ -23,8 +31,14 @@ class CloudMotionVector:
         self.poly_sigma = self.cmvcfg["poly_sigma"]
 
         # Add noise parameters to configuration
-        self.magnitude_noise_std = 4 / (60 * 60)  # 2km/h speed noise, 0,5km resolution -> 4/3600 pixels/s noise
-        self.angle_noise_std = (np.pi*15)/180  # Default 15 degrees noise
+        self.magnitude_noise_std = magnitude_noise_std  # 2km/h speed noise, 0,5km resolution -> 4/3600 pixels/s noise
+        self.angle_noise_std = (
+            np.pi * angle_noise_std
+        ) / 180  # Default 15 degrees noise
+        self.n_quantiles = n_quantiles
+        self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
+        self.device = device
+        self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
 
     def predict(
         self,
@@ -96,15 +110,15 @@ class CloudMotionVector:
     def add_noise_to_vectors_CLAUDE(self, cmv):
         """
         Add Gaussian noise to both magnitude and angle of motion vectors
-        
+
         Args:
             cmv (numpy.ndarray): Cloud motion vectors of shape (H, W, 2)
-            
+
         Returns:
             numpy.ndarray: Noisy motion vectors
         """
         # Convert to polar coordinates (magnitude and angle)
-        magnitude = np.sqrt(cmv[:, :, 0]**2 + cmv[:, :, 1]**2)
+        magnitude = np.sqrt(cmv[:, :, 0] ** 2 + cmv[:, :, 1] ** 2)
         angle = np.arctan2(cmv[:, :, 1], cmv[:, :, 0])
 
         # Generate noise for magnitude (multiplicative noise)
@@ -133,13 +147,15 @@ class CloudMotionVector:
             numpy.ndarray: Noisy motion vectors
         """
         # Convert to polar coordinates (magnitude and angle)
-        magnitude = np.sqrt(cmv[:, :, 0]**2 + cmv[:, :, 1]**2)
+        magnitude = np.sqrt(cmv[:, :, 0] ** 2 + cmv[:, :, 1] ** 2)
         angle = np.arctan2(cmv[:, :, 1], cmv[:, :, 0])
 
         # Generate noise for magnitude (multiplicative noise)
         # magnitude_noise_std_per_hour = self.magnitude_noise_std * time_step
         magnitude_noise_std_per_hour = self.magnitude_noise_std
-        magnitude_noise = np.random.normal(0, magnitude_noise_std_per_hour, magnitude.shape)
+        magnitude_noise = np.random.normal(
+            0, magnitude_noise_std_per_hour, magnitude.shape
+        )
         noisy_magnitude = magnitude + magnitude_noise
 
         # Generate noise for angle (additive noise)
@@ -160,6 +176,8 @@ class CloudMotionVector:
         period: int,
         time_step: int,
         time_horizon: int,
+        noise_method: str = "claude",
+        return_last_frame: bool = True,
     ) -> np.ndarray:
         """Predicts next image using openCV optical Flow with added noise"""
 
@@ -183,18 +201,14 @@ class CloudMotionVector:
 
         # Add noise to the motion vectors
         # TODO: check this function and compare with claude recommendation
-        noisy_cmv = self.add_noise_to_vectors(cmv, time_step)
-        noisy_cmv_claude = self.add_noise_to_vectors_CLAUDE(cmv)
-        
-        print(f"cmv min: {cmv.min()}, cmv max: {cmv.max()}")
-        print(f"noisy_cmv min: {noisy_cmv.min()}, noisy_cmv max: {noisy_cmv.max()}")
-        print(f"noisy_cmv_claude min: {noisy_cmv_claude.min()}, noisy_cmv_claude max: {noisy_cmv_claude.max()}")
-        
-        print(f"cmv mean: {cmv.mean()}, cmv std: {cmv.std()}")
-        print(f"noisy_cmv mean: {noisy_cmv.mean()}, noisy_cmv std: {noisy_cmv.std()}")
-        print(f"noisy_cmv_claude mean: {noisy_cmv_claude.mean()}, noisy_cmv_claude std: {noisy_cmv_claude.std()}")
-        
-        i_idx, j_idx = np.meshgrid(np.arange(noisy_cmv.shape[1]), np.arange(noisy_cmv.shape[0]))
+        if noise_method == "claude":
+            noisy_cmv = self.add_noise_to_vectors_CLAUDE(cmv)
+        else:
+            noisy_cmv = self.add_noise_to_vectors(cmv, time_step)
+
+        i_idx, j_idx = np.meshgrid(
+            np.arange(noisy_cmv.shape[1]), np.arange(noisy_cmv.shape[0])
+        )
 
         # Use noisy CMV for prediction
         map_i = i_idx + noisy_cmv[:, :, 0] * time_step
@@ -217,4 +231,78 @@ class CloudMotionVector:
             predictions.append(next_img)
             base_img = next_img
 
+        if return_last_frame:
+            return predictions[-1]
         return np.array(predictions)
+
+    def sort_arrays_optimized(self, arrays):
+        # Stack arrays into 3D array
+        stacked = np.stack(arrays)
+
+        # Create a mask of where we have nan values
+        has_nan = np.any(np.isnan(stacked), axis=0)
+
+        # Create a masked array where NaNs are masked
+        masked_stacked = np.ma.masked_array(stacked, mask=np.isnan(stacked))
+
+        # Sort along axis 0 (first dimension)
+        # This preserves the mask and sorts only the valid values
+        sorted_masked = np.ma.sort(masked_stacked, axis=0)
+
+        # Convert back to regular array with NaNs
+        result = sorted_masked.filled(np.nan)
+
+        return result, has_nan
+
+    def probabilistic_prediction(
+        self,
+        n_quantiles: int,
+        imgi: np.ndarray,
+        imgf: np.ndarray,
+        period: int,
+        time_step: int,
+        time_horizon: int,
+        noise_method: str = "claude",
+        return_last_frame: bool = True,
+    ):
+        noisy_predictions = []
+
+        for _ in range(n_quantiles):
+            noisy_predictions.append(
+                self.noisy_predict(
+                    imgi,
+                    imgf,
+                    period,
+                    time_step,
+                    time_horizon,
+                    noise_method,
+                    return_last_frame,
+                )
+            )
+
+        # Sort the arrays along the first axis
+        sorted_predictions, nan_mask = self.sort_arrays_optimized(noisy_predictions)
+
+        return sorted_predictions, nan_mask
+
+    def calculate_crps(self, predictions, nan_mask, target):
+        if isinstance(predictions, np.ndarray):
+            predictions = torch.tensor(predictions, device=self.device)
+            nan_mask = torch.tensor(nan_mask, device=self.device)
+            target = torch.tensor(target, device=self.device)
+
+        if predictions.dim() == 3:
+            predictions = predictions.unsqueeze(0)
+
+        if target.dim() == 2:
+            target = target.unsqueeze(0).unsqueeze(0)
+
+        if nan_mask.dim() == 2:
+            nan_mask = nan_mask.unsqueeze(0).unsqueeze(0)
+
+        crps = self.crps_loss.crps_loss(
+            pred=predictions,
+            y=target,
+            nan_mask=nan_mask,
+        )
+        return crps
