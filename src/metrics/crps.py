@@ -370,7 +370,7 @@ class CRPSLoss:
         self,
         pred: torch.Tensor,
         y: torch.Tensor,
-        nan_mask: torch.Tensor = None,
+        nan_mask: Optional[torch.Tensor] = None,
     ):
         if self.num_bins is not None:
             return torch.mean(
@@ -391,6 +391,8 @@ class CRPSLoss:
                 bin_borders=pred,
                 device=self.device,
             )
+            if nan_mask is None:
+                return torch.mean(crps_array)
             return torch.mean(crps_array[~nan_mask])
 
 
