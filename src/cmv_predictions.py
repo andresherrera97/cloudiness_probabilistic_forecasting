@@ -45,8 +45,14 @@ def main(
     n_quantiles: int = 9,
     noise_method: str = "not_claude",
     return_last_frame: bool = True,
+    angle_noise_std: int = 15,
+    magnitude_noise_std: float = 4 / (60 * 60),
 ):
-    cmv = CloudMotionVector()
+    cmv = CloudMotionVector(
+        n_quantiles=n_quantiles,
+        angle_noise_std=angle_noise_std,
+        magnitude_noise_std=magnitude_noise_std,
+    )
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")

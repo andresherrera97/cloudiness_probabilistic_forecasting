@@ -136,7 +136,7 @@ class CloudMotionVector:
 
         return noisy_cmv
 
-    def add_noise_to_vectors(self, cmv: np.ndarray, time_step: int) -> np.ndarray:
+    def add_noise_to_vectors(self, cmv: np.ndarray) -> np.ndarray:
         """
         Add Gaussian noise to both magnitude and angle of motion vectors
 
@@ -204,7 +204,7 @@ class CloudMotionVector:
         if noise_method == "claude":
             noisy_cmv = self.add_noise_to_vectors_CLAUDE(cmv)
         else:
-            noisy_cmv = self.add_noise_to_vectors(cmv, time_step)
+            noisy_cmv = self.add_noise_to_vectors(cmv)
 
         i_idx, j_idx = np.meshgrid(
             np.arange(noisy_cmv.shape[1]), np.arange(noisy_cmv.shape[0])
