@@ -48,6 +48,15 @@ def main(
     angle_noise_std: int = 15,
     magnitude_noise_std: float = 4 / (60 * 60),
 ):
+    logger.info("Starting CMV model")
+    logger.info(f"Dataset: {dataset}")
+    logger.info(f"Subset: {subset}")
+    logger.info(f"Time horizon: {time_horizon} min")
+    logger.info(f"Noise method: {noise_method}")
+    logger.info(f"Angle noise std: {angle_noise_std}")
+    logger.info(f"Magnitude noise std: {magnitude_noise_std}")
+    logger.info(f"Num Quantiles: {n_quantiles}")
+
     cmv = CloudMotionVector(
         n_quantiles=n_quantiles,
         angle_noise_std=angle_noise_std,
