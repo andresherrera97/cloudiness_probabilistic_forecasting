@@ -12,7 +12,7 @@ logger = logging.getLogger("Persistence Ensemble")
 
 
 def main(
-    dataset: str,
+    dataset: str = "salto_down",
     subset: str = "val",
     time_horizon: Optional[List[int]] = None,
     num_quantiles: int = 9,
