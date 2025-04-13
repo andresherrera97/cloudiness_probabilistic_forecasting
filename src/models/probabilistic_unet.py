@@ -648,7 +648,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         super().__init__(config)
         self.predict_diff = predict_diff
         if quantiles is None:
-            self.quantiles = [0.1, 0.5, 0.9]
+            self.quantiles = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         else:
             self.quantiles = quantiles
         self.n_bins = len(self.quantiles)
