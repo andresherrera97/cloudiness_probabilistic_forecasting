@@ -132,6 +132,8 @@ class CRPSLoss:
         if quantiles is not None:
             if isinstance(quantiles, torch.Tensor):
                 quantiles = quantiles.cpu().numpy().tolist()
+            if isinstance(quantiles, np.ndarray):
+                quantiles = quantiles.tolist()
             self.quantiles = quantiles = (
                 [lower_bound] + quantiles + [upper_bound]
             )  # Add 0 and 1 to the quantiles
