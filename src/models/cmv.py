@@ -262,7 +262,7 @@ class CloudMotionVector:
         period: int,
         time_step: int,
         time_horizon: int,
-        noise_method: str = "claude",
+        noise_method: str = "not_claude",
         return_last_frame: bool = True,
     ):
         noisy_predictions = []
