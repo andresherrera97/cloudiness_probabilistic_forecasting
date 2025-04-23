@@ -27,6 +27,7 @@ from metrics import (
     crps_laplace,
     CRPSLoss,
     MixtureDensityLoss,
+    laplace_nll_loss,
 )
 from data_handlers import MovingMnistDataset, GOES16Dataset, PrefetchLoader
 from .unet import UNet
@@ -1219,7 +1220,7 @@ class MedianScaleUNet(ProbabilisticUNet):
             output_activation=self.output_activation,
         )
 
-        self.loss_fn = median_scale_loss
+        self.loss_fn = laplace_nll_loss
 
     def fit(
         self,
@@ -1266,6 +1267,10 @@ class MedianScaleUNet(ProbabilisticUNet):
                 in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
+
                 # forward
                 with torch.autocast(
                     device_type=device_type, dtype=self.torch_dtype
@@ -1278,9 +1283,9 @@ class MedianScaleUNet(ProbabilisticUNet):
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
                 scaler.update()
-                self.optimizer.zero_grad(
-                    set_to_none=True
-                )  # More efficient than zero_grad()
+
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                    self.scheduler.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -1363,7 +1368,9 @@ class MedianScaleUNet(ProbabilisticUNet):
             else:
                 raise ValueError(f"Validation loss {val_metric} not recognized.")
 
-            if self.scheduler is not None:
+            if self.scheduler is not None and not isinstance(
+                self.scheduler, torch.optim.lr_scheduler.OneCycleLR
+            ):
                 self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
