@@ -379,13 +379,15 @@ class BinClassifierUNet(ProbabilisticUNet):
             in_frames=self.in_frames,
             n_classes=self.n_bins,
             filters=self.filters,
-            output_activation=self.output_activation,
+            # output_activation=self.output_activation,
+            output_activation="softmax",
         )
         self.loss_fn = nn.CrossEntropyLoss().to(device=self.device)
         self.crps_loss = CRPSLoss(num_bins=self.n_bins + 1, device=self.device)
         self.multiclass_precision_metric = MulticlassPrecision(
             num_classes=n_bins, average="macro", top_k=1, multidim_average="global"
         ).to(device=self.device)
+        self.negative_loss_likelihood = nn.NLLLoss()
 
     def get_F_at_points(self, points, pred_params):
         # TODO: implement if want to use NUMERICAL CRPS
@@ -415,6 +417,7 @@ class BinClassifierUNet(ProbabilisticUNet):
         crps_per_epoch = []
         cross_entropy_per_epoch = []
         precision_per_epoch = []
+        logscore_per_epoch = []
 
         best_val_loss = float("inf")
         device_type = "cpu" if device == torch.device("cpu") else "cuda"
@@ -491,6 +494,7 @@ class BinClassifierUNet(ProbabilisticUNet):
             cross_entropy_loss_per_batch = []  # stores values for this validation run
             crps_bin_list = []
             precision_list = []
+            logscore_list = []
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, (out_frames, bin_output)) in enumerate(
@@ -520,6 +524,9 @@ class BinClassifierUNet(ProbabilisticUNet):
                     precision_list.append(
                         self.multiclass_precision_metric(frames_pred, bin_output)
                     )
+                    logscore_list.append(
+                        self.negative_loss_likelihood(frames_pred, bin_output)
+                    )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -529,6 +536,7 @@ class BinClassifierUNet(ProbabilisticUNet):
             )
             crps_in_epoch = sum(crps_bin_list) / len(crps_bin_list)
             precision_in_epoch = sum(precision_list) / len(precision_list)
+            logscore_in_epoch = sum(logscore_list) / len(logscore_list)
 
             if val_metric is None or val_metric in ["cross_entropy", "ce"]:
                 val_loss_in_epoch = cross_entropy_in_epoch
@@ -550,6 +558,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                 run.log({"cross_entropy": cross_entropy_in_epoch}, step=epoch)
                 run.log({"crps": crps_in_epoch}, step=epoch)
                 run.log({"precision": precision_in_epoch}, step=epoch)
+                run.log({"logscore": logscore_in_epoch}, step=epoch)
                 run.log(
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
                     step=epoch,
@@ -563,6 +572,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                     f"Cross Entropy({cross_entropy_in_epoch:.4f}) | "
                     f"CRPS({crps_in_epoch:.4f} | "
                     f"precision({precision_in_epoch:.4f} | "
+                    f"Logscore({logscore_in_epoch:.4f}) | "
                     f"Time_Epoch({(time.time() - start_epoch):.2f}s) |"
                 )
 
@@ -572,6 +582,7 @@ class BinClassifierUNet(ProbabilisticUNet):
             cross_entropy_per_epoch.append(cross_entropy_in_epoch)
             crps_per_epoch.append(crps_in_epoch)
             precision_per_epoch.append(precision_in_epoch)
+            logscore_per_epoch.append(logscore_in_epoch)
 
             if val_loss_in_epoch < best_val_loss:
                 self._logger.info(
@@ -596,6 +607,7 @@ class BinClassifierUNet(ProbabilisticUNet):
                     "crps_per_epoch": crps_per_epoch,
                     "cross_entropy_per_epoch": cross_entropy_per_epoch,
                     "precision_per_epoch": precision_per_epoch,
+                    "logscore_per_epoch": logscore_per_epoch,
                     "train_loss_epoch_mean": train_loss_in_epoch,
                     "train_metric": train_metric,
                     "val_metric": val_metric,
