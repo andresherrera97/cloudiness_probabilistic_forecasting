@@ -95,7 +95,7 @@ def main(
         logger.info(f"    - filters: {num_filters}")
         logger.info(f"    - Output activation: {output_activation}")
         probabilistic_unet = MeanStdUNet(unet_config)
-    elif model_name.lower() in ["median", "median_scale"]:
+    elif model_name.lower() in ["median", "median_scale", "laplace"]:
         logger.info("Selected model: MedianScaleUNet")
         logger.info(f"    - input_frames: {input_frames}")
         logger.info(f"    - filters: {num_filters}")
