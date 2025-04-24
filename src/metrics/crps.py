@@ -32,10 +32,11 @@ def crps_gaussian(
 def crps_laplace(
     target: torch.Tensor,
     preds: torch.Tensor,
+    eps: float = 1e-12,
 ) -> float:
     mus, bs = preds[:, 0:1], preds[:, 1:]
     crps = bs * (
-        torch.abs(target - mus) / bs + torch.exp(-torch.abs(target - mus) / bs) - 3 / 4
+        torch.abs(target - mus) / (bs + eps) + torch.exp(-torch.abs(target - mus) / (bs + eps)) - 3 / 4
     )
     crps = torch.mean(crps)
     return crps
