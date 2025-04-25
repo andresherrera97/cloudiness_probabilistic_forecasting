@@ -163,11 +163,17 @@ def main(
         logger.info(f"    - Predict diff: {predict_diff}")
         logger.info(f"    - Train metric: {train_metric}")
         logger.info(f"    - Val metric: {val_metric}")
+        if dataset.lower() in ["downsample", "salto_down", "salto_512"]:
+            image_size = 512
+        else:
+            image_size = 1024
+
         probabilistic_unet = IQUNetPipeline(
             config=unet_config,
             cosine_embedding_dimension=cos_dim,
             num_taus=num_taus,
             predict_diff=predict_diff,
+            image_size=image_size,
         )
     elif model_name.lower() in ["mdn"]:
         logger.info("Selected model: MixtureDensityUNet")

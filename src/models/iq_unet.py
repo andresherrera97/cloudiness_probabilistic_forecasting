@@ -244,6 +244,7 @@ class IQUNetPipeline(ProbabilisticUNet):
         predict_diff: bool = False,
         min_value: float = 0,
         max_value: float = 1,
+        image_size: int = 512,
     ):
         super().__init__(config)
         self.cosine_embedding_dimension = cosine_embedding_dimension
@@ -254,7 +255,7 @@ class IQUNetPipeline(ProbabilisticUNet):
         self.val_quantiles = torch.linspace(min_value, max_value, self.num_taus + 2)[
             1:-1
         ].to(device=self.device)
-        self.image_size = 1024
+        self.image_size = image_size
 
         self.model = IQUNet(
             in_frames=self.in_frames,
