@@ -7,7 +7,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from metrics import QuantileLoss
+from metrics import QuantileLoss, CRPSLoss
 from .probabilistic_unet import ProbabilisticUNet, UNetConfig
 import logging
 
@@ -256,6 +256,7 @@ class IQUNetPipeline(ProbabilisticUNet):
             1:-1
         ].to(device=self.device)
         self.image_size = image_size
+        self.crps_loss = CRPSLoss(quantiles=self.val_quantiles, device=self.device)
 
         self.model = IQUNet(
             in_frames=self.in_frames,
