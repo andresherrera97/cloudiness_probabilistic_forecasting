@@ -631,12 +631,14 @@ class BinClassifierUNet(ProbabilisticUNet):
         self.n_bins = checkpoint["num_bins"]
         self.spatial_context = checkpoint["spatial_context"]
         self.time_horizon = checkpoint["time_horizon"]
+        self.output_activation = checkpoint["output_activation"]
 
         # Generate same architecture
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=self.n_bins,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
@@ -919,12 +921,14 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self.n_bins = len(self.quantiles)
         self.spatial_context = checkpoint["spatial_context"]
         self.time_horizon = checkpoint["time_horizon"]
+        self.output_activation = checkpoint["output_activation"]
 
         # Generate same architecture
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=self.n_bins,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
@@ -1458,12 +1462,14 @@ class MedianScaleUNet(ProbabilisticUNet):
         self.filters = checkpoint["num_filters"]
         self.spatial_context = checkpoint["spatial_context"]
         self.time_horizon = checkpoint["time_horizon"]
+        self.output_activation = checkpoint["output_activation"]
 
         # Generate same architecture
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=2,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
@@ -1561,6 +1567,10 @@ class MixtureDensityUNet(ProbabilisticUNet):
                 in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
 
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
+
                 # forward
                 with torch.autocast(
                     device_type=device_type, dtype=self.torch_dtype
@@ -1574,9 +1584,8 @@ class MixtureDensityUNet(ProbabilisticUNet):
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
                 scaler.update()
-                self.optimizer.zero_grad(
-                    set_to_none=True
-                )  # More efficient than zero_grad()
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                    self.scheduler.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -1624,7 +1633,9 @@ class MixtureDensityUNet(ProbabilisticUNet):
 
             val_loss_in_epoch = sum(val_loss_per_batch) / len(val_loss_per_batch)
 
-            if self.scheduler is not None:
+            if self.scheduler is not None and not isinstance(
+                self.scheduler, torch.optim.lr_scheduler.OneCycleLR
+            ):
                 self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
@@ -1701,12 +1712,14 @@ class MixtureDensityUNet(ProbabilisticUNet):
         self.n_components = checkpoint["n_components"]
         self.spatial_context = checkpoint["spatial_context"]
         self.time_horizon = checkpoint["time_horizon"]
+        self.output_activation = checkpoint["output_activation"]
 
         # Generate same architecture
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=3 * self.n_components,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
@@ -1796,6 +1809,10 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 # data to cuda if possible
                 in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
+                
+                self.optimizer.zero_grad(
+                    set_to_none=True
+                )  # More efficient than zero_grad()
 
                 # forward
                 with torch.autocast(
@@ -1809,9 +1826,8 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
                 scaler.update()
-                self.optimizer.zero_grad(
-                    set_to_none=True
-                )  # More efficient than zero_grad()
+                if isinstance(self.scheduler, torch.optim.lr_scheduler.OneCycleLR):
+                    self.scheduler.step()
 
                 train_loss_in_epoch_list.append(loss.detach().item())
                 end_batch = time.time()
@@ -1919,7 +1935,9 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             else:
                 raise ValueError(f"Validation metric {val_metric} not recognized.")
 
-            if self.scheduler is not None:
+            if self.scheduler is not None and not isinstance(
+                self.scheduler, torch.optim.lr_scheduler.OneCycleLR
+            ):
                 self.scheduler.step(val_loss_in_epoch)
 
             if run is not None:
@@ -2073,6 +2091,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
         self.quantiles = checkpoint["quantiles"]
         self.spatial_context = checkpoint["spatial_context"]
         self.time_horizon = checkpoint["time_horizon"]
+        self.output_activation = checkpoint["output_activation"]
 
         # Generate same architecture
         self.model = UNet(
@@ -2080,6 +2099,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
             n_classes=1,
             dropout_p=self.dropout_p,
             filters=self.filters,
+            output_activation=self.output_activation,
         )
 
         self.model.load_state_dict(checkpoint["model_state_dict"])

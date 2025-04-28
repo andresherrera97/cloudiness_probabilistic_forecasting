@@ -461,7 +461,7 @@ class IQUNetPipeline(ProbabilisticUNet):
         self.time_horizon = checkpoint.get("time_horizon", None)
         self.num_taus = checkpoint.get("num_taus", 9)
         self.cosine_embedding_dimension = checkpoint.get("cosine_embedding_dimension", 64)
-        self.image_size = checkpoint.get("image_size", 1024)
+        self.image_size = checkpoint.get("image_size", 512)
 
         # Generate same architecture
         self.model = IQUNet(
@@ -472,6 +472,7 @@ class IQUNetPipeline(ProbabilisticUNet):
             num_taus=self.num_taus,
             image_size=self.image_size,
             device=self.device,
+            output_activation=self.output_activation,
         ).to(self.device)
 
         self.model.load_state_dict(checkpoint["model_state_dict"])
