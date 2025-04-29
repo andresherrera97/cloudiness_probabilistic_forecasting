@@ -324,7 +324,11 @@ def main(
             break
 
     # Save metrics to JSON file
-    metrics_path = f"results/metrics_{subset}_{time_horizon}min.json"
+    if debug:
+        metrics_path = f"results/metrics_{subset}_{time_horizon}min_debug.json"
+    else:
+        metrics_path = f"results/metrics_{subset}_{time_horizon}min.json"
+
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=4)
     logger.info(f"Metrics saved to {metrics_path}")
