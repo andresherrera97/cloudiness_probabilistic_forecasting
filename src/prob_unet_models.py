@@ -254,6 +254,7 @@ def main(
     for batch_idx, (in_frames, (out_frames, bin_output)) in enumerate(data_loader):
         in_frames = in_frames.to(device)
         out_frames = out_frames.to(device)
+        bin_output = bin_output.to(device)
 
         # Quantile Regression UNet
         qr_unet_preds = qr_unet.model(in_frames.float())
@@ -275,7 +276,7 @@ def main(
         metrics["qr"]["logscore"].append(
             logscore_bin_fn(
                 torch.tensor(qr_binarized_preds).to(device),
-                torch.tensor(bin_output)
+                torch.tensor(bin_output).to(device)
             ).detach().item()
         )
 
