@@ -274,7 +274,8 @@ def main(
 
         metrics["qr"]["logscore"].append(
             logscore_bin_fn(
-                torch.tensor(qr_binarized_preds), torch.tensor(bin_output)
+                torch.tensor(qr_binarized_preds).to(device),
+                torch.tensor(bin_output)
             ).detach().item()
         )
 
@@ -316,7 +317,8 @@ def main(
         )
         metrics["iqn"]["logscore"].append(
             logscore_bin_fn(
-                torch.tensor(iqn_binarized_preds), torch.tensor(bin_output)
+                torch.tensor(iqn_binarized_preds).to(device),
+                torch.tensor(bin_output)
             ).detach().item()
         )
 
