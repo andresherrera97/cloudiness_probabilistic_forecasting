@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 from typing import List
 import scipy.stats as stats
@@ -59,6 +60,9 @@ def quantile_2_bin(
     Calculate the probability of values falling inside specified bins based
     on quantiles.
     """
+    if isinstance(quantile_values, torch.Tensor):
+        quantiles_values = quantiles_values.detach().cpu().numpy()
+
     if len(quantiles_values.shape) != 4:
         raise ValueError(
             "The input quantile values must have shape (batch_size, "
