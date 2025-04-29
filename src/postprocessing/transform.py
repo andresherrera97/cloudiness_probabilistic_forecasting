@@ -60,7 +60,7 @@ def quantile_2_bin(
     Calculate the probability of values falling inside specified bins based
     on quantiles.
     """
-    if isinstance(quantile_values, torch.Tensor):
+    if isinstance(quantiles_values, torch.Tensor):
         quantiles_values = quantiles_values.detach().cpu().numpy()
 
     if len(quantiles_values.shape) != 4:
