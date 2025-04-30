@@ -20,6 +20,13 @@ def main(
     create_plots: bool = False,
     debug: bool = False,
 ):
+    logger.info("Starting Persistence Ensemble model")
+    logger.info(f"Dataset: {dataset}")
+    logger.info(f"Subset: {subset}")
+    logger.info(f"Time horizon: {time_horizon} min")
+    logger.info(f"Num Quantiles: {num_quantiles}")
+    logger.info(f"Batch size: {batch_size}")
+    logger.info(f"Debug mode: {debug}")
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
