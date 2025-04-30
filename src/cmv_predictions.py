@@ -148,7 +148,7 @@ def main(
         logscore_per_batch.append(
             logscore_bin_fn(
                 torch.tensor(preds_bin).to(device),
-                torch.tensor(bin_output).to(device)
+                torch.tensor(bin_output).to(device).unsqueeze(0),
             ).detach().item()
         )
         if debug and index > 2:
