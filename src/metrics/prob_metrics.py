@@ -11,6 +11,7 @@ def logscore_bin_fn(
     epsilon: Optional[float] = 1e-12,
     divide_by_bin_width: bool = False,
     bin_width: float = 0.1,
+    nan_mask: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
     Calculates the element-wise log score for binarized predictions using PyTorch.
@@ -51,6 +52,9 @@ def logscore_bin_fn(
         # Ensure it's long for gather compatibility if it's another int type
         targets = targets.long()
 
+    if nan_mask is not None and nan_mask.dim() == 2:
+        nan_mask = nan_mask.unsqueeze(0).unsqueeze(0)
+
     bs, num_bins, h, w = predictions.shape
     if targets.shape[0] != bs or targets.shape[1] != h or targets.shape[2] != w:
         raise ValueError(f"Shape mismatch: predictions shape {predictions.shape} "
@@ -58,7 +62,7 @@ def logscore_bin_fn(
 
     # Check if target values are within the valid range
     if torch.min(targets) < 0 or torch.max(targets) >= num_bins:
-         raise ValueError(f"Target values must be in the range [0, {num_bins-1}]")
+        raise ValueError(f"Target values must be in the range [0, {num_bins-1}]")
 
     # --- Log Score Calculation ---
 
@@ -75,7 +79,7 @@ def logscore_bin_fn(
     selected_probs = torch.gather(predictions, 1, targets_expanded)
 
     # Remove the singleton dimension (dim=1)
-    selected_probs = selected_probs.squeeze(1) # Shape: [BS, H, W]
+    selected_probs = selected_probs.squeeze(1)  # Shape: [BS, H, W]
 
     # Add epsilon for numerical stability (avoid log(0))
     if epsilon is not None:
@@ -98,7 +102,11 @@ def logscore_bin_fn(
 
     # Calculate the log score
     # log(p) where p is the probability assigned to the true outcome
-    log_scores = torch.mean(-torch.log(probs_for_log))
+
+    if nan_mask is None:
+        log_scores = torch.mean(-torch.log(probs_for_log))
+    else:
+        log_scores = torch.mean(-torch.log(probs_for_log)[~nan_mask])
 
     return log_scores
 
