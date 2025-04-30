@@ -63,6 +63,9 @@ def quantile_2_bin(
     if isinstance(quantiles_values, torch.Tensor):
         quantiles_values = quantiles_values.detach().cpu().numpy()
 
+    if len(quantiles_values.shape) == 3:
+        quantiles_values = np.expand_dims(quantiles_values, axis=0)
+
     if len(quantiles_values.shape) != 4:
         raise ValueError(
             "The input quantile values must have shape (batch_size, "
