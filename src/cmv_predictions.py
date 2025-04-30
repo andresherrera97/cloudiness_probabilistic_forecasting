@@ -142,7 +142,7 @@ def main(
         )
 
         bin_output = classify_array_in_integer_classes(
-            out_frames[0, 0].cpu().numpy(), num_bins=10
+            out_frames[0, 0], num_bins=10
         )
 
         logscore_per_batch.append(
