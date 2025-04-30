@@ -178,7 +178,7 @@ class PersistenceEnsemble:
             logscore_per_batch.append(
                 logscore_bin_fn(
                     torch.tensor(preds_bin).to(self.device),
-                    torch.tensor(bin_output).to(self.device)
+                    torch.tensor(bin_output).to(self.device).unsqueeze(0),
                 ).detach().item()
             )
 
