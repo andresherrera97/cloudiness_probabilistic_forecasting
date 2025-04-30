@@ -53,7 +53,7 @@ def logscore_bin_fn(
         targets = targets.long()
 
     if nan_mask is not None and nan_mask.dim() == 2:
-        nan_mask = nan_mask.unsqueeze(0).unsqueeze(0)
+        nan_mask = nan_mask.unsqueeze(0)
 
     bs, num_bins, h, w = predictions.shape
     if targets.shape[0] != bs or targets.shape[1] != h or targets.shape[2] != w:
