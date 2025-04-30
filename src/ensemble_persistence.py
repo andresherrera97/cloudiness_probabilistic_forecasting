@@ -18,6 +18,7 @@ def main(
     num_quantiles: int = 9,
     batch_size: int = 1,
     create_plots: bool = False,
+    debug: bool = False,
 ):
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -72,7 +73,10 @@ def main(
                 pixel_coords=[32, 32],
             )
 
-        subset_crps, subset_logscore = peen.predict_on_dataset(dataset=subset)
+        subset_crps, subset_logscore = peen.predict_on_dataset(
+            dataset=subset,
+            debug=debug,
+        )
         logging.info(f"{subset} CRPS: {subset_crps}")
         logging.info(f"{subset} Logscore: {subset_logscore}")
 

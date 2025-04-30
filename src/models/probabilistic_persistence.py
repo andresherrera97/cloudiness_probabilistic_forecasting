@@ -146,7 +146,7 @@ class PersistenceEnsemble:
             break
         return in_frames, out_frames, predictions, crps
 
-    def predict_on_dataset(self, dataset: str = "validation"):
+    def predict_on_dataset(self, dataset: str = "validation", debug: bool = False):
         data_loader = (
             self.val_loader if dataset in ["validation", "val"] else self.train_loader
         )
@@ -165,7 +165,11 @@ class PersistenceEnsemble:
                 )
             )
             # logscore
-            preds_bin = quantile_2_bin(predictions, self.n_quantiles)
+            preds_bin = quantile_2_bin(
+                quantiles=self.quantiles,
+                quantiles_values=predictions,
+                num_bins=self.n_quantiles + 1,
+            )
 
             bin_output = classify_array_in_integer_classes(
                 out_frames[0, 0].cpu().numpy(), num_bins=10
@@ -177,6 +181,9 @@ class PersistenceEnsemble:
                     torch.tensor(bin_output).to(self.device)
                 ).detach().item()
             )
+
+            if debug and batch_idx > 2:
+                break
 
         dataset_crps = torch.mean(torch.tensor(crps_per_batch))
         dataset_logscore = torch.mean(torch.tensor(logscore_per_batch))

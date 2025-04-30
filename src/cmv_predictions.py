@@ -50,6 +50,7 @@ def main(
     return_last_frame: bool = True,
     angle_noise_std: int = 15,
     magnitude_noise_std: float = 4 / (60 * 60),
+    debug: bool = False,
 ):
     logger.info("Starting CMV model")
     logger.info(f"Dataset: {dataset}")
@@ -59,6 +60,8 @@ def main(
     logger.info(f"Angle noise std: {angle_noise_std}")
     logger.info(f"Magnitude noise std: {magnitude_noise_std}")
     logger.info(f"Num Quantiles: {n_quantiles}")
+    
+    quantiles = np.linspace(0, 1, n_quantiles + 2)[1:-1]
 
     cmv = CloudMotionVector(
         n_quantiles=n_quantiles,
@@ -115,7 +118,7 @@ def main(
     logscore_per_batch = []
 
     logger.info(f"Calculating CRPS for {subset} set...")
-    for _, (in_frames, out_frames) in enumerate(dataloader):
+    for index, (in_frames, out_frames) in enumerate(dataloader):
         in_frames = in_frames.cpu().numpy().astype(np.float32)
         out_frames = out_frames.cpu().numpy().astype(np.float32)
 
@@ -132,7 +135,11 @@ def main(
 
         crps_batch = cmv.calculate_crps(sorted_predictions, nan_mask, out_frames[0, 0])
         crps_per_batch.append(crps_batch)
-        preds_bin = quantile_2_bin(sorted_predictions, n_quantiles)
+        preds_bin = quantile_2_bin(
+            quantiles=quantiles,
+            quantiles_values=sorted_predictions,
+            num_bins=n_quantiles+1,
+        )
 
         bin_output = classify_array_in_integer_classes(
             out_frames[0, 0].cpu().numpy(), num_bins=10
@@ -144,6 +151,8 @@ def main(
                 torch.tensor(bin_output).to(device)
             ).detach().item()
         )
+        if debug and index > 2:
+            break
 
     dataset_crps = torch.mean(torch.tensor(crps_per_batch))
     dataset_logscore = torch.mean(torch.tensor(logscore_per_batch))
