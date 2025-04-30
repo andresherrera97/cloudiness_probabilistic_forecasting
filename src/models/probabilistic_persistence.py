@@ -10,6 +10,9 @@ import logging
 # Local application/library specific imports
 from metrics import CRPSLoss
 from data_handlers import MovingMnistDataset, GOES16Dataset
+from data_handlers.utils import classify_array_in_integer_classes
+from postprocessing.transform import quantile_2_bin
+from metrics import logscore_bin_fn
 
 
 class PersistenceEnsemble:
@@ -143,11 +146,13 @@ class PersistenceEnsemble:
             break
         return in_frames, out_frames, predictions, crps
 
-    def predict_on_dataset(self, dataset="validation"):
+    def predict_on_dataset(self, dataset: str = "validation"):
         data_loader = (
             self.val_loader if dataset in ["validation", "val"] else self.train_loader
         )
         crps_per_batch = []
+        logscore_per_batch = []
+
         for batch_idx, (in_frames, out_frames) in enumerate(data_loader):
             in_frames = in_frames.to(self.device)
             out_frames = out_frames.to(self.device)
@@ -159,6 +164,21 @@ class PersistenceEnsemble:
                     y=out_frames,
                 )
             )
+            # logscore
+            preds_bin = quantile_2_bin(predictions, self.n_quantiles)
+
+            bin_output = classify_array_in_integer_classes(
+                out_frames[0, 0].cpu().numpy(), num_bins=10
+            )
+
+            logscore_per_batch.append(
+                logscore_bin_fn(
+                    torch.tensor(preds_bin).to(self.device),
+                    torch.tensor(bin_output).to(self.device)
+                ).detach().item()
+            )
 
         dataset_crps = torch.mean(torch.tensor(crps_per_batch))
-        return dataset_crps
+        dataset_logscore = torch.mean(torch.tensor(logscore_per_batch))
+
+        return dataset_crps, dataset_logscore

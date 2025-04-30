@@ -72,8 +72,9 @@ def main(
                 pixel_coords=[32, 32],
             )
 
-        subset_crps = peen.predict_on_dataset(dataset=subset)
+        subset_crps, subset_logscore = peen.predict_on_dataset(dataset=subset)
         logging.info(f"{subset} CRPS: {subset_crps}")
+        logging.info(f"{subset} Logscore: {subset_logscore}")
 
 
 if __name__ == "__main__":

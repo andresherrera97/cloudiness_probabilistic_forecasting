@@ -7,6 +7,9 @@ from torch.utils.data import DataLoader
 import logging
 from models import CloudMotionVector
 from data_handlers import GOES16Dataset
+from data_handlers.utils import classify_array_in_integer_classes
+from postprocessing.transform import quantile_2_bin
+from metrics import logscore_bin_fn
 
 
 # Configure logging
@@ -109,6 +112,8 @@ def main(
         raise ValueError(f"Wrong subset! {subset} not recognized")
 
     crps_per_batch = []
+    logscore_per_batch = []
+
     logger.info(f"Calculating CRPS for {subset} set...")
     for _, (in_frames, out_frames) in enumerate(dataloader):
         in_frames = in_frames.cpu().numpy().astype(np.float32)
@@ -127,9 +132,23 @@ def main(
 
         crps_batch = cmv.calculate_crps(sorted_predictions, nan_mask, out_frames[0, 0])
         crps_per_batch.append(crps_batch)
+        preds_bin = quantile_2_bin(sorted_predictions, n_quantiles)
+
+        bin_output = classify_array_in_integer_classes(
+            out_frames[0, 0].cpu().numpy(), num_bins=10
+        )
+
+        logscore_per_batch.append(
+            logscore_bin_fn(
+                torch.tensor(preds_bin).to(device),
+                torch.tensor(bin_output).to(device)
+            ).detach().item()
+        )
 
     dataset_crps = torch.mean(torch.tensor(crps_per_batch))
+    dataset_logscore = torch.mean(torch.tensor(logscore_per_batch))
     logger.info(f"CRPS on dataset: {dataset_crps.item()}")
+    logger.info(f"Logscore on dataset: {dataset_logscore.item()}")
 
     # # Load images
     # img_i = np.load("datasets/goes16/salto/train/2022_119/2022_119_UTC_170020.npy")
