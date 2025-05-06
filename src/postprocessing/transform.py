@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import List
+from typing import List, Union
 import scipy.stats as stats
 
 
@@ -49,7 +49,7 @@ def bin_2_quantile(
     return quantile_values
 
 
-def quantile_2_bin(
+def quantile_2_bin_slow(
     quantiles: List,
     quantiles_values: np.ndarray,
     num_bins: int,
@@ -110,6 +110,170 @@ def quantile_2_bin(
                     # Calculate the probability within the bin range
                     bin_prob = bin_edges_prob[bin_n + 1] - bin_edges_prob[bin_n]
                     bin_probs[n, bin_n, i, j] = bin_prob
+
+    return bin_probs
+
+
+def quantile_2_bin(
+    quantiles: List,
+    quantiles_values: Union[np.ndarray, torch.Tensor],
+    num_bins: int,
+    min_value: float = 0.0,
+    max_value: float = 1.0,
+) -> np.ndarray:
+    """
+    Calculate the probability of values falling inside specified bins based
+    on quantiles (Optimized Version).
+
+    Args:
+        quantiles: List of quantile levels (e.g., [0.1, 0.5, 0.9]). Must be sorted.
+        quantiles_values: Array or Tensor of quantile values with shape
+                          (batch_size, num_quantiles, height, width) or
+                          (num_quantiles, height, width).
+        num_bins: Number of output bins.
+        min_value: Minimum value for the bins range.
+        max_value: Maximum value for the bins range.
+
+    Returns:
+        np.ndarray: Probabilities per bin, shape (batch_size, num_bins, height, width).
+    """
+    if isinstance(quantiles_values, torch.Tensor):
+        quantiles_values = quantiles_values.detach().cpu().numpy()
+
+    # Add batch dimension if missing (e.g., shape was Nq, H, W)
+    if quantiles_values.ndim == 3:
+        quantiles_values = np.expand_dims(quantiles_values, axis=0)
+    elif quantiles_values.ndim != 4:
+        raise ValueError(
+            "The input quantile values must have shape (batch_size, "
+            "num_quantiles, height, width) or (num_quantiles, height, width)"
+        )
+
+    batch_size, num_quantiles_in, height, width = quantiles_values.shape
+
+    if len(quantiles) != num_quantiles_in:
+        raise ValueError(
+            f"Length of quantiles ({len(quantiles)}) must match "
+            f"quantiles_values.shape[1] ({num_quantiles_in})"
+        )
+
+    # --- Precomputation ---
+    # Ensure quantiles are sorted (important for interpolation logic)
+    # If they might not be, sort them and sort quantiles_values accordingly
+    sort_indices = np.argsort(quantiles)
+    sorted_quantiles = np.array(quantiles)[sort_indices]
+    sorted_quantiles_values = quantiles_values[:, sort_indices, :, :]
+
+    # Add CDF boundaries (0 and 1) with corresponding min and max values
+    # cdf_probs: [0, q1, q2, ..., qN, 1]
+    cdf_probs = np.concatenate(
+        ([0.0], sorted_quantiles, [1.0])
+    )  # Shape: (num_quantiles + 2,)
+
+    # Create the full array of CDF values including min/max
+    # full_cdf_values: shape (batch_size, num_quantiles + 2, height, width)
+    full_cdf_values = np.full(
+        (batch_size, num_quantiles_in + 2, height, width),
+        min_value,  # Initialize with min_value might not be strictly necessary but ok
+        dtype=quantiles_values.dtype,
+    )
+    full_cdf_values[:, 0, :, :] = min_value
+    full_cdf_values[:, 1:-1, :, :] = sorted_quantiles_values
+    full_cdf_values[:, -1, :, :] = max_value
+
+    # Ensure monotonicity of CDF values (clip if necessary, handle potential duplicates)
+    # This prevents issues in interpolation if input quantiles are weird
+    # np.maximum.accumulate ensures values are non-decreasing along the quantile axis
+    full_cdf_values = np.maximum.accumulate(full_cdf_values, axis=1)
+    # Ensure the last value is at least max_value (can happen if max quantile value < max_value)
+    full_cdf_values[:, -1, :, :] = np.maximum(full_cdf_values[:, -1, :, :], max_value)
+    # Ensure the first value is at most min_value
+    full_cdf_values[:, 0, :, :] = np.minimum(full_cdf_values[:, 0, :, :], min_value)
+
+    # Bin edges: [min_val, edge1, edge2, ..., max_val]
+    bin_edges = np.linspace(
+        min_value, max_value, num_bins + 1
+    )  # Shape: (num_bins + 1,)
+
+    # --- Vectorized Interpolation ---
+    # We want to find the probability P(X <= bin_edge) for each bin edge and each pixel.
+    # Target shape for interpolated probabilities: (batch_size, num_bins + 1, height, width)
+    interpolated_cdf_probs = np.zeros(
+        (batch_size, num_bins + 1, height, width),
+        dtype=np.float64,  # Use float64 for precision
+    )
+
+    # Use broadcasting and np.searchsorted to find the interval indices for all bin edges and pixels
+    # Reshape bin_edges for broadcasting: (1, num_bins + 1, 1, 1)
+    bin_edges_b = bin_edges.reshape(1, -1, 1, 1)
+
+    # Find indices: For each pixel (b, h, w) and each bin_edge k, find index `idx` such that
+    # full_cdf_values[b, idx-1, h, w] <= bin_edges[k] < full_cdf_values[b, idx, h, w]
+    # `np.searchsorted` works on the *last* axis if applied correctly, but our data is on axis 1.
+    # Alternative: Use broadcasting comparison and sum. This is generally quite efficient.
+    # indices shape: (batch_size, num_bins + 1, height, width)
+    # Clamp indices to be within the valid range [1, num_quantiles + 1] for accessing cdf_probs and full_cdf_values
+    indices = np.sum(full_cdf_values[:, :, np.newaxis, :, :] < bin_edges_b, axis=1)
+    indices = np.clip(indices, 1, len(cdf_probs) - 1)
+
+    # Gather the lower and upper bounds for interpolation using the calculated indices
+    # Need to reshape indices to use with take_along_axis
+
+    # Gather lower values (at index - 1)
+    idx_lower = (indices - 1)[:, :, :]  # (B, 1, num_bins+1, H, W) for axis=1 gather
+
+    # cdf_v_lower = np.take_along_axis(full_cdf_values, idx_lower, axis=1).squeeze(axis=1) # (B, num_bins+1, H, W)
+    cdf_v_lower = np.take_along_axis(
+        full_cdf_values, idx_lower, axis=1
+    )  # (B, num_bins+1, H, W)
+    cdf_p_lower = cdf_probs[
+        indices - 1
+    ]  # Broadcasting works: (Nq+2,)[(B,Nb+1,H,W)] -> (B,Nb+1,H,W)
+
+    # Gather upper values (at index)
+    idx_upper = indices[:, :, :]  # (B, 1, num_bins+1, H, W) for axis=1 gather
+    cdf_v_upper = np.take_along_axis(
+        full_cdf_values, idx_upper, axis=1
+    )  # (B, num_bins+1, H, W)
+    cdf_p_upper = cdf_probs[indices]  # Broadcasting works
+
+    # --- Perform Linear Interpolation ---
+    delta_v = cdf_v_upper - cdf_v_lower
+    delta_p = cdf_p_upper - cdf_p_lower
+
+    # Handle division by zero: where delta_v is 0, the slope is 0 if delta_p is also 0,
+    # or undefined (can treat as 0 or infinity depending on context, usually 0 is safe here if values are clamped).
+    # If delta_v is 0, it means bin_edge falls exactly on a quantile value or between duplicate values.
+    # In this case, the interpolated probability should be cdf_p_lower.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        slope = np.divide(
+            delta_p, delta_v, out=np.zeros_like(delta_p), where=delta_v > 1e-9
+        )  # Add epsilon for float safety
+
+    # Calculate interpolated probability: P(X <= bin_edge)
+    # interpolated_cdf_probs shape: (batch_size, num_bins + 1, height, width)
+    interpolated_cdf_probs = cdf_p_lower + slope * (
+        bin_edges_b.squeeze(axis=0) - cdf_v_lower
+    )  # Use broadcasted bin_edges
+
+    # Correct probabilities where delta_v was zero (or near zero)
+    interpolated_cdf_probs[delta_v <= 1e-9] = cdf_p_lower[delta_v <= 1e-9]
+
+    # Ensure probabilities are within [0, 1] and monotonically increasing (due to float errors)
+    interpolated_cdf_probs = np.maximum.accumulate(
+        interpolated_cdf_probs, axis=1
+    )  # Enforce monotonicity along bin axis
+    interpolated_cdf_probs = np.clip(interpolated_cdf_probs, 0.0, 1.0)
+
+    # --- Calculate Bin Probabilities ---
+    # Probability for bin k = P(X <= edge_{k+1}) - P(X <= edge_k)
+    # Use np.diff along the bin dimension (axis=1)
+    bin_probs = np.diff(
+        interpolated_cdf_probs, axis=1
+    )  # Shape: (batch_size, num_bins, height, width)
+
+    # Final clipping for safety, although diff should preserve range if input is monotonic [0,1]
+    bin_probs = np.clip(bin_probs, 0.0, 1.0)
 
     return bin_probs
 
