@@ -116,8 +116,10 @@ class UNet(nn.Module):
         self.up4 = Up(2 * filters, filters, bilinear, bias=bias)
         self.outc = OutConv(filters, n_classes)
 
+        if output_activation is None:
+            output_activation = "none"
         output_activation = output_activation.lower()
-        if output_activation is None or output_activation in ["none", ""]:
+        if output_activation is None or output_activation in ["none", "", "identity"]:
             self.out_activation = nn.Identity()
         elif output_activation in ["sigmoid", "sigmoide", "sig"]:
             self.out_activation = nn.Sigmoid()

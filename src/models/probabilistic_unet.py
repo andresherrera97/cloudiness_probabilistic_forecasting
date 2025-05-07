@@ -375,7 +375,7 @@ class BinClassifierUNet(ProbabilisticUNet):
     ):
         super().__init__(config)
         self.n_bins = n_bins
-        self.output_activation = None
+        self.output_activation = "none"
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=self.n_bins,
