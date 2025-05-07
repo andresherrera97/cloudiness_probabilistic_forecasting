@@ -375,12 +375,14 @@ class BinClassifierUNet(ProbabilisticUNet):
     ):
         super().__init__(config)
         self.n_bins = n_bins
+        self.output_activation = None
         self.model = UNet(
             in_frames=self.in_frames,
             n_classes=self.n_bins,
             filters=self.filters,
             # output_activation=self.output_activation,
-            output_activation="softmax",
+            # output_activation="softmax",
+            output_activation=self.output_activation,
         )
         self.loss_fn = nn.CrossEntropyLoss().to(device=self.device)
         self.crps_loss = CRPSLoss(num_bins=self.n_bins + 1, device=self.device)
@@ -508,24 +510,26 @@ class BinClassifierUNet(ProbabilisticUNet):
                     with torch.autocast(
                         device_type=device_type, dtype=self.torch_dtype
                     ):
-                        frames_pred = self.model(in_frames)
-                        frames_pred = self.remove_spatial_context(frames_pred)
+                        raw_logits_pred = self.predict(in_frames)
+                        raw_logits_pred = self.remove_spatial_context(raw_logits_pred)
                         cross_entropy_loss = self.calculate_loss(
-                            frames_pred, bin_output
+                            raw_logits_pred, bin_output
                         )
 
                     cross_entropy_loss_per_batch.append(
                         cross_entropy_loss.detach().item()
                     )
 
+                    # Apply softmax to get probabilities
+                    probs_pred = F.softmax(raw_logits_pred, dim=1)
                     crps_bin_list.append(
-                        self.crps_loss.crps_loss(frames_pred, out_frames)
+                        self.crps_loss.crps_loss(probs_pred, out_frames)
                     )
                     precision_list.append(
-                        self.multiclass_precision_metric(frames_pred, bin_output)
+                        self.multiclass_precision_metric(probs_pred, bin_output)
                     )
                     logscore_list.append(
-                        self.negative_loss_likelihood(frames_pred, bin_output)
+                        self.negative_loss_likelihood(probs_pred, bin_output)
                     )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
@@ -647,6 +651,12 @@ class BinClassifierUNet(ProbabilisticUNet):
             self.model.eval()
         else:
             self.model.train()
+
+    def predict(self, X, iterations=None):
+        raw_logits = self.model(X)
+        # Apply softmax to get probabilities
+        probs = F.softmax(raw_logits, dim=1)
+        return probs
 
     @property
     def name(self):

@@ -129,6 +129,8 @@ class UNet(nn.Module):
             self.out_activation = nn.Tanh()
         elif output_activation in ["softmax"]:
             self.out_activation = nn.Softmax(dim=1)
+        elif output_activation in ["logsoftmax"]:
+            self.out_activation = nn.LogSoftmax(dim=1)
         elif output_activation in ["softplus"]:
             self.out_activation = nn.Softplus()
         else:

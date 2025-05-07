@@ -182,7 +182,7 @@ def main(
         )
 
         # Bin Classifier UNet
-        bin_unet_preds = bin_unet.model(in_frames.float())
+        bin_unet_preds = bin_unet.predict(in_frames.float())
 
         metrics["bin"]["crps"].append(
             bin_unet.crps_loss.crps_loss(bin_unet_preds, out_frames).detach().item()
