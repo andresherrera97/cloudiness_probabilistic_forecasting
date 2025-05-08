@@ -4,6 +4,7 @@ import logging
 import json
 from typing import Dict
 import numpy as np
+from torchmetrics.classification import MulticlassPrecision
 
 from models import (
     QuantileRegressorUNet,
@@ -25,14 +26,14 @@ def get_checkpoint_path(time_horizon: int) -> Dict[str, str]:
     if time_horizon == 60:
         return {
             "qr": "checkpoints/salto_down/prob_60min_salto_512/qr/QRUNet_IN3_NB9_F32_SC0_PDTrue_BS_8_TH60_E6_BVM0_04_D2025-04-13_21:52.pt",
-            "bin": "checkpoints/salto_down/prob_60min_salto_512/bin/BinUNet_IN3_NB10_F32_SC0_BS_8_TH60_E8_BVM1_78_D2025-04-24_20:13.pt",
+            "bin": "checkpoints/salto_down/prob_60min_salto_512/bin/BinUNet_IN3_NB10_F32_SC0_BS_8_TH60_E8_BVM1_83_D2025-05-07_09:53.pt",
             "laplace": "checkpoints/salto_down/prob_60min_salto_512/laplace/MedianScaleUNet_IN3_F32_SC0_BS_8_TH60_E7_BVM0_40_D2025-04-25_13:36.pt",
             "iqn": "checkpoints/salto_down/prob_60min_salto_512/iqn/IQUNet_IN3_F32_NT9_CED64_PD0_BS_8_TH60_E7_BVM0_23_D2025-04-26_01:28.pt",
         }
     elif time_horizon == 120:
         return {
             "qr": "checkpoints/salto_down/prob_120min_salto_512/qr/QRUNet_IN3_NB9_F32_SC0_PDTrue_BS_8_TH120_E8_BVM0_04_D2025-04-13_18:26.pt",
-            "bin": "checkpoints/salto_down/prob_120min_salto_512/bin/BinUNet_IN3_NB10_F32_SC0_BS_8_TH120_E9_BVM1_82_D2025-04-24_20:35.pt",
+            "bin": "checkpoints/salto_down/prob_120min_salto_512/bin/BinUNet_IN3_NB10_F32_SC0_BS_8_TH120_E9_BVM1_88_D2025-05-07_07:44.pt",
             "laplace": "checkpoints/salto_down/prob_120min_salto_512/laplace/MedianScaleUNet_IN3_F32_SC0_BS_8_TH120_E9_BVM0_42_D2025-04-25_09:25.pt",
             "iqn": "checkpoints/salto_down/prob_120min_salto_512/iqn/IQUNet_IN3_F32_NT9_CED64_PD0_BS_8_TH120_E9_BVM0_29_D2025-04-25_22:11.pt",
         }
@@ -61,6 +62,10 @@ def main(
 
     num_bins = 10
     quantiles = np.linspace(0, 1, num_bins + 1)[1:-1]
+
+    multiclass_precision_metric = MulticlassPrecision(
+        num_classes=num_bins, average="macro", top_k=1, multidim_average="global"
+    ).to(device=device)
 
     models_paths = get_checkpoint_path(time_horizon)
 
@@ -137,18 +142,22 @@ def main(
         "qr": {
             "crps": [],
             "logscore": [],
+            "precision": [],
         },
         "bin": {
             "crps": [],
             "logscore": [],
+            "precision": [],
         },
         "laplace": {
             "crps": [],
             "logscore": [],
+            "precision": [],
         },
         "iqn": {
             "crps": [],
             "logscore": [],
+            "precision": [],
         },
     }
 
@@ -180,6 +189,9 @@ def main(
                 torch.tensor(bin_output).to(device)
             ).detach().item()
         )
+        metrics["qr"]["precision"].append(
+            multiclass_precision_metric(qr_binarized_preds, bin_output)
+        )
 
         # Bin Classifier UNet
         bin_unet_preds = bin_unet.predict(in_frames.float())
@@ -191,6 +203,9 @@ def main(
         metrics["bin"]["logscore"].append(
             logscore_bin_fn(bin_unet_preds, bin_output).detach().item()
         )
+        metrics["bin"]["precision"].append(
+            multiclass_precision_metric(bin_unet_preds, bin_output)
+        )
 
         # Median Scale UNet
         laplace_unet_preds = laplace_unet.model(in_frames.float())
@@ -199,6 +214,8 @@ def main(
         )
         laplace_logscore = laplace_unet.loss_fn(laplace_unet_preds, out_frames).detach().item()
         metrics["laplace"]["logscore"].append(laplace_logscore)
+
+        metrics["laplace"]["precision"].append(0)
 
         # IQN UNet
         iqn_unet_pred = iqn_unet.model(in_frames.float(), iqn_unet.val_quantiles)
@@ -222,6 +239,9 @@ def main(
                 torch.tensor(iqn_binarized_preds).to(device),
                 torch.tensor(bin_output)
             ).detach().item()
+        )
+        metrics["iqn"]["precision"].append(
+            multiclass_precision_metric(iqn_binarized_preds, bin_output)
         )
 
         if debug and batch_idx >= 2:
