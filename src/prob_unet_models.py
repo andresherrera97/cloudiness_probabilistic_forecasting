@@ -208,7 +208,7 @@ def main(
             multiclass_precision_metric(
                 torch.tensor(qr_binarized_preds).to(device),
                 torch.tensor(bin_output).to(device),
-            )
+            ).detach().item()
         )
 
         # Bin Classifier UNet
@@ -227,7 +227,7 @@ def main(
             .item()
         )
         metrics["bin"]["precision"].append(
-            multiclass_precision_metric(bin_unet_preds, bin_output)
+            multiclass_precision_metric(bin_unet_preds, bin_output).detach().item()
         )
 
         # Median Scale UNet
@@ -280,7 +280,7 @@ def main(
         metrics["iqn"]["precision"].append(
             multiclass_precision_metric(
                 torch.tensor(iqn_binarized_preds).to(device), torch.tensor(bin_output)
-            )
+            ).detach().item()
         )
 
         if debug and batch_idx >= 2:
