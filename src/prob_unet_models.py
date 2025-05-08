@@ -190,18 +190,25 @@ def main(
         metrics["qr"]["logscore"].append(
             logscore_bin_fn(
                 torch.tensor(qr_binarized_preds).to(device),
-                torch.tensor(bin_output).to(device)
-            ).detach().item()
+                torch.tensor(bin_output).to(device),
+            )
+            .detach()
+            .item()
         )
         metrics["qr"]["logscore_dividing"].append(
             logscore_bin_fn(
                 torch.tensor(qr_binarized_preds).to(device),
                 torch.tensor(bin_output).to(device),
                 divide_by_bin_width=True,
-            ).detach().item()
+            )
+            .detach()
+            .item()
         )
         metrics["qr"]["precision"].append(
-            multiclass_precision_metric(qr_binarized_preds, bin_output)
+            multiclass_precision_metric(
+                torch.tensor(qr_binarized_preds).to(device),
+                torch.tensor(bin_output).to(device),
+            )
         )
 
         # Bin Classifier UNet
@@ -215,7 +222,9 @@ def main(
             logscore_bin_fn(bin_unet_preds, bin_output).detach().item()
         )
         metrics["bin"]["logscore_dividing"].append(
-            logscore_bin_fn(bin_unet_preds, bin_output, divide_by_bin_width=True).detach().item()
+            logscore_bin_fn(bin_unet_preds, bin_output, divide_by_bin_width=True)
+            .detach()
+            .item()
         )
         metrics["bin"]["precision"].append(
             multiclass_precision_metric(bin_unet_preds, bin_output)
@@ -226,7 +235,9 @@ def main(
         metrics["laplace"]["crps"].append(
             crps_laplace(out_frames, laplace_unet_preds).detach().item()
         )
-        laplace_logscore = laplace_unet.loss_fn(laplace_unet_preds, out_frames).detach().item()
+        laplace_logscore = (
+            laplace_unet.loss_fn(laplace_unet_preds, out_frames).detach().item()
+        )
         metrics["laplace"]["logscore"].append(laplace_logscore)
         metrics["laplace"]["logscore_dividing"].append(laplace_logscore)
         metrics["laplace"]["precision"].append(0)
@@ -241,7 +252,9 @@ def main(
             iqn_unet.crps_loss.crps_loss(
                 pred=iqn_unet_pred,
                 y=out_frames,
-            ).detach().item()
+            )
+            .detach()
+            .item()
         )
         iqn_binarized_preds = quantile_2_bin(
             quantiles=quantiles,
@@ -250,19 +263,24 @@ def main(
         )
         metrics["iqn"]["logscore"].append(
             logscore_bin_fn(
-                torch.tensor(iqn_binarized_preds).to(device),
-                torch.tensor(bin_output)
-            ).detach().item()
+                torch.tensor(iqn_binarized_preds).to(device), torch.tensor(bin_output)
+            )
+            .detach()
+            .item()
         )
         metrics["iqn"]["logscore_dividing"].append(
             logscore_bin_fn(
                 torch.tensor(iqn_binarized_preds).to(device),
                 torch.tensor(bin_output),
                 divide_by_bin_width=True,
-            ).detach().item()
+            )
+            .detach()
+            .item()
         )
         metrics["iqn"]["precision"].append(
-            multiclass_precision_metric(iqn_binarized_preds, bin_output)
+            multiclass_precision_metric(
+                torch.tensor(iqn_binarized_preds).to(device), torch.tensor(bin_output)
+            )
         )
 
         if debug and batch_idx >= 2:
