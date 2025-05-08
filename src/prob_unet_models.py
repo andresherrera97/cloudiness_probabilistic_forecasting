@@ -142,21 +142,25 @@ def main(
         "qr": {
             "crps": [],
             "logscore": [],
+            "logscore_dividing": [],
             "precision": [],
         },
         "bin": {
             "crps": [],
             "logscore": [],
+            "logscore_dividing": [],
             "precision": [],
         },
         "laplace": {
             "crps": [],
             "logscore": [],
+            "logscore_dividing": [],
             "precision": [],
         },
         "iqn": {
             "crps": [],
             "logscore": [],
+            "logscore_dividing": [],
             "precision": [],
         },
     }
@@ -189,6 +193,13 @@ def main(
                 torch.tensor(bin_output).to(device)
             ).detach().item()
         )
+        metrics["qr"]["logscore_dividing"].append(
+            logscore_bin_fn(
+                torch.tensor(qr_binarized_preds).to(device),
+                torch.tensor(bin_output).to(device),
+                divide_by_bin_width=True,
+            ).detach().item()
+        )
         metrics["qr"]["precision"].append(
             multiclass_precision_metric(qr_binarized_preds, bin_output)
         )
@@ -203,6 +214,9 @@ def main(
         metrics["bin"]["logscore"].append(
             logscore_bin_fn(bin_unet_preds, bin_output).detach().item()
         )
+        metrics["bin"]["logscore_dividing"].append(
+            logscore_bin_fn(bin_unet_preds, bin_output, divide_by_bin_width=True).detach().item()
+        )
         metrics["bin"]["precision"].append(
             multiclass_precision_metric(bin_unet_preds, bin_output)
         )
@@ -214,7 +228,7 @@ def main(
         )
         laplace_logscore = laplace_unet.loss_fn(laplace_unet_preds, out_frames).detach().item()
         metrics["laplace"]["logscore"].append(laplace_logscore)
-
+        metrics["laplace"]["logscore_dividing"].append(laplace_logscore)
         metrics["laplace"]["precision"].append(0)
 
         # IQN UNet
@@ -238,6 +252,13 @@ def main(
             logscore_bin_fn(
                 torch.tensor(iqn_binarized_preds).to(device),
                 torch.tensor(bin_output)
+            ).detach().item()
+        )
+        metrics["iqn"]["logscore_dividing"].append(
+            logscore_bin_fn(
+                torch.tensor(iqn_binarized_preds).to(device),
+                torch.tensor(bin_output),
+                divide_by_bin_width=True,
             ).detach().item()
         )
         metrics["iqn"]["precision"].append(
