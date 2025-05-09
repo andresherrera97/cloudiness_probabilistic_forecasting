@@ -1,8 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.stats import norm
-from typing import Optional
+from typing import Optional, Dict
 
 
 def logscore_bin_fn(
@@ -111,285 +110,140 @@ def logscore_bin_fn(
     return log_scores
 
 
-def calculate_reliability_diagram(
-    predictions,
-    observations,
-    quantile_levels=None,
-    plot=True,
-    surrogate_method=False,
-    n_bootstraps=1000,
-    truncation_point=None,
-    confidence_level=0.9,
+def calculate_reliability_diagram_data(
+    all_predicted_probs, all_actual_outcomes, n_reliability_bins=10
 ):
-    """
-    Calculate and optionally plot the reliability diagram for a quantile regressor model.
+    all_predicted_probs = np.asarray(all_predicted_probs)
+    all_actual_outcomes = np.asarray(all_actual_outcomes)
 
-    Parameters:
-    -----------
-    predictions : dict or np.ndarray
-        If dict: Keys are quantile levels (0-1), values are arrays of quantile predictions
-        If array: Shape (n_samples, n_quantiles) with quantile predictions
-    observations : np.ndarray
-        Target observations with values in range [0, 1]
-    quantile_levels : list or np.ndarray, optional
-        Levels of the quantiles if predictions is an array. If None and predictions is an array,
-        quantile levels are assumed to be evenly spaced from 0.05 to 0.95
-    plot : bool, default=True
-        Whether to plot the reliability diagram
-    surrogate_method : bool, default=False
-        Whether to generate consistency bars using surrogate method from the paper
-    n_bootstraps : int, default=1000
-        Number of bootstrap samples for consistency bars
-    truncation_point : int, optional
-        Truncation point M for smooth spectrum estimation in surrogate method.
-        If None, uses 2*sqrt(N) as suggested in the paper
-    confidence_level : float, default=0.9
-        Confidence level for consistency bars (1-beta in the paper)
+    bin_boundaries = np.linspace(0, 1, n_reliability_bins + 1)
 
-    Returns:
-    --------
-    dict:
-        'nominal': Nominal quantile levels
-        'observed': Observed proportions for each quantile level
-        'consistency_bars': If surrogate_method=True, tuple of (lower, upper) bounds
-    """
-    # Convert predictions to dictionary if provided as array
-    if not isinstance(predictions, dict):
-        if quantile_levels is None:
-            # Default evenly spaced quantiles from 0.05 to 0.95
-            quantile_levels = np.linspace(0.05, 0.95, predictions.shape[1])
+    mean_predicted_probs_curve = []
+    observed_frequencies_curve = []
+    hist_bin_centers = []
+    hist_bin_counts = np.zeros(n_reliability_bins, dtype=int)
 
-        predictions_dict = {
-            alpha: predictions[:, i] for i, alpha in enumerate(quantile_levels)
-        }
-    else:
-        predictions_dict = predictions
-        quantile_levels = sorted(predictions_dict.keys())
+    for i in range(n_reliability_bins):
+        lower_bound = bin_boundaries[i]
+        upper_bound = bin_boundaries[i + 1]
 
-    n_samples = len(observations)
-    observed_proportions = []
+        hist_bin_centers.append((lower_bound + upper_bound) / 2.0)
 
-    # Calculate observed proportions for each quantile level
-    for alpha in quantile_levels:
-        # Indicator variable: 1 if observation is below quantile prediction
-        indicators = (observations < predictions_dict[alpha]).astype(int)
-        # Observed proportion is the mean of indicators
-        observed_prop = np.mean(indicators)
-        observed_proportions.append(observed_prop)
-
-    # Calculate consistency bars if required
-    consistency_bars = None
-    if surrogate_method and n_samples > 2:
-        # Compute probability integral transforms (PIT)
-        pit_values = np.zeros(n_samples)
-
-        # For each observation, find its position in the predictive distribution
-        # This is an approximation as we only have discrete quantile levels
-        for i, obs in enumerate(observations):
-            # Find where observation falls in predicted quantiles
-            quantile_preds = [predictions_dict[q][i] for q in quantile_levels]
-            if obs <= quantile_preds[0]:
-                pit_values[i] = 0
-            elif obs >= quantile_preds[-1]:
-                pit_values[i] = 1
-            else:
-                # Linear interpolation between quantile levels
-                for j in range(len(quantile_levels) - 1):
-                    if quantile_preds[j] <= obs < quantile_preds[j + 1]:
-                        q_low, q_high = quantile_levels[j], quantile_levels[j + 1]
-                        pred_low, pred_high = quantile_preds[j], quantile_preds[j + 1]
-
-                        # Linear interpolation
-                        t = (
-                            (obs - pred_low) / (pred_high - pred_low)
-                            if pred_high > pred_low
-                            else 0
-                        )
-                        pit_values[i] = q_low + t * (q_high - q_low)
-                        break
-
-        # Convert to standard Gaussian using inverse normal CDF
-        # Avoid boundary values (0 or 1) which would give -inf or inf
-        pit_values = np.clip(pit_values, 0.001, 0.999)
-        z_values = norm.ppf(pit_values)
-
-        # Set default truncation point if not provided
-        if truncation_point is None:
-            truncation_point = int(2 * np.sqrt(n_samples))
-
-        # Generate consistency bars using surrogate method
-        lower_bounds, upper_bounds = surrogate_consistency_bars(
-            z_values, quantile_levels, n_bootstraps, truncation_point, confidence_level
-        )
-
-        consistency_bars = (lower_bounds, upper_bounds)
-
-    # Create the plot if requested
-    if plot:
-        plt.figure(figsize=(10, 8))
-        plt.plot([0, 1], [0, 1], "k--", label="Perfect calibration")
-        plt.plot(
-            quantile_levels, observed_proportions, "bo-", label="Observed proportion"
-        )
-
-        if consistency_bars is not None:
-            lower, upper = consistency_bars
-            plt.fill_between(
-                quantile_levels,
-                lower,
-                upper,
-                alpha=0.2,
-                color="b",
-                label=f"{confidence_level*100:.0f}% consistency bars",
+        if i == n_reliability_bins - 1:
+            in_bin_mask = (all_predicted_probs >= lower_bound) & (
+                all_predicted_probs <= upper_bound
+            )
+        else:
+            in_bin_mask = (all_predicted_probs >= lower_bound) & (
+                all_predicted_probs < upper_bound
             )
 
-        plt.xlabel("Nominal proportion")
-        plt.ylabel("Observed proportion")
-        plt.title("Reliability Diagram")
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        plt.xlim(0, 1)
-        plt.ylim(0, 1)
-        plt.show()
+        probs_this_bin = all_predicted_probs[in_bin_mask]
+        outcomes_this_bin = all_actual_outcomes[in_bin_mask]
 
-    # Return the results
-    result = {
-        "nominal": np.array(quantile_levels),
-        "observed": np.array(observed_proportions),
-    }
+        current_bin_count = len(probs_this_bin)
+        hist_bin_counts[i] = current_bin_count
 
-    if consistency_bars is not None:
-        result["consistency_bars"] = consistency_bars
+        if current_bin_count > 0:
+            mean_predicted_probs_curve.append(np.mean(probs_this_bin))
+            observed_frequencies_curve.append(np.mean(outcomes_this_bin))
 
-    return result
+    return (
+        mean_predicted_probs_curve,
+        observed_frequencies_curve,
+        hist_bin_centers,
+        hist_bin_counts,
+    )
 
 
-def surrogate_consistency_bars(
-    z_values,
-    quantile_levels,
-    n_bootstraps=1000,
-    truncation_point=None,
-    confidence_level=0.9,
+def plot_reliability_diagram(
+    mean_predicted_probs,
+    observed_frequencies,
+    hist_bin_centers,
+    hist_bin_counts,
+    model_name="Model",
+    filename="reliability_diagram.png",
 ):
-    """
-    Generate consistency bars using the surrogate consistency resampling method
-    described in the paper.
+    plt.figure(figsize=(10, 10))
 
-    Parameters:
-    -----------
-    z_values : np.ndarray
-        Inverse normal transformed PIT values
-    quantile_levels : list or np.ndarray
-        Nominal quantile levels
-    n_bootstraps : int
-        Number of bootstrap samples
-    truncation_point : int
-        Truncation point M for smooth spectrum estimation
-    confidence_level : float
-        Confidence level (1-beta in the paper)
-
-    Returns:
-    --------
-    tuple:
-        (lower_bounds, upper_bounds) for each quantile level
-    """
-    from scipy import signal
-
-    n_samples = len(z_values)
-    beta = 1 - confidence_level
-
-    # Estimate smooth spectrum with lag window
-    # Compute autocorrelation
-    acf = (
-        np.correlate(
-            z_values - np.mean(z_values), z_values - np.mean(z_values), mode="full"
+    ax1 = plt.subplot2grid((3, 1), (0, 0), rowspan=2)
+    ax1.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+    if mean_predicted_probs:
+        ax1.plot(
+            mean_predicted_probs,
+            observed_frequencies,
+            "s-",
+            label=model_name,
+            color="blue",
         )
-        / np.var(z_values)
-        / n_samples
-    )
+    ax1.set_xlabel("Mean Predicted Probability (Confidence)")
+    ax1.set_ylabel("Observed Frequency (Accuracy)")
+    ax1.set_ylim([-0.05, 1.05])
+    ax1.set_xlim([-0.05, 1.05])
+    ax1.legend(loc="lower right")
+    ax1.set_title(f"Reliability Diagram for {model_name}")
+    ax1.grid(True)
 
-    # Keep only the second half (positive lags)
-    acf = acf[n_samples - 1 :]
+    ax2 = plt.subplot2grid((3, 1), (2, 0))
+    if len(hist_bin_centers) > 0:
+        bar_width = (
+            (hist_bin_centers[0] - 0.0) * 2 * 0.9
+            if len(hist_bin_centers) == 1
+            else (hist_bin_centers[1] - hist_bin_centers[0]) * 0.9
+        )
+        ax2.bar(
+            hist_bin_centers,
+            hist_bin_counts,
+            width=bar_width,
+            edgecolor="black",
+            color="lightblue",
+        )
 
-    # Apply Tukey-Hanning window (a=0.25)
-    window = np.zeros_like(acf)
-    for k in range(min(truncation_point, len(acf))):
-        window[k] = 1 - 0.5 + 0.5 * np.cos(np.pi * k / truncation_point)
+    ax2.set_xlabel("Predicted Probability Bins")
+    ax2.set_ylabel("Count")
+    if np.any(hist_bin_counts > 0):
+        ax2.set_yscale("log")
 
-    windowed_acf = acf * window
+    if len(hist_bin_centers) > 20:
+        tick_skip = max(1, len(hist_bin_centers) // 10)
+        ax2.set_xticks(hist_bin_centers[::tick_skip])
+        ax2.set_xticklabels(
+            [f"{c:.2f}" for c in hist_bin_centers[::tick_skip]], rotation=45, ha="right"
+        )
+    elif len(hist_bin_centers) > 0:
+        ax2.set_xticks(hist_bin_centers)
+        ax2.set_xticklabels(
+            [f"{c:.2f}" for c in hist_bin_centers], rotation=45, ha="right"
+        )
 
-    # Compute smooth spectrum
-    freqs = np.fft.rfftfreq(2 * n_samples - 1)
-    smooth_spectrum = np.fft.rfft(windowed_acf)
+    ax2.grid(axis="y", linestyle="--", alpha=0.7)
 
-    # Generate surrogate time series and compute observed proportions
-    surrogate_proportions = []
-
-    for _ in range(n_bootstraps):
-        # Generate surrogate periodogram
-        surrogate_spectrum = np.zeros_like(smooth_spectrum, dtype=complex)
-
-        # Generate phases randomly
-        phases = np.random.uniform(0, 2 * np.pi, len(smooth_spectrum))
-
-        # Set amplitude from smooth spectrum, with random phase
-        surrogate_spectrum = np.abs(smooth_spectrum) * np.exp(1j * phases)
-
-        # Generate surrogate time series
-        surrogate_acf = np.fft.irfft(surrogate_spectrum)
-
-        # Create AR model coefficients from ACF (Yule-Walker equations)
-        ar_order = min(20, truncation_point // 2)  # Practical limit for AR order
-        ar_coeffs = np.zeros(ar_order)
-        for i in range(ar_order):
-            ar_coeffs[i] = surrogate_acf[i + 1]  # Skip lag 0
-
-        # Generate surrogate time series using AR model
-        surrogate_z = np.random.normal(0, 1, n_samples)
-        for i in range(ar_order, n_samples):
-            for j in range(ar_order):
-                surrogate_z[i] -= ar_coeffs[j] * surrogate_z[i - j - 1]
-
-        # Normalize
-        surrogate_z = (surrogate_z - np.mean(surrogate_z)) / np.std(surrogate_z)
-
-        # Transform back to U[0,1]
-        surrogate_pit = norm.cdf(surrogate_z)
-
-        # Calculate observed proportions for each quantile level
-        obs_props = []
-        for alpha in quantile_levels:
-            indicators = (surrogate_pit < alpha).astype(int)
-            obs_props.append(np.mean(indicators))
-
-        surrogate_proportions.append(obs_props)
-
-    # Calculate bounds
-    surrogate_proportions = np.array(surrogate_proportions)
-    lower_bounds = np.percentile(surrogate_proportions, beta / 2 * 100, axis=0)
-    upper_bounds = np.percentile(surrogate_proportions, (1 - beta / 2) * 100, axis=0)
-
-    return lower_bounds, upper_bounds
+    plt.tight_layout()
+    plt.savefig(filename)
+    print(f"Reliability diagram saved to {filename}")
+    plt.close()
 
 
-if __name__ == "__main__":
-    # Example with synthetic data
-    n_samples = 500
-    true_observations = np.random.uniform(0, 1, n_samples)
+def collect_reliability_diagram_data(
+    model_name: str,
+    predicted_probs: torch.Tensor,
+    actual_outcomes: torch.Tensor,
+    reliability_diagram: Dict[str, Dict[str, list]],
+):
+    if isinstance(predicted_probs, torch.Tensor):
+        predicted_probs_np = predicted_probs.cpu().numpy()
+    else:
+        predicted_probs_np = predicted_probs
 
-    # Simulate quantile predictions from a well-calibrated model with some noise
-    quantile_levels = np.arange(0.05, 1.0, 0.05)
-    predictions = {}
+    actual_outcomes_np = actual_outcomes.cpu().numpy()
+    B, C, H_img, W_img = predicted_probs_np.shape
 
-    for q in quantile_levels:
-        # Perfect calibration would be the q-th quantile of the true distribution
-        predictions[q] = np.random.normal(q, 0.05, n_samples)
-        predictions[q] = np.clip(predictions[q], 0, 1)  # Keep in [0,1] range
+    actual_bin_idx = int(actual_outcomes_np[0, H_img//2, W_img//2])
 
-    # Calculate and plot reliability diagram
-    result = calculate_reliability_diagram(
-        predictions, true_observations,
-        surrogate_method=True,
-        n_bootstraps=1000,
-        truncation_point=40
-    )
+    for c_idx in range(C):
+        predicted_prob = predicted_probs_np[0, c_idx, H_img//2, W_img//2]
+        actual_outcome = 1 if c_idx == actual_bin_idx else 0
+        reliability_diagram[model_name]["predicted_probs"].append(predicted_prob)
+        reliability_diagram[model_name]["actual_outcomes"].append(actual_outcome)
+
+    return reliability_diagram
