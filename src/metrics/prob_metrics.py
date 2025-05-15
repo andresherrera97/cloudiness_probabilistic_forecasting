@@ -247,3 +247,165 @@ def collect_reliability_diagram_data(
         reliability_diagram[model_name]["actual_outcomes"].append(actual_outcome)
 
     return reliability_diagram
+
+
+def calculate_reliability_diagram_coordinates(tau_values):
+    """
+    Calculates the coordinates for a reliability diagram.
+
+    The reliability diagram is a visual tool to assess the calibration of
+    probabilistic predictions. It plots the sorted probabilistic predictions (τ)
+    against their empirical cumulative distribution function (CDF) values,
+    which under perfect calibration should follow the identity line.
+
+    According to the Probability Integral Transform (PIT) theorem, if F is the
+    true cumulative distribution function (CDF) of a random variable Y, then
+    τ = F(Y) should be uniformly distributed on [0, 1]. The reliability
+    diagram leverages this by plotting the sorted τ values against their expected
+    cumulative probabilities under uniformity (i/n).
+
+    Args:
+        tau_values (list or np.ndarray): A collection of τ_i values, where
+                                         τ_i = P(Y <= y_i | x_i). These are
+                                         the probabilistic predictions from
+                                         the model, representing the CDF
+                                         evaluated at the observed y_i.
+
+    Returns:
+        tuple: A tuple containing two numpy arrays:
+            - sorted_tau_values (np.ndarray): The τ values sorted in ascending order.
+                                             These are the x-coordinates for the plot.
+            - empirical_cdf_values (np.ndarray): The corresponding empirical CDF values (i/n).
+                                                These are the y-coordinates for the plot.
+                                                Returns (None, None) if input is empty.
+    """
+    if not isinstance(tau_values, (list, np.ndarray)):
+        raise TypeError("Input tau_values must be a list or NumPy array.")
+
+    if len(tau_values) == 0:
+        print("Warning: tau_values is empty. Returning (None, None).")
+        return None, None
+
+    # Convert to NumPy array for efficient computation
+    tau_values = np.asarray(tau_values)
+
+    # Check if values are within [0, 1] - typical for probabilities/CDFs
+    if np.any(tau_values < 0) or np.any(tau_values > 1):
+        print("Warning: Some tau_values are outside the [0, 1] interval. "
+              "Ensure these are valid CDF values.")
+
+    # Sort the τ values in ascending order
+    # These are the τ(i) from the description
+    sorted_tau_values = np.sort(tau_values)
+
+    # Get the number of data points
+    n = len(sorted_tau_values)
+
+    # Calculate the empirical CDF values (i/n for i=1 to n)
+    # These are the i/n from the description, where i is the rank
+    empirical_cdf_values = np.arange(1, n + 1) / n
+
+    return sorted_tau_values, empirical_cdf_values
+
+
+def plot_reliability_diagram_CDF(sorted_tau_values, empirical_cdf_values, title="Reliability Diagram"):
+    """
+    Plots the reliability diagram.
+
+    Args:
+        sorted_tau_values (np.ndarray): The sorted τ values (x-coordinates).
+        empirical_cdf_values (np.ndarray): The empirical CDF values (y-coordinates).
+        title (str): The title of the plot.
+    """
+    if sorted_tau_values is None or empirical_cdf_values is None:
+        print("Cannot plot: input data is None.")
+        return
+
+    plt.figure(figsize=(7, 7))
+    # Plot the reliability curve (scatter plot of (τ(i), i/n))
+    # plt.scatter(sorted_tau_values, empirical_cdf_values, label='Model Reliability', color='blue', s=10)
+    plt.scatter(sorted_tau_values, empirical_cdf_values, label='Model Reliability', color='blue', s=10)
+
+    # Plot the diagonal line for perfect calibration (y=x)
+    plt.plot([0, 1], [0, 1], linestyle='--', color='red', label='Perfect Calibration (Identity)')
+
+    plt.xlabel(r'Sorted Probabilistic Predictions ($\tau_{(i)}$)')
+    plt.ylabel(r'Empirical CDF ($i/n$)')
+    plt.title(title)
+    plt.xlim([0, 1])
+    plt.ylim([0, 1])
+    plt.grid(True, linestyle=':', alpha=0.7)
+    plt.legend()
+    plt.gca().set_aspect('equal', adjustable='box')
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(f"results/{title.replace(' ', '_').lower()}.png")
+    print(f"Reliability diagram saved to {title.replace(' ', '_').lower()}.png")
+    plt.close()
+
+
+if __name__ == '__main__':
+    # --- Example Usage ---
+
+    # Simulate some τ values (e.g., from a model's probabilistic predictions)
+    # A perfectly calibrated model would have τ values uniformly distributed.
+    np.random.seed(42) # for reproducibility
+    # Example 1: Well-calibrated model (τ values are roughly uniform)
+    tau_values_well_calibrated = np.random.uniform(0, 1, 100)
+
+    # Example 2: Poorly-calibrated model (e.g., overconfident, τ values skewed towards 0 or 1)
+    # Simulating overconfidence towards lower probabilities
+    tau_values_overconfident_low = np.random.beta(0.5, 2, 100)
+
+    # Simulating overconfidence towards higher probabilities
+    tau_values_overconfident_high = np.random.beta(2, 0.5, 100)
+
+    # Example 3: Underconfident model (τ values clustered around 0.5)
+    tau_values_underconfident = np.random.beta(5, 5, 100)
+
+
+    print("--- Well-Calibrated Model Example ---")
+    sorted_tau_wc, ecdf_wc = calculate_reliability_diagram_coordinates(tau_values_well_calibrated)
+    if sorted_tau_wc is not None:
+        print(f"First 5 sorted tau values: {sorted_tau_wc[:5]}")
+        print(f"First 5 empirical CDF values: {ecdf_wc[:5]}")
+        plot_reliability_diagram_CDF(sorted_tau_wc, ecdf_wc, title="Reliability Diagram (Well-Calibrated Example)")
+
+    print("\n--- Overconfident (Low) Model Example ---")
+    sorted_tau_ol, ecdf_ol = calculate_reliability_diagram_coordinates(tau_values_overconfident_low)
+    if sorted_tau_ol is not None:
+        plot_reliability_diagram_CDF(sorted_tau_ol, ecdf_ol, title="Reliability Diagram (Overconfident - Low Bias)")
+
+    print("\n--- Overconfident (High) Model Example ---")
+    sorted_tau_oh, ecdf_oh = calculate_reliability_diagram_coordinates(tau_values_overconfident_high)
+    if sorted_tau_oh is not None:
+        plot_reliability_diagram_CDF(sorted_tau_oh, ecdf_oh, title="Reliability Diagram (Overconfident - High Bias)")
+
+    print("\n--- Underconfident Model Example ---")
+    sorted_tau_uc, ecdf_uc = calculate_reliability_diagram_coordinates(tau_values_underconfident)
+    if sorted_tau_uc is not None:
+        plot_reliability_diagram_CDF(sorted_tau_uc, ecdf_uc, title="Reliability Diagram (Underconfident Example)")
+
+    # --- Example with a small number of points as in the thought process ---
+    print("\n--- Small Example from Description ---")
+    tau_values_small = [0.1, 0.8, 0.4, 0.6]
+    sorted_tau_small, ecdf_small = calculate_reliability_diagram_coordinates(tau_values_small)
+    if sorted_tau_small is not None:
+        print(f"Input taus: {tau_values_small}")
+        print(f"Sorted taus (x-coordinates): {sorted_tau_small}")
+        print(f"Empirical CDF (y-coordinates): {ecdf_small}")
+        # Expected: ([0.1, 0.4, 0.6, 0.8], [0.25, 0.50, 0.75, 1.00])
+        plot_reliability_diagram_CDF(sorted_tau_small, ecdf_small, title="Reliability Diagram (Small Example)")
+
+    # --- Example with empty input ---
+    print("\n--- Empty Input Example ---")
+    tau_empty = []
+    sorted_tau_empty, ecdf_empty = calculate_reliability_diagram_coordinates(tau_empty)
+    # This should print a warning and return (None, None)
+
+    # --- Example with invalid input type ---
+    print("\n--- Invalid Input Type Example ---")
+    try:
+        calculate_reliability_diagram_coordinates("not a list")
+    except TypeError as e:
+        print(f"Caught expected error: {e}")

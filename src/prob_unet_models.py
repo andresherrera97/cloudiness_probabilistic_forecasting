@@ -20,6 +20,12 @@ from metrics import (
     calculate_reliability_diagram_data,
     plot_reliability_diagram,
     collect_reliability_diagram_data,
+    calculate_reliability_diagram_coordinates,
+    plot_reliability_diagram_CDF,
+)
+from postprocessing.cdf_bin_preds import (
+    get_cdf_from_binned_probabilities_multidim,
+    get_cdf_from_binned_probabilities_numpy
 )
 from postprocessing.transform import quantile_2_bin
 
@@ -137,14 +143,20 @@ def main(
         "qr": {
             "predicted_probs": [],
             "actual_outcomes": [],
+            "cdf_values": [],
         },
         "bin": {
             "predicted_probs": [],
             "actual_outcomes": [],
+            "cdf_values": [],
         },
         "iqn": {
             "predicted_probs": [],
             "actual_outcomes": [],
+            "cdf_values": [],
+        },
+        "laplace": {
+            "cdf_values": [],
         },
     }
 
@@ -192,6 +204,14 @@ def main(
             reliability_diagram=reliability_diagram,
         )
 
+        reliability_diagram["qr"]["cdf_values"].append(
+            get_cdf_from_binned_probabilities_numpy(
+                y_value=out_frames[0, 0, 256, 256].cpu().numpy(),
+                probabilities=[1/num_bins] * num_bins,
+                bin_edges=[0] + qr_unet_preds[0, :, 256, 256].cpu().numpy().tolist() + [1.0],
+            )
+        )
+
         # --- Bin Classifier UNet ---
         bin_unet_preds = bin_unet.predict(in_frames.float())
         metrics["bin"]["crps"].append(
@@ -216,6 +236,14 @@ def main(
             reliability_diagram=reliability_diagram,
         )
 
+        reliability_diagram["bin"]["cdf_values"].append(
+            get_cdf_from_binned_probabilities_numpy(
+                y_value=out_frames[0, 0, 256, 256].cpu().numpy(),
+                probabilities=bin_unet_preds[0, :, 256, 256].cpu().numpy(),
+                bin_edges=[i/num_bins for i in range(num_bins + 1)],
+            )
+        )
+
         # --- Median Scale UNet ---
         laplace_unet_preds = laplace_unet.model(in_frames.float())
         metrics["laplace"]["crps"].append(
@@ -227,6 +255,18 @@ def main(
         metrics["laplace"]["logscore"].append(laplace_logscore)
         metrics["laplace"]["logscore_dividing"].append(laplace_logscore)
         metrics["laplace"]["precision"].append(0)
+
+        # reliability_diagram["laplace"]["cdf_values"].append(
+        #     laplace_unet.get_F_at_points(
+        #         points=out_frames[0, 0, 256:257, 256:257].unsqueeze(0).unsqueeze(0),
+        #         pred_params=laplace_unet_preds[0, :, 256:257, 256:257].unsqueeze(0),
+        #     )[0, 0, 0, 0].cpu().numpy()
+        # )
+
+        # print(out_frames[0, 0, 256, 256].cpu().numpy())
+        # print(laplace_unet_preds[0, 0, 256, 256].cpu().numpy())
+        # print(laplace_unet_preds[0, 1, 256, 256].cpu().numpy())
+        # print(reliability_diagram["laplace"]["cdf_values"][-1])
 
         # --- IQN UNet ---
         iqn_unet_pred = iqn_unet.model(in_frames.float(), iqn_unet.val_quantiles)
@@ -266,12 +306,23 @@ def main(
             reliability_diagram=reliability_diagram,
         )
 
+        reliability_diagram["iqn"]["cdf_values"].append(
+            get_cdf_from_binned_probabilities_numpy(
+                y_value=out_frames[0, 0, 256, 256].cpu().numpy(),
+                probabilities=[1/num_bins] * num_bins,
+                bin_edges=[0] + iqn_unet_pred[0, :, 256, 256].cpu().numpy().tolist() + [1.0],
+            )
+        )
+
         if debug and batch_idx >= 3:  # Ensure a few batches run for debug
             logger.info(f"Debug mode: stopping after {batch_idx} batches.")
             break
 
     # --- Calculate and Plot Reliability Diagrams ---
     for model_name, model_metrics in reliability_diagram.items():
+        if model_name == "laplace":
+            # Skip laplace for reliability diagram
+            continue
         if len(model_metrics["predicted_probs"]) > 0:
 
             results_dir = "results"
@@ -309,6 +360,17 @@ def main(
         else:
             logger.warning(
                 f"No data collected for {model_name} UNet reliability diagram. Skipping plot."
+            )
+        # Plot CDF
+        if len(model_metrics["cdf_values"]) > 0:
+            sorted_tau_values, empirical_cdf_values = calculate_reliability_diagram_coordinates(model_metrics["cdf_values"])
+            title = f"Reliability Diagram CDF for {model_name} UNet, {subset} subset, {time_horizon} min time horizon"
+            if debug:
+                title += " (Debug Mode)"
+            plot_reliability_diagram_CDF(
+                sorted_tau_values,
+                empirical_cdf_values,
+                title=title,
             )
 
     metrics_filename_suffix = f"{subset}_{time_horizon}min"
