@@ -26,8 +26,11 @@ def median_scale_loss(predictions, y_target):
 def laplace_nll_loss(
     prediction: torch.Tensor,
     target: torch.Tensor,
+    use_softplus: bool = True,
     reduction: str = "mean",
     epsilon: float = 1e-6,
+    use_scale_regularization: bool = False,
+    penalty_weight: float = 0.01,
 ) -> torch.Tensor:
     """
     Calculates the Negative Log-Likelihood (NLL) loss for a Laplace distribution.
@@ -75,7 +78,10 @@ def laplace_nll_loss(
 
     # --- Ensure scale 'b' is positive ---
     # Option 1: Using softplus (often more stable)
-    pred_scale = nn.functional.softplus(pred_raw_scale) + epsilon
+    if use_softplus:
+        pred_scale = nn.functional.softplus(pred_raw_scale) + epsilon
+    else:
+        pred_scale = pred_raw_scale
 
     # Option 2: Using exp (uncomment if you prefer this)
     # pred_scale = torch.exp(pred_raw_scale) + epsilon
@@ -102,6 +108,15 @@ def laplace_nll_loss(
         raise ValueError(
             f"Unknown reduction: {reduction}. Choose 'none', 'mean', or 'sum'."
         )
+
+    # Optional scale regularization
+    if use_scale_regularization:
+        # Regularization term: encourage scale to be close to 1
+        # This is optional and can be adjusted based on your needs.
+        scale_penalty = penalty_weight * torch.mean(
+            torch.relu(-pred_scale - 0.01)
+        )
+        loss += scale_penalty
 
     return loss
 

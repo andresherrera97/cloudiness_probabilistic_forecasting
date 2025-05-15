@@ -1246,6 +1246,10 @@ class MedianScaleUNet(ProbabilisticUNet):
             output_activation=self.output_activation,
         )
 
+        self.use_softplus = False
+        self.use_scale_regularization = True
+        self.penalty_weight = 0.01
+
         self.loss_fn = laplace_nll_loss
 
     def fit(
@@ -1303,7 +1307,14 @@ class MedianScaleUNet(ProbabilisticUNet):
                 ):  # Enable mixed precision
                     frames_pred = self.model(in_frames)
                     frames_pred = self.remove_spatial_context(frames_pred)
-                    loss = self.calculate_loss(frames_pred, out_frames)
+                    # loss = self.calculate_loss(frames_pred, out_frames)
+                    loss = self.loss_fn(
+                        frames_pred,
+                        out_frames,
+                        use_softplus=self.use_softplus,
+                        use_scale_regularization=self.use_scale_regularization,
+                        penalty_weight=self.penalty_weight,
+                    )
 
                 # backward
                 scaler.scale(loss).backward()
@@ -1355,7 +1366,14 @@ class MedianScaleUNet(ProbabilisticUNet):
                         frames_pred = self.remove_spatial_context(frames_pred)
 
                         median_scale_loss_per_batch.append(
-                            self.calculate_loss(frames_pred, out_frames).detach().item()
+                            # self.calculate_loss(frames_pred, out_frames).detach().item()
+                            self.loss_fn(
+                                frames_pred,
+                                out_frames,
+                                use_softplus=self.use_softplus,
+                                use_scale_regularization=self.use_scale_regularization,
+                                penalty_weight=self.penalty_weight,
+                            )
                         )
 
                         # calculate auxiliary metrics
