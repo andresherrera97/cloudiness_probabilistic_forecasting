@@ -47,7 +47,7 @@ def get_checkpoint_path(time_horizon: int) -> Dict[str, str]:
         return {
             "qr": "checkpoints/salto_down/prob_120min_salto_512/qr/QRUNet_IN3_NB9_F32_SC0_PDTrue_BS_8_TH120_E8_BVM0_04_D2025-04-13_18:26.pt",
             "bin": "checkpoints/salto_down/prob_120min_salto_512/bin/BinUNet_IN3_NB10_F32_SC0_BS_8_TH120_E9_BVM1_88_D2025-05-07_07:44.pt",
-            "laplace": "checkpoints/salto_down/prob_120min_salto_512/laplace/MedianScaleUNet_IN3_F32_SC0_BS_8_TH120_E9_BVM0_42_D2025-04-25_09:25.pt",
+            "laplace": "checkpoints/salto_down/prob_120min_salto_512/laplace/MedianScaleUNet_IN3_F32_SC0_BS_8_TH120_E9_BVMtens_D2025-05-16_09:00.pt",
             "iqn": "checkpoints/salto_down/prob_120min_salto_512/iqn/IQUNet_IN3_F32_NT9_CED64_PD0_BS_8_TH120_E9_BVM0_29_D2025-05-08_22:48.pt",
         }
     else:
