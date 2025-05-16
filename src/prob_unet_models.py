@@ -166,8 +166,7 @@ def main(
         bin_output = bin_output.to(device)
 
         # --- Quantile Regression UNet ---
-        qr_unet_preds = qr_unet.model(in_frames.float())
-        qr_unet_preds = torch.cumsum(qr_unet_preds, dim=1)
+        qr_unet_preds = qr_unet.predict(in_frames)
         metrics["qr"]["crps"].append(
             qr_unet.crps_loss.crps_loss(pred=qr_unet_preds, y=out_frames)
             .detach()

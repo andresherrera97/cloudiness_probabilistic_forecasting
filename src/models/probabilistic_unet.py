@@ -668,7 +668,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self,
         config: UNetConfig,
         quantiles: Optional[List[float]] = None,
-        predict_diff: bool = False,
+        predict_diff: bool = True,
     ):
         super().__init__(config)
         self.predict_diff = predict_diff
@@ -913,6 +913,8 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         frames_pred = self.model(X.float())
         if self.predict_diff:
             frames_pred = torch.cumsum(frames_pred, dim=1)
+            # clip values to be between 0 and 1
+            frames_pred = torch.clamp(frames_pred, min=0.0, max=1.0)
         return frames_pred
 
     def calculate_loss(self, predictions, y_target):
@@ -932,6 +934,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
         self.spatial_context = checkpoint["spatial_context"]
         self.time_horizon = checkpoint["time_horizon"]
         self.output_activation = checkpoint["output_activation"]
+        self.predict_diff = checkpoint["predict_diff"]
 
         # Generate same architecture
         self.model = UNet(
