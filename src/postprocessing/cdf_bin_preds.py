@@ -117,7 +117,7 @@ def get_cdf_from_binned_probabilities_numpy(
             f"probabilities ({len(probs_arr)}) + 1."
         )
     if np.any(np.diff(edges_arr) < 0):
-        raise ValueError("bin_edges must be sorted in non-decreasing order.")
+        raise ValueError(f"bin_edges must be sorted in non-decreasing order: {edges_arr}")
     if np.any(probs_arr < 0):
         raise ValueError("Probabilities cannot be negative.")
     # --- End Validation ---

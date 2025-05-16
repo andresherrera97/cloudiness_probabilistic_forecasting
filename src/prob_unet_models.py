@@ -40,7 +40,7 @@ def get_checkpoint_path(time_horizon: int) -> Dict[str, str]:
         return {
             "qr": "checkpoints/salto_down/prob_60min_salto_512/qr/QRUNet_IN3_NB9_F32_SC0_PDTrue_BS_8_TH60_E6_BVM0_04_D2025-04-13_21:52.pt",
             "bin": "checkpoints/salto_down/prob_60min_salto_512/bin/BinUNet_IN3_NB10_F32_SC0_BS_8_TH60_E8_BVM1_83_D2025-05-07_09:53.pt",
-            "laplace": "checkpoints/salto_down/prob_60min_salto_512/laplace/MedianScaleUNet_IN3_F32_SC0_BS_8_TH60_E7_BVM0_40_D2025-04-25_13:36.pt",
+            "laplace": "checkpoints/salto_down/prob_60min_salto_512/laplace//MedianScaleUNet_IN3_F32_SC0_BS_8_TH60_E7_BVMtens_D2025-05-15_05:42.pt",
             "iqn": "checkpoints/salto_down/prob_60min_salto_512/iqn/IQUNet_IN3_F32_NT9_CED64_PD0_BS_8_TH60_E7_BVM0_23_D2025-05-08_22:10.pt",
         }
     elif time_horizon == 120:
@@ -204,11 +204,13 @@ def main(
             reliability_diagram=reliability_diagram,
         )
 
+        # sort qr_unet_preds to get the quantiles in order
+        qr_unet_preds_sorted = sorted(qr_unet_preds[0, :, 256, 256].cpu().numpy().tolist())
         reliability_diagram["qr"]["cdf_values"].append(
             get_cdf_from_binned_probabilities_numpy(
                 y_value=out_frames[0, 0, 256, 256].cpu().numpy(),
                 probabilities=[1/num_bins] * num_bins,
-                bin_edges=[0] + qr_unet_preds[0, :, 256, 256].cpu().numpy().tolist() + [1.0],
+                bin_edges=[0] + qr_unet_preds_sorted + [1.0],
             )
         )
 
@@ -256,17 +258,12 @@ def main(
         metrics["laplace"]["logscore_dividing"].append(laplace_logscore)
         metrics["laplace"]["precision"].append(0)
 
-        # reliability_diagram["laplace"]["cdf_values"].append(
-        #     laplace_unet.get_F_at_points(
-        #         points=out_frames[0, 0, 256:257, 256:257].unsqueeze(0).unsqueeze(0),
-        #         pred_params=laplace_unet_preds[0, :, 256:257, 256:257].unsqueeze(0),
-        #     )[0, 0, 0, 0].cpu().numpy()
-        # )
-
-        # print(out_frames[0, 0, 256, 256].cpu().numpy())
-        # print(laplace_unet_preds[0, 0, 256, 256].cpu().numpy())
-        # print(laplace_unet_preds[0, 1, 256, 256].cpu().numpy())
-        # print(reliability_diagram["laplace"]["cdf_values"][-1])
+        reliability_diagram["laplace"]["cdf_values"].append(
+            laplace_unet.get_F_at_points(
+                points=out_frames[0, 0, 256:257, 256:257].unsqueeze(0).unsqueeze(0),
+                pred_params=laplace_unet_preds[0, :, 256:257, 256:257].unsqueeze(0),
+            )[0, 0, 0, 0].cpu().numpy()
+        )
 
         # --- IQN UNet ---
         iqn_unet_pred = iqn_unet.model(in_frames.float(), iqn_unet.val_quantiles)
@@ -320,10 +317,7 @@ def main(
 
     # --- Calculate and Plot Reliability Diagrams ---
     for model_name, model_metrics in reliability_diagram.items():
-        if model_name == "laplace":
-            # Skip laplace for reliability diagram
-            continue
-        if len(model_metrics["predicted_probs"]) > 0:
+        if model_name != "laplace" and len(model_metrics["predicted_probs"]) > 0:
 
             results_dir = "results"
             os.makedirs(results_dir, exist_ok=True)
