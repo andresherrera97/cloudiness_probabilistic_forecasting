@@ -306,7 +306,12 @@ class Downloader:
 
     @timeit
     def crop_processing(
-        self, CMI_DQF_crop: np.ndarray, cosangs: np.ndarray
+        self,
+        CMI_DQF_crop: np.ndarray,
+        cosangs: np.ndarray,
+        downsample: int = 1,
+        normalize_w_cosangs: bool = True,
+        nans_to_zero: bool = True
     ) -> np.ndarray:
         """
         1) Inpaint using DQF mask, 2) normalize, 3) clip to [0,1], 4) float16.
@@ -320,10 +325,17 @@ class Downloader:
         CMI_DQF_crop[0] = cv2.inpaint(CMI_DQF_crop[0], inpaint_mask, 3, cv2.INPAINT_NS)
 
         # Step 2: normalize
-        pr = normalize(CMI_DQF_crop[0], cosangs, 0.15)
+        if normalize_w_cosangs:
+            pr = normalize(CMI_DQF_crop[0], cosangs, 0.15)
+        else:
+            pr = CMI_DQF_crop[0]
+
+        if downsample > 1:
+            pr = pr[::downsample, ::downsample]
 
         # Step 3: remove nans and clip
-        pr[np.isnan(pr)] = 0
+        if nans_to_zero:
+            pr[np.isnan(pr)] = 0
         pr = np.clip(pr, 0, 1.0).astype(np.float16)
 
         logger.info(f"PR range: {pr.min()} - {pr.max()}")
@@ -342,6 +354,9 @@ class Downloader:
         out_day_path: str,
         save_as: str,
         save_only_first: bool,
+        downsample: int,
+        normalize_w_cosangs: bool,
+        nans_to_zero: bool,
     ):
         """
         Helper function to download a single file, process it,
@@ -375,7 +390,7 @@ class Downloader:
         if isinstance(cmi_dqf_crop, str) and (cmi_dqf_crop == "error"):
             return f, True, None  # error -> skip (with inpainting_pct = None)
         # 4) Process (inpaint, normalize, clip)
-        pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs)
+        pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs, downsample, normalize_w_cosangs, nans_to_zero)
 
         # 5) Save results
         out_fname = f"{y4}_{dayy}_UTC_{hh}{mm}{ss}"
@@ -418,14 +433,17 @@ class Downloader:
         metadata_path: str,
         files_per_date_path: str,
         outdir: str = "salto1024",
-        lat: float = -31.390502,
-        lon: float = -57.954138,
+        lat: float = -31.2827,
+        lon: float = -57.9181,
         size: int = 1024,
         skip_night: bool = True,
         save_only_first: bool = False,
         save_as: str = "npy",
         verbose: bool = True,
         num_workers: int = 4,
+        downsample: int = 1,
+        normalize_w_cosangs: bool = True,
+        nans_to_zero: bool = True,
     ):
         """
         Download and process GOES16 data for the given lat/lon region in parallel batches.
@@ -544,6 +562,9 @@ class Downloader:
                             out_day_path,
                             save_as,
                             save_only_first,
+                            downsample,
+                            normalize_w_cosangs,
+                            nans_to_zero,
                             self._download_and_process_file,  # Pass your method
                         )
                         future_to_batch_idx[future] = b_idx
@@ -580,6 +601,9 @@ class Downloader:
                     out_day_path,
                     save_as,
                     save_only_first,
+                    downsample,
+                    normalize_w_cosangs,
+                    nans_to_zero,
                     self._download_and_process_file,  # Pass your method
                 )
 
@@ -614,6 +638,9 @@ def _process_batch(
     out_day_path,
     save_as,
     save_only_first,
+    downsample,
+    normalize_w_cosangs,
+    nans_to_zero,
     download_and_process_fn,
 ):
     """
@@ -634,6 +661,9 @@ def _process_batch(
             out_day_path,
             save_as,
             save_only_first,
+            downsample,
+            normalize_w_cosangs,
+            nans_to_zero,
         )
         if result is not None:
             # result is a tuple (filename, is_day, pct_inp)
