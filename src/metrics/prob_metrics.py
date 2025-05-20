@@ -324,13 +324,13 @@ def plot_reliability_diagram_CDF(sorted_tau_values, empirical_cdf_values, title=
     plt.figure(figsize=(7, 7))
     # Plot the reliability curve (scatter plot of (τ(i), i/n))
     # plt.scatter(sorted_tau_values, empirical_cdf_values, label='Model Reliability', color='blue', s=10)
-    plt.scatter(sorted_tau_values, empirical_cdf_values, label='Model Reliability', color='blue', s=10)
+    plt.scatter(empirical_cdf_values, sorted_tau_values, label='Model Reliability', color='blue', s=10)
 
     # Plot the diagonal line for perfect calibration (y=x)
     plt.plot([0, 1], [0, 1], linestyle='--', color='red', label='Perfect Calibration (Identity)')
 
-    plt.xlabel(r'Sorted Probabilistic Predictions ($\tau_{(i)}$)')
-    plt.ylabel(r'Empirical CDF ($i/n$)')
+    plt.xlabel(r'Empirical CDF ($i/n$)')
+    plt.ylabel(r'Sorted Probabilistic Predictions ($\tau_{(i)}$)')
     plt.title(title)
     plt.xlim([0, 1])
     plt.ylim([0, 1])
@@ -340,7 +340,7 @@ def plot_reliability_diagram_CDF(sorted_tau_values, empirical_cdf_values, title=
     # Save the plot
     plt.tight_layout()
     plt.savefig(f"results/{title.replace(' ', '_').lower()}.png")
-    print(f"Reliability diagram saved to {title.replace(' ', '_').lower()}.png")
+    print(f"CDF Reliability diagram saved to {title.replace(' ', '_').lower()}.png")
     plt.close()
 
 

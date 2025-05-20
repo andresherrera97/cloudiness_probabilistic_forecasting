@@ -35,6 +35,81 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Eval Script")
 
 
+# TODO: move this to a separate file
+def laplace_cdf(x, mu, b):
+    """
+    Calculates the Cumulative Distribution Function (CDF) of a Laplace distribution.
+
+    Args:
+        x (float or np.ndarray): The point(s) at which to evaluate the CDF.
+        mu (float): The location parameter of the Laplace distribution.
+        b (float): The scale parameter of the Laplace distribution (b > 0).
+
+    Returns:
+        float or np.ndarray: The CDF value(s).
+    """
+    if b <= 0:
+        raise ValueError("Scale parameter 'b' must be positive.")
+    
+    # Ensure x can be compared with mu element-wise if x is an array
+    if isinstance(x, np.ndarray):
+        res = np.zeros_like(x, dtype=float)
+        idx_less = (x < mu)
+        idx_ge = (x >= mu)
+        
+        res[idx_less] = 0.5 * np.exp((x[idx_less] - mu) / b)
+        res[idx_ge] = 1.0 - 0.5 * np.exp(-(x[idx_ge] - mu) / b)
+        return res
+    else: # x is a scalar
+        if x < mu:
+            return 0.5 * np.exp((x - mu) / b)
+        else:
+            return 1.0 - 0.5 * np.exp(-(x - mu) / b)
+
+
+def calculate_laplace_bin_probabilities(mu, b, num_bins):
+    """
+    Calculates the probability of a Laplace-distributed variable falling into
+    equally sized bins within the [0, 1] range for multiple predictions.
+
+    Args:
+        mus (np.ndarray or list): Array of location parameters (mu) for each Laplace prediction.
+        bs (np.ndarray or list): Array of scale parameters (b) for each Laplace prediction.
+                                Must be positive.
+        num_bins (int): The number of equally sized bins to divide the [0, 1] range into.
+
+    Returns:
+        np.ndarray: A 2D array where rows correspond to predictions and columns
+                    correspond to bins. Element (i, j) is the probability
+                    assigned by the i-th Laplace prediction to the j-th bin.
+                    Shape: (len(mus), num_bins).
+    """
+    if num_bins <= 0:
+        raise ValueError("num_bins must be positive.")
+
+    bin_probabilities = np.zeros(num_bins)
+    
+    # Define bin edges for the [0, 1] interval
+    # Example: num_bins = 5 -> edges = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]
+    bin_edges = np.linspace(0, 1, num_bins + 1)
+
+    if b <= 0:
+        # Or handle this by assigning uniform probabilities, or NaN, or skip
+        print(f"Warning: Scale parameter b <= 0 for prediction {i}. Probabilities for this prediction might be ill-defined.")
+        # For this example, let's assign NaN if b is invalid for a prediction
+        bin_probabilities[:] = np.nan
+        return bin_probabilities
+
+    for j in range(num_bins):
+        lower_bound = bin_edges[j]
+        upper_bound = bin_edges[j+1]
+        
+        prob_in_bin = laplace_cdf(upper_bound, mu, b) - laplace_cdf(lower_bound, mu, b)
+        bin_probabilities[j] = prob_in_bin
+
+    return bin_probabilities
+
+
 def get_checkpoint_path(time_horizon: int) -> Dict[str, str]:
     if time_horizon == 60:
         return {
@@ -156,6 +231,8 @@ def main(
             "cdf_values": [],
         },
         "laplace": {
+            "predicted_probs": [],
+            "actual_outcomes": [],
             "cdf_values": [],
         },
     }
@@ -204,12 +281,11 @@ def main(
         )
 
         # sort qr_unet_preds to get the quantiles in order
-        qr_unet_preds_sorted = sorted(qr_unet_preds[0, :, 256, 256].cpu().numpy().tolist())
         reliability_diagram["qr"]["cdf_values"].append(
             get_cdf_from_binned_probabilities_numpy(
                 y_value=out_frames[0, 0, 256, 256].cpu().numpy(),
                 probabilities=[1/num_bins] * num_bins,
-                bin_edges=[0] + qr_unet_preds_sorted + [1.0],
+                bin_edges=[0] + qr_unet_preds[0, :, 256, 256].cpu().numpy().tolist() + [1.0],
             )
         )
 
@@ -264,6 +340,22 @@ def main(
             )[0, 0, 0, 0].cpu().numpy()
         )
 
+        laplace_pred_bin_probs = calculate_laplace_bin_probabilities(
+            laplace_unet_preds[0, 0, 256, 256].cpu().numpy(),
+            laplace_unet_preds[0, 1, 256, 256].cpu().numpy(),
+            num_bins
+        )
+
+        laplace_pred_bin_probs = torch.from_numpy(laplace_pred_bin_probs).float().to(device)
+        laplace_pred_bin_probs = laplace_pred_bin_probs.unsqueeze(0).unsqueeze(2).unsqueeze(3)
+
+        reliability_diagram = collect_reliability_diagram_data(
+            model_name="laplace",
+            predicted_probs=laplace_pred_bin_probs,
+            actual_outcomes=bin_output,
+            reliability_diagram=reliability_diagram,
+        )
+
         # --- IQN UNet ---
         iqn_unet_pred = iqn_unet.model(in_frames.float(), iqn_unet.val_quantiles)
         iqn_unet_pred = torch.sort(iqn_unet_pred, dim=1)[0]
@@ -316,7 +408,7 @@ def main(
 
     # --- Calculate and Plot Reliability Diagrams ---
     for model_name, model_metrics in reliability_diagram.items():
-        if model_name != "laplace" and len(model_metrics["predicted_probs"]) > 0:
+        if len(model_metrics["predicted_probs"]) > 0:
 
             results_dir = "results"
             os.makedirs(results_dir, exist_ok=True)
