@@ -7,12 +7,21 @@ from torch.utils.data import DataLoader
 import numpy as np
 import logging
 
-# Local application/library specific imports
-from metrics import CRPSLoss
+# Local application/library specific imports,
+from metrics import (
+    CRPSLoss,
+    collect_reliability_diagram_data,
+    plot_reliability_diagram,
+    collect_reliability_diagram_data,
+    calculate_reliability_diagram_coordinates,
+    plot_reliability_diagram_CDF,
+    logscore_bin_fn,
+    calculate_reliability_diagram_data,
+)
 from data_handlers import MovingMnistDataset, GOES16Dataset
 from data_handlers.utils import classify_array_in_integer_classes
 from postprocessing.transform import quantile_2_bin
-from metrics import logscore_bin_fn
+from postprocessing.cdf_bin_preds import get_cdf_from_binned_probabilities_numpy
 
 
 class PersistenceEnsemble:
@@ -22,6 +31,7 @@ class PersistenceEnsemble:
         self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
         self.train_loader = None
         self.val_loader = None
+        self.test_loader = None
         self.device = device
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
 
@@ -31,6 +41,7 @@ class PersistenceEnsemble:
         path: str,
         batch_size: int,
         time_horizon: int,
+        create_test_loader: bool = False,
     ):
         self.batch_size = batch_size
         self.time_horizon = time_horizon
@@ -46,8 +57,14 @@ class PersistenceEnsemble:
             )
 
         elif dataset.lower() in [
-            "goes16", "satellite", "sat", "debug_salto", "debug", "downsample",
-            "salto_down", "salto_512"
+            "goes16",
+            "satellite",
+            "sat",
+            "debug_salto",
+            "debug",
+            "downsample",
+            "salto_down",
+            "salto_512",
         ]:
             train_dataset = GOES16Dataset(
                 path=os.path.join(path, "train/"),
@@ -64,6 +81,14 @@ class PersistenceEnsemble:
                 expected_time_diff=10,
                 inpaint_pct_threshold=1.0,
             )
+            if create_test_loader:
+                test_dataset = GOES16Dataset(
+                    path=os.path.join(path, "test/"),
+                    num_in_images=self.n_quantiles,
+                    minutes_forward=time_horizon,
+                    expected_time_diff=10,
+                    inpaint_pct_threshold=1.0,
+                )
 
         else:
             raise ValueError(f"Dataset {dataset} not recognized.")
@@ -72,6 +97,10 @@ class PersistenceEnsemble:
             train_dataset, batch_size=batch_size, shuffle=True
         )
         self.val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+        if create_test_loader:
+            self.test_loader = DataLoader(
+                test_dataset, batch_size=batch_size, shuffle=True
+            )
 
         # Get one sample from train_loader and val_loader to check they have the same size
         train_input_sample, train_output_sample = next(iter(self.train_loader))
@@ -146,12 +175,36 @@ class PersistenceEnsemble:
             break
         return in_frames, out_frames, predictions, crps
 
-    def predict_on_dataset(self, dataset: str = "validation", debug: bool = False):
-        data_loader = (
-            self.val_loader if dataset in ["validation", "val"] else self.train_loader
-        )
+    def predict_on_dataset(
+        self,
+        subset: str = "validation",
+        debug: bool = False,
+        time_horizon: int = 60,
+        reliability_diagram_bins: int = 20,
+    ):
+        if subset in ["validation", "val"]:
+            self._logger.info("Predicting on validation set")
+            data_loader = self.val_loader
+        elif subset in ["train", "training"]:
+            self._logger.info("Predicting on training set")
+            data_loader = self.train_loader
+        elif subset in ["test", "testing"]:
+            self._logger.info("Predicting on test set")
+            data_loader = self.test_loader
+        else:
+            raise ValueError(f"Dataset {subset} not recognized.")
+
         crps_per_batch = []
         logscore_per_batch = []
+        logscore_dividing_per_batch = []
+
+        reliability_diagram = {
+            "ensemble_persistence": {
+                "predicted_probs": [],
+                "actual_outcomes": [],
+                "cdf_values": [],
+            }
+        }
 
         for batch_idx, (in_frames, out_frames) in enumerate(data_loader):
             in_frames = in_frames.to(self.device)
@@ -172,20 +225,99 @@ class PersistenceEnsemble:
             )
 
             bin_output = classify_array_in_integer_classes(
-                out_frames[0, 0].cpu().numpy(), num_bins=10
+                out_frames[0, 0].cpu().numpy(), num_bins=self.n_quantiles + 1
             )
 
             logscore_per_batch.append(
                 logscore_bin_fn(
                     torch.tensor(preds_bin).to(self.device),
                     torch.tensor(bin_output).to(self.device).unsqueeze(0),
-                ).detach().item()
+                )
+                .detach()
+                .item()
+            )
+
+            logscore_dividing_per_batch.append(
+                logscore_bin_fn(
+                    torch.tensor(preds_bin).to(self.device),
+                    torch.tensor(bin_output).to(self.device).unsqueeze(0),
+                    divide_by_bin_width=True,
+                )
+                .detach()
+                .item()
+            )
+
+            reliability_diagram = collect_reliability_diagram_data(
+                model_name="ensemble_persistence",
+                predicted_probs=preds_bin,
+                actual_outcomes=np.expand_dims(bin_output, axis=0),
+                reliability_diagram=reliability_diagram,
+            )
+
+            reliability_diagram["ensemble_persistence"]["cdf_values"].append(
+                get_cdf_from_binned_probabilities_numpy(
+                    y_value=out_frames[0, 0, 256, 256].cpu().numpy(),
+                    probabilities=[1 / (self.n_quantiles + 1)] * (self.n_quantiles + 1),
+                    bin_edges=[0]
+                    + predictions[0, :, 256, 256].cpu().numpy().tolist()
+                    + [1.0],
+                )
             )
 
             if debug and batch_idx > 2:
                 break
 
-        dataset_crps = torch.mean(torch.tensor(crps_per_batch))
-        dataset_logscore = torch.mean(torch.tensor(logscore_per_batch))
+        dataset_crps = torch.mean(torch.tensor(crps_per_batch)).detach().item()
+        dataset_logscore = torch.mean(torch.tensor(logscore_per_batch)).detach().item()
+        dataset_logscore_dividing = (
+            torch.mean(torch.tensor(logscore_dividing_per_batch)).detach().item()
+        )
 
-        return dataset_crps, dataset_logscore
+        # --- Calculate and Plot Reliability Diagrams ---
+        results_dir = "results"
+        os.makedirs(results_dir, exist_ok=True)
+
+        rd_filename_suffix = f"{subset}_{time_horizon}min"
+        crop_info = "_central_pixel"
+        rd_filename_suffix += crop_info
+        if debug:
+            rd_filename_suffix += "_debug"
+        rd_filename = os.path.join(
+            results_dir,
+            f"reliability_diagram_ensemble_persistende_{rd_filename_suffix}.png",
+        )
+
+        curve_mean_preds, curve_obs_freqs, hist_centers, hist_counts = (
+            calculate_reliability_diagram_data(
+                reliability_diagram["ensemble_persistence"]["predicted_probs"],
+                reliability_diagram["ensemble_persistence"]["actual_outcomes"],
+                n_reliability_bins=reliability_diagram_bins,
+            )
+        )
+        plot_reliability_diagram(
+            curve_mean_preds,
+            curve_obs_freqs,
+            hist_centers,
+            hist_counts,
+            model_name=(
+                f"Ensemble Persistence central pixel, {subset} subset, "
+                f"{time_horizon} min time horizon"
+            ),
+            filename=rd_filename,
+        )
+
+        sorted_tau_values, empirical_cdf_values = (
+            calculate_reliability_diagram_coordinates(
+                reliability_diagram["ensemble_persistence"]["cdf_values"]
+            )
+        )
+        title = f"Reliability Diagram CDF for Ensemble Persistence, {subset} subset, {time_horizon} min time horizon"
+        if debug:
+            title += " (Debug Mode)"
+        plot_reliability_diagram_CDF(
+            sorted_tau_values,
+            empirical_cdf_values,
+            title=title,
+        )
+
+        return dataset_crps, dataset_logscore, dataset_logscore_dividing

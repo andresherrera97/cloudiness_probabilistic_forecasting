@@ -1,8 +1,11 @@
-from models import PersistenceEnsemble
-import visualization as viz
+import os
+import json
 import logging
 import fire
 import torch
+from models import PersistenceEnsemble
+import visualization as viz
+from datetime import datetime
 from typing import Optional, List
 
 
@@ -54,6 +57,7 @@ def main(
             path=dataset_path,
             batch_size=batch_size,
             time_horizon=th,
+            create_test_loader=(subset == "test"),
         )
 
         if create_plots:
@@ -80,12 +84,35 @@ def main(
                 pixel_coords=[32, 32],
             )
 
-        subset_crps, subset_logscore = peen.predict_on_dataset(
-            dataset=subset,
-            debug=debug,
+        subset_crps, subset_logscore, subset_logscore_dividing = (
+            peen.predict_on_dataset(
+                subset=subset,
+                debug=debug,
+                time_horizon=th,
+            )
         )
         logging.info(f"{subset} CRPS: {subset_crps}")
         logging.info(f"{subset} Logscore: {subset_logscore}")
+        logging.info(f"{subset} Logscore dividing: {subset_logscore_dividing}")
+
+        metrics_filename_suffix = f"{subset}_{time_horizon}min"
+        if debug:
+            metrics_filename_suffix += "_debug"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        metrics_filename_suffix += f"_{timestamp}"
+        mean_metrics_path = os.path.join(
+            "results",
+            f"enseble_persistence_mean_metrics_{metrics_filename_suffix}.json",
+        )
+
+        mean_metrics = {
+            "crps": subset_crps,
+            "logscore": subset_logscore,
+            "logscore_dividing": subset_logscore_dividing,
+            "quantiles": peen.quantiles,
+        }
+        with open(mean_metrics_path, "w") as f:
+            json.dump(mean_metrics, f, indent=4)
 
 
 if __name__ == "__main__":

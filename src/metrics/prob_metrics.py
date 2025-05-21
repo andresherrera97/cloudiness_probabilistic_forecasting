@@ -235,7 +235,11 @@ def collect_reliability_diagram_data(
     else:
         predicted_probs_np = predicted_probs
 
-    actual_outcomes_np = actual_outcomes.cpu().numpy()
+    if isinstance(actual_outcomes, torch.Tensor):
+        actual_outcomes_np = actual_outcomes.cpu().numpy()
+    else:
+        actual_outcomes_np = actual_outcomes
+
     B, C, H_img, W_img = predicted_probs_np.shape
 
     actual_bin_idx = int(actual_outcomes_np[0, H_img//2, W_img//2])
