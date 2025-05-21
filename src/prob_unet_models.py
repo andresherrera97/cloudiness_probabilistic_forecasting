@@ -24,7 +24,6 @@ from metrics import (
     plot_reliability_diagram_CDF,
 )
 from postprocessing.cdf_bin_preds import (
-    get_cdf_from_binned_probabilities_multidim,
     get_cdf_from_binned_probabilities_numpy
 )
 from postprocessing.transform import quantile_2_bin
@@ -281,7 +280,6 @@ def main(
             reliability_diagram=reliability_diagram,
         )
 
-        # sort qr_unet_preds to get the quantiles in order
         reliability_diagram["qr"]["cdf_values"].append(
             get_cdf_from_binned_probabilities_numpy(
                 y_value=out_frames[0, 0, 256, 256].cpu().numpy(),
