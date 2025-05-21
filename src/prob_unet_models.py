@@ -28,6 +28,7 @@ from postprocessing.cdf_bin_preds import (
     get_cdf_from_binned_probabilities_numpy
 )
 from postprocessing.transform import quantile_2_bin
+from datetime import datetime
 
 
 # Configure logging
@@ -461,6 +462,8 @@ def main(
     metrics_filename_suffix = f"{subset}_{time_horizon}min"
     if debug:
         metrics_filename_suffix += "_debug"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    metrics_filename_suffix += f"_{timestamp}"
     metrics_path = os.path.join("results", f"metrics_{metrics_filename_suffix}.json")
 
     with open(metrics_path, "w") as f:
@@ -469,14 +472,25 @@ def main(
 
     logger.info("Calculating mean metrics...")
     logger.info(f"Mean metrics for {subset} subset, time horizon: {time_horizon} min")
+    mean_metrics = {}
     for model_name, model_metrics in metrics.items():
         logger.info(f"--- {model_name} ---")
+        mean_metrics[model_name] = {}
         for metric_name, metric_values in model_metrics.items():
             if metric_values:
                 mean_value = np.mean(metric_values)
                 logger.info(f"  {metric_name}: {mean_value:.4f}")
+                mean_metrics[model_name][metric_name] = mean_value
             else:
                 logger.info(f"  {metric_name}: N/A (no values)")
+                mean_metrics[model_name][metric_name] = None
+        # Add checkpoint path for this model
+        mean_metrics[model_name]["checkpoint_path"] = models_paths.get(model_name, "N/A")
+
+    mean_metrics_path = os.path.join("results", f"mean_metrics_{metrics_filename_suffix}.json")
+    with open(mean_metrics_path, "w") as f:
+        json.dump(mean_metrics, f, indent=4)
+    logger.info(f"Mean metrics saved to {mean_metrics_path}")
 
 
 if __name__ == "__main__":
