@@ -459,6 +459,7 @@ class Downloader:
         nans_to_zero: bool = True,
         initial_hour: Optional[str] = None,
         final_hour: Optional[str] = None,
+        overwrite: bool = False,
     ):
         """
         Download and process GOES16 data for the given lat/lon region in parallel batches.
@@ -528,9 +529,8 @@ class Downloader:
             )
             if os.path.exists(summary_csv_path):
                 df = pd.read_csv(summary_csv_path)
-                if len(df) >= len(
-                    day_files
-                ):  # If all files are accounted for, skip processing
+                if (len(df) >= len(day_files)) and not overwrite:
+                    # If all files are accounted for, skip processing
                     logger.info(
                         f"Skipping {dt} - Already processed with {len(df)} entries."
                     )
