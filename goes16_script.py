@@ -15,7 +15,7 @@ import tqdm
 import pandas as pd
 
 from PIL import Image
-from typing import Optional
+from typing import Optional, Tuple
 from natsort import natsorted
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from botocore import UNSIGNED
@@ -357,7 +357,9 @@ class Downloader:
         downsample: int,
         normalize_w_cosangs: bool,
         nans_to_zero: bool,
-    ):
+        initial_hour: Optional[str],
+        final_hour: Optional[str],
+    ) -> Tuple[str, bool, Optional[float]]:
         """
         Helper function to download a single file, process it,
         and return logging info for CSV later.
@@ -371,6 +373,17 @@ class Downloader:
             t_str[9:11],
             t_str[11:13],
         )
+
+        if initial_hour is not None:
+            initial_h, initial_m = map(int, initial_hour.split(":"))
+            if (int(hh), int(mm)) < (initial_h, initial_m):
+                return f, False, None  # skip, before initial_hour
+
+        if final_hour is not None:
+            final_h, final_m = map(int, final_hour.split(":"))
+            if (int(hh), int(mm)) > (final_h, final_m):
+                return f, False, None
+
         file_dt = datetime.datetime.strptime(
             f"{dayy}/{y4} {hh}:{mm}:{ss}", "%j/%Y %H:%M:%S"
         )
@@ -444,6 +457,8 @@ class Downloader:
         downsample: int = 1,
         normalize_w_cosangs: bool = True,
         nans_to_zero: bool = True,
+        initial_hour: Optional[str] = None,
+        final_hour: Optional[str] = None,
     ):
         """
         Download and process GOES16 data for the given lat/lon region in parallel batches.
@@ -565,6 +580,8 @@ class Downloader:
                             downsample,
                             normalize_w_cosangs,
                             nans_to_zero,
+                            initial_hour,
+                            final_hour,
                             self._download_and_process_file,  # Pass your method
                         )
                         future_to_batch_idx[future] = b_idx
@@ -604,6 +621,8 @@ class Downloader:
                     downsample,
                     normalize_w_cosangs,
                     nans_to_zero,
+                    initial_hour,
+                    final_hour,
                     self._download_and_process_file,  # Pass your method
                 )
 
@@ -641,6 +660,8 @@ def _process_batch(
     downsample,
     normalize_w_cosangs,
     nans_to_zero,
+    initial_hour,
+    final_hour,
     download_and_process_fn,
 ):
     """
@@ -664,6 +685,8 @@ def _process_batch(
             downsample,
             normalize_w_cosangs,
             nans_to_zero,
+            initial_hour,
+            final_hour,
         )
         if result is not None:
             # result is a tuple (filename, is_day, pct_inp)
