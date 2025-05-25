@@ -1,8 +1,10 @@
 import os
+import fire
 import calendar
 import datetime
 import tqdm
 import numpy as np
+from pathlib import Path
 
 
 def daily_solar_angles(year: int, doy: int):
@@ -84,6 +86,24 @@ def find_nearest_pixel(REF_LAT, REF_LON, target_lat, target_lon):
     return y, x
 
 
+def print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON):
+    """Diagnostic console print for bounding box coverage."""
+    tl = (y - size // 2, x - size // 2)
+    tr = (y - size // 2, x + size // 2)
+    bl = (y + size // 2, x - size // 2)
+    br = (y + size // 2, x + size // 2)
+    print(f"(lat={lat}, lon={lon}) -> pixel (x={x}, y={y}). Region corners:")
+    print(
+        f"TL=({REF_LAT[tl]:.1f}, {REF_LON[tl]:.1f}) "
+        f"- TR=({REF_LAT[tr]:.1f}, {REF_LON[tr]:.1f})"
+    )
+    print("           |                   |")
+    print(
+        f"BL=({REF_LAT[bl]:.1f}, {REF_LON[bl]:.1f}) "
+        f"- BR=({REF_LAT[br]:.1f}, {REF_LON[br]:.1f})"
+    )
+
+
 def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True):
     """
     Return the sub-array of lat/lon plus the x,y pixel coordinates
@@ -102,19 +122,22 @@ def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True)
     c_lats = REF_LAT[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
     c_lons = REF_LON[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
 
+    if verbose:
+        print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON)
     print("Crop ready!")
     return c_lats, c_lons, x, y
 
 
-if __name__ == "__main__":
-    DATASET_PATH = "data/salto1024_all/"
-    OUTPUT_PATH = "data/salto_crop/"
-
-    # load lats and lons info
-    metadata_path = "data/goes16/metadata/FULL_DISK/"
-    lat = -31.390502
-    lon = -57.954138
-    size = 32
+def main(
+    dataset_path: str = "datasets/salto1024_all/",
+    output_path: str = "datasets/LE_Crop_64x64/",
+    metadata_path: str = "datasets/ABI_L2_CMIP_M6C02_G16/FULL_DISK/",
+    lat: float = -31.2827,
+    lon: float = -57.9181,
+    size: float = 128,
+    downsample: int = 2,
+    just_metadata: bool = True,
+):
 
     lat_path = os.path.join(metadata_path, "lat.npy")
     lon_path = os.path.join(metadata_path, "lon.npy")
@@ -133,30 +156,36 @@ if __name__ == "__main__":
     )
     del lat_data, lon_data
 
-    try:
-        os.mkdir(os.path.join(OUTPUT_PATH, "metadata"))
-    except:
-        pass
+    Path(os.path.join(output_path, "metadata")).mkdir(parents=True, exist_ok=True)
 
     print(c_lats.shape)
     print(type(c_lats))
 
-    np.save(os.path.join(OUTPUT_PATH, "metadata", "lats"), c_lats.data)
-    np.save(os.path.join(OUTPUT_PATH, "metadata", "lons"), c_lons.data)
+    if downsample > 1:
+        print("Downsampling...")
+        c_lats = c_lats[::downsample, ::downsample]
+        c_lons = c_lons[::downsample, ::downsample]
+        print(c_lats.shape)
+        print(type(c_lats))
 
-    for day in tqdm.tqdm(sorted(os.listdir(DATASET_PATH))):
-        try:
-            os.mkdir(os.path.join(OUTPUT_PATH, "CMI", day))
-            os.mkdir(os.path.join(OUTPUT_PATH, "cosangs", day))
-        except:
-            pass
-        images = os.listdir(os.path.join(DATASET_PATH, day))
+    np.save(os.path.join(output_path, "metadata", "lats"), c_lats.data)
+    np.save(os.path.join(output_path, "metadata", "lons"), c_lons.data)
+
+    if just_metadata:
+        print("Just metadata, exiting...")
+        return
+
+    for day in tqdm.tqdm(sorted(os.listdir(dataset_path))):
+        os.mkdir(os.path.join(output_path, "CMI", day))
+        os.mkdir(os.path.join(output_path, "cosangs", day))
+
+        images = os.listdir(os.path.join(dataset_path, day))
         for image in images:
             if not image.endswith(".npy"):
                 continue
             # image = YYYY_DOY_UTC_HHMMSS.npy
             planetary_reflectance = np.load(
-                os.path.join(DATASET_PATH, day, image)
+                os.path.join(dataset_path, day, image)
             )  # uint8
             # crop 32 x 32 center
             border_size = (1024 - 32) // 2
@@ -183,5 +212,9 @@ if __name__ == "__main__":
             cmi = planetary_reflectance_crop * cosangs.data
 
             # save values in respective folder
-            np.save(os.path.join(OUTPUT_PATH, "CMI", day, image), cmi)
-            np.save(os.path.join(OUTPUT_PATH, "cosangs", day, image), cosangs.data)
+            np.save(os.path.join(output_path, "CMI", day, image), cmi)
+            np.save(os.path.join(output_path, "cosangs", day, image), cosangs.data)
+
+
+if __name__ == "__main__":
+    fire.Fire(main)
