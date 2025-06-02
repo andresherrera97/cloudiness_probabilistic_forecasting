@@ -598,8 +598,9 @@ class Downloader:
             else:
                 c_lats_save = c_lats
                 c_lons_save = c_lons
-            np.save(os.path.join(outdir, "metadata", "lats.npy"), c_lats_save)
-            np.save(os.path.join(outdir, "metadata", "lons.npy"), c_lons_save)
+            np.save(os.path.join(outdir, "metadata", "lats.npy"), c_lats_save.data)
+            np.save(os.path.join(outdir, "metadata", "lons.npy"), c_lons_save.data)
+            del c_lats_save, c_lons_save
 
         # 3) Load the JSON containing {datetime-string: [list_of_files]}
         logger.info("Preparing list of files...")
