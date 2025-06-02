@@ -552,6 +552,7 @@ class Downloader:
         initial_hour: Optional[str] = None,
         final_hour: Optional[str] = None,
         overwrite: bool = False,
+        save_crop_metadata: bool = False,
     ):
         """
         Download and process GOES16 data for the given lat/lon region in parallel batches.
@@ -587,6 +588,19 @@ class Downloader:
             lat, lon, lat_data, lon_data, size, verbose
         )
         del lat_data, lon_data
+        if save_crop_metadata:
+            # Save the lat/lon arrays for this crop
+            # make directory if it doesn't exist
+            os.makedirs(os.path.join(outdir, "metadata"), exist_ok=True)
+            if downsample > 1:
+                c_lats_save = c_lats[::downsample, ::downsample]
+                c_lons_save = c_lons[::downsample, ::downsample]
+            else:
+                c_lats_save = c_lats
+                c_lons_save = c_lons
+            np.save(os.path.join(outdir, "metadata", "lats.npy"), c_lats_save)
+            np.save(os.path.join(outdir, "metadata", "lons.npy"), c_lons_save)
+
         # 3) Load the JSON containing {datetime-string: [list_of_files]}
         logger.info("Preparing list of files...")
         if not os.path.exists(files_per_date_path):
