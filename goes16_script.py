@@ -1,5 +1,4 @@
 import os
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 import time
 import json
 import tempfile
@@ -13,13 +12,15 @@ import rasterio
 import cv2
 import tqdm
 import pandas as pd
+import matplotlib.pyplot as plt
 
 from PIL import Image
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from natsort import natsorted
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from botocore import UNSIGNED
 from botocore.config import Config
+from matplotlib.path import Path
 
 import warnings
 from rasterio.errors import NotGeoreferencedWarning
@@ -231,13 +232,97 @@ def find_nearest_pixel(REF_LAT, REF_LON, target_lat, target_lon):
     return y, x
 
 
-def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True):
+def is_point_in_quad_mpl(
+    point: Tuple[float, float], quad_points: List[Tuple[float, float]]
+) -> bool:
+    """
+    Checks if a point is inside a quadrilateral using matplotlib.path.
+
+    Args:
+        point (tuple): A tuple (lon, lat) representing the target point.
+                       Note: It's often easier to think in (x, y) -> (lon, lat).
+        quad_points (list): A list of four (lon, lat) tuples defining
+                            the quadrilateral vertices in order (clockwise or
+                            counter-clockwise).
+
+    Returns:
+        bool: True if the point is inside or on the boundary, False otherwise.
+    """
+    # Ensure the polygon is closed by adding the first point to the end
+    polygon_vertices = quad_points + [quad_points[0]]
+    path = Path(polygon_vertices)
+
+    # contains_point checks if the point is inside
+    return path.contains_point(point)
+
+
+def plot_centered_square(
+    lat: float, lon: float, size: int, c_lats: np.ndarray, c_lons: np.ndarray
+) -> None:
+    row = size // 2 - 1  # Center of the crop
+    column = size // 2 - 1  # Center of the crop
+    box_size = 2  # 2x2 box
+
+    lat_box_0 = c_lats[row : row + box_size, column : column + box_size]
+    lon_box_0 = c_lons[row : row + box_size, column : column + box_size]
+
+    corner_lons = [
+        lon_box_0[0, 0],
+        lon_box_0[0, -1],
+        lon_box_0[-1, -1],
+        lon_box_0[-1, 0],
+        lon_box_0[0, 0],
+    ]
+    corner_lats = [
+        lat_box_0[0, 0],
+        lat_box_0[0, -1],
+        lat_box_0[-1, -1],
+        lat_box_0[-1, 0],
+        lat_box_0[0, 0],
+    ]
+
+    plt.title("Center of the crop")
+    plt.xlabel("Longitude (deg)")
+    plt.ylabel("Latitude (deg)")
+    plt.plot(lon, lat, "ro", markersize=8, markeredgecolor="black", markeredgewidth=2)
+    plt.plot(corner_lons, corner_lats, "r-", linewidth=2)  # Red square line
+    plt.show()
+
+
+def convert_coordinates_to_pixel(
+    lat: float,
+    lon: float,
+    REF_LAT: np.ndarray,
+    REF_LON: np.ndarray,
+    size: int,
+    verbose: bool = True,
+    show_plots: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, int, int]:
     """
     Return the sub-array of lat/lon plus the x,y pixel coordinates
     that correspond to the requested lat/lon center.
     """
     logger.info("Preparing to crop...")
     y, x = find_nearest_pixel(REF_LAT, REF_LON, lat, lon)
+    logger.info(
+        f"nearest lat {REF_LAT[y, x]:.4f}, lon {REF_LON[y, x]:.4f} at pixel (x={x}, y={y})"
+    )
+
+    if REF_LAT[y, x] > lat:
+        y += 1
+    if REF_LON[y, x] < lon:
+        x += 1
+
+    assert size % 2 == 0, "Size must be even for centering."
+    assert is_point_in_quad_mpl(
+        (lat, lon),
+        [
+            (REF_LAT[y - 1, x - 1], REF_LON[y - 1, x - 1]),
+            (REF_LAT[y, x - 1], REF_LON[y, x - 1]),
+            (REF_LAT[y, x], REF_LON[y, x]),
+            (REF_LAT[y - 1, x], REF_LON[y - 1, x]),
+        ],
+    ), "Point is not within the quadrilateral defined by the lat/lon grid."
 
     # check coverage
     if x - size // 2 < 0 or y - size // 2 < 0:
@@ -248,6 +333,9 @@ def convert_coordinates_to_pixel(lat, lon, REF_LAT, REF_LON, size, verbose=True)
     logger.info("Cropping...")
     c_lats = REF_LAT[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
     c_lons = REF_LON[y - size // 2 : y + size // 2, x - size // 2 : x + size // 2]
+
+    if show_plots:
+        plot_centered_square(lat, lon, size, c_lats, c_lons)
 
     if verbose:
         print_coordinates_square(x, y, lat, lon, size, REF_LAT, REF_LON)
@@ -298,7 +386,9 @@ class Downloader:
 
         CMI = read_data("CMI")
         DQF = read_data("DQF")
-        if (isinstance(CMI, str) and (CMI == "error")) or (isinstance(DQF,str) and (DQF == "error")):
+        if (isinstance(CMI, str) and (CMI == "error")) or (
+            isinstance(DQF, str) and (DQF == "error")
+        ):
             return "error"
         if verbose:
             logger.info(f"Downloaded crop from {f}")
@@ -311,7 +401,7 @@ class Downloader:
         cosangs: np.ndarray,
         downsample: int = 1,
         normalize_w_cosangs: bool = True,
-        nans_to_zero: bool = True
+        nans_to_zero: bool = True,
     ) -> np.ndarray:
         """
         1) Inpaint using DQF mask, 2) normalize, 3) clip to [0,1], 4) float16.
@@ -403,7 +493,9 @@ class Downloader:
         if isinstance(cmi_dqf_crop, str) and (cmi_dqf_crop == "error"):
             return f, True, None  # error -> skip (with inpainting_pct = None)
         # 4) Process (inpaint, normalize, clip)
-        pr, pct_inp = self.crop_processing(cmi_dqf_crop, cosangs, downsample, normalize_w_cosangs, nans_to_zero)
+        pr, pct_inp = self.crop_processing(
+            cmi_dqf_crop, cosangs, downsample, normalize_w_cosangs, nans_to_zero
+        )
 
         # 5) Save results
         out_fname = f"{y4}_{dayy}_UTC_{hh}{mm}{ss}"
@@ -495,7 +587,6 @@ class Downloader:
             lat, lon, lat_data, lon_data, size, verbose
         )
         del lat_data, lon_data
-
         # 3) Load the JSON containing {datetime-string: [list_of_files]}
         logger.info("Preparing list of files...")
         if not os.path.exists(files_per_date_path):
