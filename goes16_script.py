@@ -888,6 +888,7 @@ class Listing:
         end_date: Optional[str] = None,
         output_path: str = "dataset/to_download.json",
         num_workers: int = 8,
+        start_year: int = 2019,
     ):
         """
         Return a dictionary mapping datetime -> list of S3 keys for that day.
@@ -916,7 +917,7 @@ class Listing:
                     self._get_day_filenames, s3_client, dt.timetuple().tm_yday, dt.year
                 ): dt
                 for dt in date_range
-                if 2019
+                if start_year
                 <= dt.year
                 <= datetime.datetime.now().year  # Skip out-of-range years
             }
