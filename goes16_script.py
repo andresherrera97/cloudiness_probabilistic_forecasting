@@ -421,7 +421,12 @@ class Downloader:
             pr = CMI_DQF_crop[0]
 
         if downsample > 1:
-            pr = pr[::downsample, ::downsample]
+            pr = pr.astype(np.float32)  # Ensure float32 before resizing
+            pr = cv2.resize(
+                pr,
+                (pr.shape[1] // downsample, pr.shape[0] // downsample),
+                interpolation=cv2.INTER_LINEAR,
+            )
 
         # Step 3: remove nans and clip
         if nans_to_zero:
@@ -593,8 +598,18 @@ class Downloader:
             # make directory if it doesn't exist
             os.makedirs(os.path.join(outdir, "metadata"), exist_ok=True)
             if downsample > 1:
-                c_lats_save = c_lats[::downsample, ::downsample]
-                c_lons_save = c_lons[::downsample, ::downsample]
+                # c_lats_save = c_lats[::downsample, ::downsample]
+                c_lats_save = cv2.resize(
+                    c_lats,
+                    (c_lats.shape[1] // downsample, c_lats.shape[0] // downsample),
+                    interpolation=cv2.INTER_LINEAR,
+                )
+                # c_lons_save = c_lons[::downsample, ::downsample]
+                c_lons_save = cv2.resize(
+                    c_lons,
+                    (c_lons.shape[1] // downsample, c_lons.shape[0] // downsample),
+                    interpolation=cv2.INTER_LINEAR,
+                )
             else:
                 c_lats_save = c_lats
                 c_lons_save = c_lons
