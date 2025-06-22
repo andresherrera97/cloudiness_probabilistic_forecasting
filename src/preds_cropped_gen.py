@@ -36,7 +36,7 @@ def generate_real_dataset(
     move_crop_center: bool = True,
     crop_size: int = 64,
     image_size: int = 512,
-    output_path: str = "datasets/les/target_[subset]_crop_64x64_MR/PR/",
+    output_path: str = "predictions/les/target_[subset]_crop_64x64_MR/PR/",
 ) -> None:
     output_path = output_path.replace("[subset]", subset)
     sequence_df = utils.sequence_df_generator_folders(
@@ -121,7 +121,7 @@ def main(
             move_crop_center=move_crop_center,
             crop_size=64,
             image_size=512,
-            output_path="predictions/les/target_crop_64x64_MR/PR/",
+            output_path="predictions/les/target_[subset]_crop_64x64_MR/PR/",
         )
         return
 
