@@ -10,25 +10,35 @@ class CloudMotionVector:
     def __init__(
         self,
         dcfg=None,
+        method: str = "tvl1",
         device: str = "cpu",
         n_quantiles: int = 9,
         angle_noise_std: int = 15,
         magnitude_noise_std: float = 4 / (60 * 60),
     ):
-        # Load configuration
-        if dcfg is None:
-            stream = open("src/les-prono/admin_scripts/config.yaml", "r")
-            self.dcfg = yaml.load(stream, yaml.FullLoader)  # dict
-        else:
-            self.dcfg = dcfg
+        method = method.lower()
+        if method not in ["tvl1", "farneback"]:
+            raise ValueError(
+                f"Method {method} not recognized. Use 'tvl1' or 'farneback'."
+            )
+        self.method = method
+        if method == "farneback":
+            # Load configuration
+            if dcfg is None:
+                stream = open("src/les-prono/admin_scripts/config.yaml", "r")
+                self.dcfg = yaml.load(stream, yaml.FullLoader)  # dict
+            else:
+                self.dcfg = dcfg
 
-        self.cmvcfg = self.dcfg["algorithm"]["cmv"]
-        self.pyr_scale = self.cmvcfg["pyr_scale"]
-        self.levels = self.cmvcfg["levels"]
-        self.winsize = self.cmvcfg["winsize"]
-        self.iterations = self.cmvcfg["iterations"]
-        self.poly_n = self.cmvcfg["poly_n"]
-        self.poly_sigma = self.cmvcfg["poly_sigma"]
+            self.cmvcfg = self.dcfg["algorithm"]["cmv"]
+            self.pyr_scale = self.cmvcfg["pyr_scale"]
+            self.levels = self.cmvcfg["levels"]
+            self.winsize = self.cmvcfg["winsize"]
+            self.iterations = self.cmvcfg["iterations"]
+            self.poly_n = self.cmvcfg["poly_n"]
+            self.poly_sigma = self.cmvcfg["poly_sigma"]
+        elif method == "tvl1":
+            self.tvl1 = cv2.optflow.createOptFlow_DualTVL1()
 
         # Add noise parameters to configuration
         self.magnitude_noise_std = magnitude_noise_std  # 2km/h speed noise, 0,5km resolution -> 4/3600 pixels/s noise
@@ -40,7 +50,7 @@ class CloudMotionVector:
         self.device = device
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
 
-    def predict(
+    def predict_farneback(
         self,
         imgi: np.ndarray,
         imgf: np.ndarray,
@@ -106,6 +116,82 @@ class CloudMotionVector:
             base_img = next_img
 
         return np.array(predictions)
+
+    def predict_tvl1(
+        self,
+        imgi: np.ndarray,
+        imgf: np.ndarray,
+        period: int,
+        time_step: int,
+        time_horizon: int,
+    ) -> np.ndarray:
+        """
+        Warps an image using the calculated optical flow to predict the next image.
+
+        Args:
+            image: The source image (grayscale, float32).
+            flow: The calculated optical flow field.
+
+        Returns:
+            The predicted next image.
+        """
+        flow = self.tvl1.calc(imgi, imgf, None)
+
+        # Create a grid of coordinates corresponding to the image shape
+        h, w = imgf.shape[:2]
+        x_coords, y_coords = np.meshgrid(np.arange(w), np.arange(h))
+
+        # The new map is the original coordinates + the flow vectors
+        map_x = (x_coords + flow[..., 0]).astype(np.float32)
+        map_y = (y_coords + flow[..., 1]).astype(np.float32)
+
+        # Use remap to warp the image
+        # cv2.INTER_LINEAR provides smooth interpolation
+        base_img = imgf  # base_img imagen a la que le voy a aplicar el campo
+        predictions = []
+
+        num_steps = time_horizon // time_step
+
+        for _ in range(num_steps):
+
+            next_img = cv2.remap(
+                base_img,
+                map_x,
+                map_y,
+                cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_CONSTANT,
+                borderValue=np.nan,  # fill value for moving borders
+            )
+
+            predictions.append(next_img)
+            base_img = next_img
+
+        return np.array(predictions)
+
+    def predict(
+        self,
+        imgi: np.ndarray,
+        imgf: np.ndarray,
+        period: int,
+        time_step: int,
+        time_horizon: int,
+    ) -> np.ndarray:
+        """Predicts next image using openCV optical Flow
+
+        Args:
+            imgi (numpy.ndarray): first image used for prediction
+            imgf (numpy.ndarray): last image used for prediction
+            period (int): time difference between imgi and imgf in seconds
+            time_step (int): time passed between imgf and predicted image in seconds
+            time_horizon (int): Length of the prediction horizon (Cuantity of images returned)
+
+        Returns:
+            [Numpy array]: Numpy array with predicted images
+        """
+        if self.method == "farneback":
+            return self.predict_farneback(imgi, imgf, period, time_step, time_horizon)
+        elif self.method == "tvl1":
+            return self.predict_tvl1(imgi, imgf, period, time_step, time_horizon)
 
     def add_noise_to_vectors_CLAUDE(self, cmv):
         """

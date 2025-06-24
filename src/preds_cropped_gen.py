@@ -12,7 +12,7 @@ import utils.utils as utils
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("Train Script")
+logger = logging.getLogger("Generate Crop Dataset Script")
 
 
 def get_checkpoint_path(time_horizon: int) -> str:
