@@ -74,9 +74,11 @@ def main(
         in_img_2_path = os.path.join(path_to_dataset, row[2])
         target_img_path = os.path.join(path_to_dataset, row[sequence_df.columns[-1]])
 
-        in_img_1 = np.load(in_img_1_path, allow_pickle=True)
-        in_img_2 = np.load(in_img_2_path, allow_pickle=True)
-        target_img = np.load(target_img_path, allow_pickle=True)
+        in_img_1 = np.load(in_img_1_path, allow_pickle=True).astype(np.float32) / 255
+        in_img_2 = np.load(in_img_2_path, allow_pickle=True).astype(np.float32) / 255
+        target_img = (
+            np.load(target_img_path, allow_pickle=True).astype(np.float32) / 255
+        )
 
         # Calculate the optical flow using TV-L1
         prediction = cmv_tvl1.predict(
@@ -91,11 +93,11 @@ def main(
 
         if save_crop_dataset:
             pred_crop = prediction[-1, crop_start_y:crop_end_y, crop_start_x:crop_end_x]
-            pred_crop = pred_crop.astype(np.float16) / 255.0
+            pred_crop = pred_crop.astype(np.float16)
             output_filename = os.path.join(output_path, day_folder, output_filename)
             np.save(output_filename, pred_crop)
 
-    logger.info(f"Mean error across all predictions: {np.mean(mean_error) / 255.0:.4f}")
+    logger.info(f"Mean error across all predictions: {np.mean(mean_error):.4f}")
 
 
 if __name__ == "__main__":
