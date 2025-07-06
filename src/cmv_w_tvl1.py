@@ -4,7 +4,7 @@ import logging
 import numpy as np
 from models import CloudMotionVector
 import utils.utils as utils
-
+from typing import Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +21,15 @@ def main(
     output_path: str = "predictions/les/cmv_pred_crop_64x64_MR/PR/",
     save_crop_dataset: bool = True,
     cmv_method: str = "tvl1",
+    start_folder: Optional[str] = None,
 ):
+    if start_folder.split("_")[0] not in ["2020", "2021", "2022", "2023", "2024", "2025"]:
+        raise ValueError("start_folder must start with a valid year (e.g., 2020, 2021, etc.)")
+    if not 0 <= int(start_folder.split("_")[1]) <= 366:
+        raise ValueError("start_folder must have a valid day of the year (1-366)")
+    start_year = int(start_folder.split("_")[0])
+    start_doy = int(start_folder.split("_")[1])
+
     # Ensure the output directory exists
     os.makedirs(output_path, exist_ok=True)
     path_to_dataset = f"{dataset_path}/{subset}/"
@@ -66,6 +74,12 @@ def main(
 
     for _, row in sequence_df.iterrows():
         day_folder = row[sequence_df.columns[-1]].split("/")[0]
+        year = int(day_folder.split("_")[0])
+        doy = int(day_folder.split("_")[1])
+        if start_folder is not None:
+            if (year < start_year) or (year == start_year and doy < start_doy):
+                continue
+
         os.makedirs(os.path.join(output_path, day_folder), exist_ok=True)
         output_filename = row[sequence_df.columns[-1]].split("/")[-1]
 
