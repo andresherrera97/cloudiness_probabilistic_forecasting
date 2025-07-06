@@ -24,9 +24,9 @@ def main(
     start_year: Optional[int] = None,
     start_doy: Optional[int] = None,
 ):
-    if start_year is not None and 2019 <= start_year <= 2025:
+    if start_year is not None and not (2019 <= start_year <= 2025):
         raise ValueError(f"start_year not accepted: {start_year}. Must be None or outside the range 2019-2025.")
-    if start_doy is not None and not 0 <= start_doy <= 366:
+    if start_doy is not None and not (0 <= start_doy <= 366):
         raise ValueError(f"start_doy not accepted: {start_doy}. Must be None or between 0 and 366.")
 
     # Ensure the output directory exists
