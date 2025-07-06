@@ -25,9 +25,9 @@ def main(
     start_doy: Optional[int] = None,
 ):
     if start_year is not None and 2019 <= start_year <= 2025:
-        raise ValueError("start_folder must start with a valid year (e.g., 2020, 2021, etc.)")
+        raise ValueError(f"start_year not accepted: {start_year}. Must be None or outside the range 2019-2025.")
     if start_doy is not None and not 0 <= start_doy <= 366:
-        raise ValueError("start_folder must have a valid day of the year (1-366)")
+        raise ValueError(f"start_doy not accepted: {start_doy}. Must be None or between 0 and 366.")
 
     # Ensure the output directory exists
     os.makedirs(output_path, exist_ok=True)
