@@ -24,7 +24,7 @@ def main(
     start_year: Optional[int] = None,
     start_doy: Optional[int] = None,
 ):
-    if start_year is not None and start_year not in ["2020", "2021", "2022", "2023", "2024", "2025"]:
+    if start_year is not None and 2019 <= start_year <= 2025:
         raise ValueError("start_folder must start with a valid year (e.g., 2020, 2021, etc.)")
     if start_doy is not None and not 0 <= start_doy <= 366:
         raise ValueError("start_folder must have a valid day of the year (1-366)")
