@@ -21,14 +21,13 @@ def main(
     output_path: str = "predictions/les/cmv_pred_crop_64x64_MR/PR/",
     save_crop_dataset: bool = True,
     cmv_method: str = "tvl1",
-    start_folder: Optional[str] = None,
+    start_year: Optional[int] = None,
+    start_doy: Optional[int] = None,
 ):
-    if start_folder.split("_")[0] not in ["2020", "2021", "2022", "2023", "2024", "2025"]:
+    if start_year is not None and start_year not in ["2020", "2021", "2022", "2023", "2024", "2025"]:
         raise ValueError("start_folder must start with a valid year (e.g., 2020, 2021, etc.)")
-    if not 0 <= int(start_folder.split("_")[1]) <= 366:
+    if start_doy is not None and not 0 <= start_doy <= 366:
         raise ValueError("start_folder must have a valid day of the year (1-366)")
-    start_year = int(start_folder.split("_")[0])
-    start_doy = int(start_folder.split("_")[1])
 
     # Ensure the output directory exists
     os.makedirs(output_path, exist_ok=True)
@@ -76,7 +75,7 @@ def main(
         day_folder = row[sequence_df.columns[-1]].split("/")[0]
         year = int(day_folder.split("_")[0])
         doy = int(day_folder.split("_")[1])
-        if start_folder is not None:
+        if start_doy is not None and start_year is not None:
             if (year < start_year) or (year == start_year and doy < start_doy):
                 continue
 
