@@ -5,6 +5,7 @@ import numpy as np
 from models import CloudMotionVector
 import utils.utils as utils
 from typing import Optional
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +71,7 @@ def main(
     cmv_tvl1 = CloudMotionVector(method=cmv_method)
 
     mean_error = []
+    time_list = []
 
     for _, row in sequence_df.iterrows():
         day_folder = row[sequence_df.columns[-1]].split("/")[0]
@@ -94,6 +96,7 @@ def main(
         )
 
         # Calculate the optical flow using TV-L1
+        start_time = time.time()
         prediction = cmv_tvl1.predict(
             imgi=in_img_1,
             imgf=in_img_2,
@@ -101,6 +104,8 @@ def main(
             time_step=10,
             time_horizon=time_horizon,
         )
+        elapsed_time = time.time() - start_time
+        time_list.append(elapsed_time)
 
         mean_error.append(np.nanmean(np.abs(prediction[-1] - target_img)))
 
@@ -111,6 +116,8 @@ def main(
             np.save(output_filename, pred_crop)
 
     logger.info(f"Mean error across all predictions: {np.mean(mean_error):.4f}")
+    logger.info(f"Total time taken for predictions: {np.sum(time_list):.2f} seconds")
+    logger.info(f"Average time per prediction: {np.mean(time_list):.2f} seconds")
 
 
 if __name__ == "__main__":
