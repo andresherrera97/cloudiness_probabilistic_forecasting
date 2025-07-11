@@ -43,7 +43,7 @@ class CloudMotionVector:
             # print(f"get lambda: {self.tvl1.getLambda()}")  # 0.15
             # print(f"get tau: {self.tvl1.getTau()}")
             # print(f"get theta: {self.tvl1.getTheta()}")
-            # print(f"get scales number: {self.tvl1.getScalesNumber()}")
+            # print(f"get scales number: {self.tvl1.getScalesNumber()}")  # 5
             # Speed up TV-L1 by reducing the number of scales and warps
             self.tvl1.setScalesNumber(2)  # default is 5, lower is faster
             self.tvl1.setWarpingsNumber(1)  # default is 5, lower is faster
