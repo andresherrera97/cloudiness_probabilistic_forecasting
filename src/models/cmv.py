@@ -45,12 +45,17 @@ class CloudMotionVector:
             # print(f"get theta: {self.tvl1.getTheta()}")
             # print(f"get scales number: {self.tvl1.getScalesNumber()}")  # 5
             # Speed up TV-L1 by reducing the number of scales and warps
-            self.tvl1.setScalesNumber(2)  # default is 5, lower is faster
-            self.tvl1.setWarpingsNumber(1)  # default is 5, lower is faster
-            self.tvl1.setOuterIterations(20)  # default is 30, lower is faster
-            self.tvl1.setEpsilon(0.05)  # default is 0.01, higher is faster
+            # self.tvl1.setScalesNumber(2)  # default is 5, lower is faster
+            # self.tvl1.setWarpingsNumber(1)  # default is 5, lower is faster
+            # self.tvl1.setOuterIterations(20)  # default is 30, lower is faster
+            # self.tvl1.setEpsilon(0.05)  # default is 0.01, higher is faster
+            # # Values Set in LES paper for optimal performance
             self.tvl1.setLambda(0.055)  # default is 0.15, lower is faster
             self.tvl1.setScalesNumber(6)
+            
+            # original time: 0,74 per pred
+            # with optimal values from paper: 0,51 per pred
+            # with optimal values and other optimizations: 0,04 per pred
 
         # Add noise parameters to configuration
         self.magnitude_noise_std = magnitude_noise_std  # 2km/h speed noise, 0,5km resolution -> 4/3600 pixels/s noise
