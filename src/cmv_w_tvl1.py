@@ -1,11 +1,11 @@
 import os
 import fire
+import time
 import logging
 import numpy as np
 from models import CloudMotionVector
 import utils.utils as utils
 from typing import Optional
-import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,9 +26,13 @@ def main(
     start_doy: Optional[int] = None,
 ):
     if start_year is not None and not (2019 <= start_year <= 2025):
-        raise ValueError(f"start_year not accepted: {start_year}. Must be None or outside the range 2019-2025.")
+        raise ValueError(
+            f"start_year not accepted: {start_year}. Must be None or outside the range 2019-2025."
+        )
     if start_doy is not None and not (0 <= start_doy <= 366):
-        raise ValueError(f"start_doy not accepted: {start_doy}. Must be None or between 0 and 366.")
+        raise ValueError(
+            f"start_doy not accepted: {start_doy}. Must be None or between 0 and 366."
+        )
 
     # Ensure the output directory exists
     os.makedirs(output_path, exist_ok=True)
@@ -71,6 +75,9 @@ def main(
     cmv_tvl1 = CloudMotionVector(method=cmv_method)
 
     mean_error = []
+    mse = []
+    mbe = []
+
     time_list = []
 
     for _, row in sequence_df.iterrows():
@@ -108,6 +115,8 @@ def main(
         time_list.append(elapsed_time)
 
         mean_error.append(np.nanmean(np.abs(prediction[-1] - target_img)))
+        mse.append(np.nanmean((prediction[-1] - target_img) ** 2))
+        mbe.append(np.nanmean(prediction[-1] - target_img))
 
         if save_crop_dataset:
             pred_crop = prediction[-1, crop_start_y:crop_end_y, crop_start_x:crop_end_x]
@@ -115,7 +124,9 @@ def main(
             output_filename = os.path.join(output_path, day_folder, output_filename)
             np.save(output_filename, pred_crop)
 
-    logger.info(f"Mean error across all predictions: {np.mean(mean_error):.4f}")
+    logger.info(f"Mean error across all predictions: {np.mean(mean_error)}")
+    logger.info(f"RMSE across all predictions: {np.sqrt(np.mean(mse))}")
+    logger.info(f"MBE across all predictions: {np.mean(mbe)}")
     logger.info(f"Total time taken for predictions: {np.sum(time_list):.2f} seconds")
     logger.info(f"Average time per prediction: {np.mean(time_list):.2f} seconds")
 
