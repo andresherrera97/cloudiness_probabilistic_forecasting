@@ -4,7 +4,6 @@ import multiprocessing
 import fire
 import logging
 import numpy as np
-import matplotlib.pyplot as plt
 
 from models import DeterministicUNet, UNetConfig
 import utils.utils as utils
@@ -62,36 +61,27 @@ def generate_real_dataset(
         crop_end_x = crop_end
         crop_start_y = crop_start
         crop_end_y = crop_end
+
     logger.info(f"Crop size: {crop_size}")
     logger.info(f"Crop start_x: {crop_start_x}, Crop end_x: {crop_end_x}")
     logger.info(f"Crop start_y: {crop_start_y}, Crop end_y: {crop_end_y}")
+
     for _, row in sequence_df.iterrows():
         day_folder = row[sequence_df.columns[-1]].split("/")[0]
-        os.makedirs(
-            os.path.join(output_path, day_folder),
-            exist_ok=True
-        )
+        os.makedirs(os.path.join(output_path, day_folder), exist_ok=True)
         output_filename = row[sequence_df.columns[-1]].split("/")[-1]
 
         target_img_path = os.path.join(path_to_dataset, row[sequence_df.columns[-1]])
-        target_img = np.load(target_img_path, allow_pickle=True).astype(np.float16) / 255.0
+        target_img = (
+            np.load(target_img_path, allow_pickle=True).astype(np.float16) / 255.0
+        )
 
-        # plt.imshow(pred.squeeze().cpu().detach().numpy() * 255, cmap="gray")
-        # plt.axis("off")
-        # plt.show()
-
-        targer_crop = (
+        target_crop = (
             target_img[crop_start_y:crop_end_y, crop_start_x:crop_end_x]
         ).astype(np.float16)
 
-        # plt.imshow(pred_crop, cmap="gray")
-        # plt.axis("off")
-        # plt.show()
-
-        output_filename = os.path.join(
-            output_path, day_folder, output_filename
-        )
-        np.save(output_filename, targer_crop)
+        output_filename = os.path.join(output_path, day_folder, output_filename)
+        np.save(output_filename, target_crop)
 
 
 def main(
@@ -102,6 +92,7 @@ def main(
     image_size: int = 512,
     move_crop_center: bool = True,
     output_path: str = "predictions/les/pred_crop_64x64_MR/PR/",
+    save_crop_dataset: bool = True,
 ) -> None:
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     logger.info(f"Using device: {device}")
@@ -171,17 +162,19 @@ def main(
     logger.info(f"Crop start_x: {crop_start_x}, Crop end_x: {crop_end_x}")
     logger.info(f"Crop start_y: {crop_start_y}, Crop end_y: {crop_end_y}")
 
+    mean_error = []
+    mse = []
+    mbe = []
+
     for _, row in sequence_df.iterrows():
         day_folder = row[sequence_df.columns[-1]].split("/")[0]
-        os.makedirs(
-            os.path.join(output_path, day_folder),
-            exist_ok=True
-        )
+        os.makedirs(os.path.join(output_path, day_folder), exist_ok=True)
         output_filename = row[sequence_df.columns[-1]].split("/")[-1]
 
         in_img_0_path = os.path.join(path_to_dataset, row[0])
         in_img_1_path = os.path.join(path_to_dataset, row[1])
         in_img_2_path = os.path.join(path_to_dataset, row[2])
+        target_img_path = os.path.join(path_to_dataset, row[sequence_df.columns[-1]])
 
         in_img_0 = torch.from_numpy(
             np.load(in_img_0_path, allow_pickle=True).astype(np.float16) / 255.0
@@ -192,28 +185,34 @@ def main(
         in_img_2 = torch.from_numpy(
             np.load(in_img_2_path, allow_pickle=True).astype(np.float16) / 255.0
         ).to(device)
+        target_img = (
+            np.load(target_img_path, allow_pickle=True).astype(np.float16) / 255.0
+        )
 
         in_img_0 = in_img_0.unsqueeze(0).unsqueeze(0)
         in_img_1 = in_img_1.unsqueeze(0).unsqueeze(0)
         in_img_2 = in_img_2.unsqueeze(0).unsqueeze(0)
         input_images = torch.cat((in_img_0, in_img_1, in_img_2), dim=1)
-        pred = unet.model(input_images.float())
-        # plt.imshow(pred.squeeze().cpu().detach().numpy() * 255, cmap="gray")
-        # plt.axis("off")
-        # plt.show()
+        pred = unet.model(input_images.float()).cpu().detach().numpy()
 
-        pred_crop = (
-            pred[0, 0, crop_start_y:crop_end_y, crop_start_x:crop_end_x].cpu().detach().numpy()
-        ).astype(np.float16)
+        mean_error.append(np.nanmean(np.abs(pred[0, 0] - target_img)))
+        mse.append(np.nanmean((pred[0, 0] - target_img) ** 2))
+        mbe.append(np.nanmean(pred[0, 0] - target_img))
 
-        # plt.imshow(pred_crop, cmap="gray")
-        # plt.axis("off")
-        # plt.show()
+        if save_crop_dataset:
+            pred_crop = (
+                pred[0, 0, crop_start_y:crop_end_y, crop_start_x:crop_end_x]
+                .cpu()
+                .detach()
+                .numpy()
+            ).astype(np.float16)
 
-        output_filename = os.path.join(
-            output_path, day_folder, output_filename
-        )
-        np.save(output_filename, pred_crop)
+            output_filename = os.path.join(output_path, day_folder, output_filename)
+            np.save(output_filename, pred_crop)
+
+    logger.info(f"Mean error across all predictions: {np.mean(mean_error)}")
+    logger.info(f"RMSE across all predictions: {np.sqrt(np.mean(mse))}")
+    logger.info(f"MBE across all predictions: {np.mean(mbe)}")
 
 
 if __name__ == "__main__":
