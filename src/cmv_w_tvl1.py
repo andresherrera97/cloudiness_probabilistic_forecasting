@@ -105,6 +105,7 @@ def main(
         target_img = (
             np.load(target_img_path, allow_pickle=True).astype(np.float32)
         )
+        target_img = target_img / 255  # Normalize target image to [0, 1]
 
         # Calculate the optical flow using TV-L1
         start_time = time.time()
@@ -116,22 +117,23 @@ def main(
             time_step=10,
             time_horizon=time_horizon,
         )
-
+        prediction = prediction[-1] / 255  # Normalize prediction to [0, 1]
         elapsed_time = time.time() - start_time
         time_list.append(elapsed_time)
 
-        mean_error.append(np.nanmean(np.abs(prediction[-1] - target_img)))
-        mse.append(np.nanmean((prediction[-1] - target_img) ** 2))
-        mbe.append(np.nanmean(prediction[-1] - target_img))
+        mean_error.append(np.nanmean(np.abs(prediction - target_img)))
+        mse.append(np.nanmean((prediction - target_img) ** 2))
+        mbe.append(np.nanmean(prediction - target_img))
 
+        persistence_prediction = in_img_2 / 255  # Normalize persistence prediction to [0, 1]
         persistence_mean_error.append(
-            np.nanmean(np.abs(in_img_2 - target_img))
+            np.nanmean(np.abs(persistence_prediction - target_img))
         )
-        persistence_mse.append(np.nanmean((in_img_2 - target_img) ** 2))
-        persistence_mbe.append(np.nanmean(in_img_2 - target_img))
+        persistence_mse.append(np.nanmean((persistence_prediction - target_img) ** 2))
+        persistence_mbe.append(np.nanmean(persistence_prediction - target_img))
 
         if save_crop_dataset:
-            pred_crop = prediction[-1, crop_start_y:crop_end_y, crop_start_x:crop_end_x]
+            pred_crop = prediction[crop_start_y:crop_end_y, crop_start_x:crop_end_x]
             pred_crop = pred_crop.astype(np.float16)
             output_filename = os.path.join(output_path, day_folder, output_filename)
             np.save(output_filename, pred_crop)
