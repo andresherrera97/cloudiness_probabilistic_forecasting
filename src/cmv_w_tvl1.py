@@ -78,6 +78,10 @@ def main(
     mse = []
     mbe = []
 
+    persistence_mean_error = []
+    persistence_mse = []
+    persistence_mbe = []
+
     time_list = []
 
     for _, row in sequence_df.iterrows():
@@ -96,14 +100,15 @@ def main(
         in_img_2_path = os.path.join(path_to_dataset, row[2])
         target_img_path = os.path.join(path_to_dataset, row[sequence_df.columns[-1]])
 
-        in_img_1 = np.load(in_img_1_path, allow_pickle=True).astype(np.float32) / 255
-        in_img_2 = np.load(in_img_2_path, allow_pickle=True).astype(np.float32) / 255
+        in_img_1 = np.load(in_img_1_path, allow_pickle=True).astype(np.float32)
+        in_img_2 = np.load(in_img_2_path, allow_pickle=True).astype(np.float32)
         target_img = (
-            np.load(target_img_path, allow_pickle=True).astype(np.float32) / 255
+            np.load(target_img_path, allow_pickle=True).astype(np.float32)
         )
 
         # Calculate the optical flow using TV-L1
         start_time = time.time()
+
         prediction = cmv_tvl1.predict(
             imgi=in_img_1,
             imgf=in_img_2,
@@ -111,6 +116,7 @@ def main(
             time_step=10,
             time_horizon=time_horizon,
         )
+
         elapsed_time = time.time() - start_time
         time_list.append(elapsed_time)
 
@@ -118,17 +124,27 @@ def main(
         mse.append(np.nanmean((prediction[-1] - target_img) ** 2))
         mbe.append(np.nanmean(prediction[-1] - target_img))
 
+        persistence_mean_error.append(
+            np.nanmean(np.abs(in_img_2 - target_img))
+        )
+        persistence_mse.append(np.nanmean((in_img_2 - target_img) ** 2))
+        persistence_mbe.append(np.nanmean(in_img_2 - target_img))
+
         if save_crop_dataset:
             pred_crop = prediction[-1, crop_start_y:crop_end_y, crop_start_x:crop_end_x]
             pred_crop = pred_crop.astype(np.float16)
             output_filename = os.path.join(output_path, day_folder, output_filename)
             np.save(output_filename, pred_crop)
 
-    logger.info(f"Mean error across all predictions: {np.mean(mean_error)}")
-    logger.info(f"RMSE across all predictions: {np.sqrt(np.mean(mse))}")
-    logger.info(f"MBE across all predictions: {np.mean(mbe)}")
+    logger.info(f"Mean error across all predictions: {np.nanmean(mean_error)}")
+    logger.info(f"RMSE across all predictions: {np.sqrt(np.nanmean(mse))}")
+    logger.info(f"MBE across all predictions: {np.nanmean(mbe)}")
     logger.info(f"Total time taken for predictions: {np.sum(time_list):.2f} seconds")
     logger.info(f"Average time per prediction: {np.mean(time_list):.2f} seconds")
+
+    logger.info(f"Persistence Mean Error: {np.mean(persistence_mean_error)}")
+    logger.info(f"Persistence RMSE: {np.sqrt(np.mean(persistence_mse))}")
+    logger.info(f"Persistence MBE: {np.mean(persistence_mbe)}")
 
 
 if __name__ == "__main__":

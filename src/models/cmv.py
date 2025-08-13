@@ -22,7 +22,7 @@ class CloudMotionVector:
                 f"Method {method} not recognized. Use 'tvl1' or 'farneback'."
             )
         self.method = method
-        if method == "farneback":
+        if method in ["farneback"]:
             # Load configuration
             if dcfg is None:
                 stream = open("src/les-prono/admin_scripts/config.yaml", "r")
@@ -41,7 +41,6 @@ class CloudMotionVector:
             # Use default parameters for TV-L1, but allow tuning for speed
             self.tvl1 = cv2.optflow.createOptFlow_DualTVL1()
             # Speed up TV-L1 by reducing the number of scales and warps
-            self.tvl1.setScalesNumber(2)  # default is 5, lower is faster
             self.tvl1.setWarpingsNumber(1)  # default is 5, lower is faster
             self.tvl1.setOuterIterations(20)  # default is 30, lower is faster
             self.tvl1.setEpsilon(0.05)  # default is 0.01, higher is faster
@@ -140,42 +139,34 @@ class CloudMotionVector:
     ) -> np.ndarray:
         """
         Warps an image using the calculated optical flow to predict the next image.
-
-        Args:
-            image: The source image (grayscale, float32).
-            flow: The calculated optical flow field.
-
-        Returns:
-            The predicted next image.
+        ...
         """
         flow = self.tvl1.calc(imgi, imgf, None)
+
+        cmv_per_step = (flow / period) * time_step
 
         # Create a grid of coordinates corresponding to the image shape
         h, w = imgf.shape[:2]
         x_coords, y_coords = np.meshgrid(np.arange(w), np.arange(h))
 
-        # The new map is the original coordinates + the flow vectors
-        map_x = (x_coords + flow[..., 0]).astype(np.float32)
-        map_y = (y_coords + flow[..., 1]).astype(np.float32)
+        # The new map is the original coordinates + the scaled flow vectors for one step
+        map_x = (x_coords + cmv_per_step[..., 0]).astype(np.float32)
+        map_y = (y_coords + cmv_per_step[..., 1]).astype(np.float32)
 
         # Use remap to warp the image
-        # cv2.INTER_LINEAR provides smooth interpolation
-        base_img = imgf  # base_img imagen a la que le voy a aplicar el campo
+        base_img = imgf
         predictions = []
-
         num_steps = time_horizon // time_step
 
         for _ in range(num_steps):
-
             next_img = cv2.remap(
                 base_img,
                 map_x,
                 map_y,
                 cv2.INTER_LINEAR,
                 borderMode=cv2.BORDER_CONSTANT,
-                borderValue=np.nan,  # fill value for moving borders
+                borderValue=np.nan,
             )
-
             predictions.append(next_img)
             base_img = next_img
 
