@@ -143,7 +143,7 @@ class CloudMotionVector:
         """
         flow = self.tvl1.calc(imgi, imgf, None)
 
-        cmv_per_step = (flow / period) * time_step
+        cmv_per_step = (-flow / period) * time_step
 
         # Create a grid of coordinates corresponding to the image shape
         h, w = imgf.shape[:2]

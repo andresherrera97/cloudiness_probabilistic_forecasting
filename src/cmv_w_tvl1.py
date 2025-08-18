@@ -138,11 +138,11 @@ def main(
             output_filename = os.path.join(output_path, day_folder, output_filename)
             np.save(output_filename, pred_crop)
 
-    logger.info(f"Mean error across all predictions: {np.nanmean(mean_error)}")
-    logger.info(f"RMSE across all predictions: {np.sqrt(np.nanmean(mse))}")
-    logger.info(f"MBE across all predictions: {np.nanmean(mbe)}")
-    logger.info(f"Total time taken for predictions: {np.sum(time_list):.2f} seconds")
-    logger.info(f"Average time per prediction: {np.mean(time_list):.2f} seconds")
+    logger.info(f"{cmv_method} Mean Error: {np.nanmean(mean_error)}")
+    logger.info(f"{cmv_method} RMSE: {np.sqrt(np.nanmean(mse))}")
+    logger.info(f"{cmv_method} MBE: {np.nanmean(mbe)}")
+    logger.info(f"{cmv_method} Total time taken for predictions: {np.sum(time_list):.2f} seconds")
+    logger.info(f"{cmv_method} Average time per prediction: {np.mean(time_list):.2f} seconds")
 
     logger.info(f"Persistence Mean Error: {np.mean(persistence_mean_error)}")
     logger.info(f"Persistence RMSE: {np.sqrt(np.mean(persistence_mse))}")
