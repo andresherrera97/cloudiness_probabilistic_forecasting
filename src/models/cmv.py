@@ -4,6 +4,7 @@ import yaml
 import datetime as datetime
 import numpy as np
 from metrics import CRPSLoss
+from typing import Optional, Dict
 
 
 class CloudMotionVector:
@@ -11,6 +12,7 @@ class CloudMotionVector:
         self,
         dcfg=None,
         method: str = "tvl1",
+        tvl1_cnfg: Optional[Dict] = None,
         device: str = "cpu",
         n_quantiles: int = 9,
         angle_noise_std: int = 15,
@@ -40,17 +42,23 @@ class CloudMotionVector:
         elif method == "tvl1":
             # Use default parameters for TV-L1, but allow tuning for speed
             self.tvl1 = cv2.optflow.createOptFlow_DualTVL1()
-            # Speed up TV-L1 by reducing the number of scales and warps
-            self.tvl1.setWarpingsNumber(1)  # default is 5, lower is faster
-            self.tvl1.setOuterIterations(20)  # default is 30, lower is faster
-            self.tvl1.setEpsilon(0.05)  # default is 0.01, higher is faster
-            # # Values Set in LES paper for optimal performance
-            self.tvl1.setLambda(0.055)  # default is 0.15, lower is faster
-            self.tvl1.setScalesNumber(6)
-
-            # original time: 0,74 per pred
-            # with optimal values from paper: 0,51 per pred
-            # with optimal values and other optimizations: 0,04 per pred
+            if tvl1_cnfg is None:
+                # Speed up TV-L1 by reducing the number of scales and warps
+                self.tvl1.setWarpingsNumber(5)  # default is 5, lower is faster (1)
+                self.tvl1.setOuterIterations(25)  # default is 30, lower is faster (20)
+                self.tvl1.setEpsilon(0.01)  # default is 0.01, higher is faster (0.05)
+                # # Values Set in LES paper for optimal performance
+                self.tvl1.setLambda(0.055)  # default is 0.15, lower is faster
+                self.tvl1.setScalesNumber(6)
+                # original time: 0,74 per pred
+                # with optimal values from paper: 0,51 per pred
+                # with optimal values and other optimizations: 0,04 per pred
+            else:
+                self.tvl1.setWarpingsNumber(tvl1_cnfg["warping_number"])  # default is 5, lower is faster
+                self.tvl1.setOuterIterations(tvl1_cnfg["outer_iterations"])  # default is 30, lower is faster
+                self.tvl1.setEpsilon(tvl1_cnfg["epsilon"])  # default is 0.01, higher is faster
+                self.tvl1.setLambda(0.055)  # default is 0.15, lower is faster
+                self.tvl1.setScalesNumber(6)
 
         # Add noise parameters to configuration
         self.magnitude_noise_std = magnitude_noise_std  # 2km/h speed noise, 0,5km resolution -> 4/3600 pixels/s noise
