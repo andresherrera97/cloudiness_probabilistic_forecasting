@@ -44,9 +44,9 @@ class CloudMotionVector:
             self.tvl1 = cv2.optflow.createOptFlow_DualTVL1()
             if tvl1_cnfg is None:
                 # Speed up TV-L1 by reducing the number of scales and warps
-                self.tvl1.setWarpingsNumber(5)  # default is 5, lower is faster (1)
-                self.tvl1.setOuterIterations(25)  # default is 30, lower is faster (20)
-                self.tvl1.setEpsilon(0.01)  # default is 0.01, higher is faster (0.05)
+                self.tvl1.setWarpingsNumber(2)  # default is 5, lower is faster (1)
+                self.tvl1.setOuterIterations(15)  # default is 30, lower is faster (20)
+                self.tvl1.setEpsilon(0.04)  # default is 0.01, higher is faster (0.05)
                 # # Values Set in LES paper for optimal performance
                 self.tvl1.setLambda(0.055)  # default is 0.15, lower is faster
                 self.tvl1.setScalesNumber(6)
