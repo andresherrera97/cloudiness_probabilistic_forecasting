@@ -44,9 +44,9 @@ class CloudMotionVector:
             self.tvl1 = cv2.optflow.createOptFlow_DualTVL1()
             if tvl1_cnfg is None:
                 # Speed up TV-L1 by reducing the number of scales and warps
-                self.tvl1.setWarpingsNumber(2)  # default is 5, lower is faster (1)
-                self.tvl1.setOuterIterations(15)  # default is 30, lower is faster (20)
-                self.tvl1.setEpsilon(0.04)  # default is 0.01, higher is faster (0.05)
+                self.tvl1.setWarpingsNumber(1)  # default is 5, lower is faster (1)
+                self.tvl1.setOuterIterations(20)  # default is 30, lower is faster (20)
+                self.tvl1.setEpsilon(0.05)  # default is 0.01, higher is faster (0.05)
                 # # Values Set in LES paper for optimal performance
                 self.tvl1.setLambda(0.055)  # default is 0.15, lower is faster
                 self.tvl1.setScalesNumber(6)
@@ -69,6 +69,44 @@ class CloudMotionVector:
         self.quantiles = list(np.linspace(0.0, 1.0, n_quantiles + 2)[1:-1])
         self.device = device
         self.crps_loss = CRPSLoss(quantiles=self.quantiles, device=device)
+
+    def visualize_flow(self, flow):
+        """
+        Visualizes an optical flow field using the HSV color space.
+
+        Args:
+            flow: A 2-channel numpy array representing the optical flow field (dx, dy).
+
+        Returns:
+            A BGR color image representing the flow.
+        """
+        # Split the flow into horizontal (dx) and vertical (dy) components
+        dx, dy = flow[..., 0], flow[..., 1]
+
+        # Convert from cartesian to polar coordinates to get magnitude and angle
+        magnitude, angle = cv2.cartToPolar(dx, dy, angleInDegrees=True)
+
+        # Create an HSV image template (3 channels: Hue, Saturation, Value)
+        # The shape should match the input flow field's height and width
+        hsv_image = np.zeros((flow.shape[0], flow.shape[1], 3), dtype=np.uint8)
+
+        # --- Map angle to Hue ---
+        # OpenCV's Hue channel is in the range [0, 179]
+        hsv_image[..., 0] = angle / 2
+
+        # --- Map magnitude to Value ---
+        # Normalize the magnitude to the range [0, 255] for better visualization
+        # This makes the fastest motion white and no motion black
+        hsv_image[..., 2] = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX)
+
+        # --- Set Saturation to maximum ---
+        # Use full saturation for vivid colors
+        hsv_image[..., 1] = 255
+
+        # Convert the HSV image to BGR color space for display
+        bgr_image = cv2.cvtColor(hsv_image, cv2.COLOR_HSV2BGR)
+
+        return bgr_image
 
     def predict_farneback(
         self,
@@ -107,6 +145,9 @@ class CloudMotionVector:
             poly_sigma=self.poly_sigma,
             flags=0,
         )
+        # cv2.imshow("Optical Flow", self.visualize_flow(flow))
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
         cmv = -flow / period
 
         i_idx, j_idx = np.meshgrid(np.arange(cmv.shape[1]), np.arange(cmv.shape[0]))
@@ -150,7 +191,9 @@ class CloudMotionVector:
         ...
         """
         flow = self.tvl1.calc(imgi, imgf, None)
-
+        # cv2.imshow("Optical Flow", self.visualize_flow(flow))
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
         cmv_per_step = (-flow / period) * time_step
 
         # Create a grid of coordinates corresponding to the image shape
