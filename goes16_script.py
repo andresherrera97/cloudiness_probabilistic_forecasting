@@ -639,8 +639,12 @@ class Downloader:
                 continue
 
             # Prepare output folder for this day
+            if normalize_w_cosangs:
+                sub_folder = "PR"
+            else:
+                sub_folder = "CMI"
             out_day_path = os.path.join(
-                outdir, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
+                outdir, sub_folder, f"{dt.year}_{str(dt.timetuple().tm_yday).zfill(3)}"
             )
             os.makedirs(out_day_path, exist_ok=True)
 
