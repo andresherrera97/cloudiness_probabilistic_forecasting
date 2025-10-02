@@ -41,7 +41,7 @@ def set_all_seeds(seed=0):
 
 def main(
     model_name: str,
-    dataset: str = "mmnist",
+    dataset: str = "salto_down",
     num_bins: Optional[int] = None,
     input_frames: int = 3,
     spatial_context: int = 0,

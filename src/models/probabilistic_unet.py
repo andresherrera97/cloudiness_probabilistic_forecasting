@@ -796,6 +796,9 @@ class QuantileRegressorUNet(ProbabilisticUNet):
             self.model.eval()
             crps_loss_per_batch = []  # stores values for this validation run
             quantile_loss_per_batch = []  # stores values for this validation run
+            calibration_per_quantile = {
+                f"calibration/q_{q}": [] for q in self.quantiles
+            }
 
             with torch.no_grad():
                 for val_batch_idx, (in_frames, out_frames) in enumerate(
@@ -808,10 +811,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     with torch.autocast(
                         device_type=device_type, dtype=self.torch_dtype
                     ):
-                        frames_pred = self.model(in_frames)
-                        if self.predict_diff:
-                            frames_pred = torch.cumsum(frames_pred, dim=1)
-
+                        frames_pred = self.predict(in_frames)
                         frames_pred = self.remove_spatial_context(frames_pred)
 
                         quantile_loss = self.calculate_loss(frames_pred, out_frames)
@@ -823,6 +823,11 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                         )
 
                         crps_loss_per_batch.append(crps_loss.detach().item())
+                        calibration_per_quantile = (
+                            self.measure_calibration_per_quantile(
+                                frames_pred, out_frames, calibration_per_quantile
+                            )
+                        )
 
                     if num_val_samples is not None and val_batch_idx >= num_val_samples:
                         break
@@ -831,6 +836,10 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                 quantile_loss_per_batch
             )
             crps_in_epoch = sum(crps_loss_per_batch) / len(crps_loss_per_batch)
+            calibration_per_quantile = {
+                key: np.mean(calibration_per_quantile[key])
+                for key in calibration_per_quantile
+            }
 
             if val_metric is None or val_metric.lower() in [
                 "quantile",
@@ -857,6 +866,7 @@ class QuantileRegressorUNet(ProbabilisticUNet):
                     {"lr": self.optimizer.state_dict()["param_groups"][0]["lr"]},
                     step=epoch,
                 )
+                run.log(calibration_per_quantile, step=epoch)
 
             if verbose:
                 self._logger.info(
@@ -909,8 +919,28 @@ class QuantileRegressorUNet(ProbabilisticUNet):
 
         return train_loss_per_epoch, val_loss_per_epoch
 
+    def measure_calibration_per_quantile(
+        self,
+        frames_pred: torch.Tensor,
+        out_frames: torch.Tensor,
+        calibration_per_quantile: Optional[dict] = None,
+    ) -> dict:
+        """Measure calibration per quantile."""
+        frequency_per_quantile = {}
+        for i, q in enumerate(self.quantiles):
+            observed_outcomes = (out_frames <= frames_pred[:, i]).float()
+            frequency_per_quantile[q] = torch.mean(observed_outcomes).item()
+
+        if calibration_per_quantile is not None:
+            for q in self.quantiles:
+                calibration_per_quantile[f"calibration/q_{q}"].append(
+                    frequency_per_quantile[q]
+                )
+            return calibration_per_quantile
+        return frequency_per_quantile
+
     def predict(self, X, iterations: Optional[int] = None):
-        frames_pred = self.model(X.float())
+        frames_pred = self.model(X)
         if self.predict_diff:
             frames_pred = torch.cumsum(frames_pred, dim=1)
             # clip values to be between 0 and 1
@@ -1840,7 +1870,7 @@ class MonteCarloDropoutUNet(ProbabilisticUNet):
                 # data to cuda if possible
                 in_frames = in_frames.to(device=device, dtype=self.torch_dtype)
                 out_frames = out_frames.to(device=device, dtype=self.torch_dtype)
-                
+
                 self.optimizer.zero_grad(
                     set_to_none=True
                 )  # More efficient than zero_grad()
